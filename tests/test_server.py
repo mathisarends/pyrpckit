@@ -1,7 +1,9 @@
+from pydantic import BaseModel
+
 import pyrpckit as rpc
 from pyrpckit import RpcError, RpcErrorCode, RpcFailure, RpcProtocol, RpcServer, RpcSuccess
 
-from .conftest import GreetingRpcMethod, GreetingRpcMethods, UnknownGreetingError
+from .conftest import GreetingRpcMethod, GreetingRpcMethods, SayParams, UnknownGreetingError
 
 
 def _greeting_error(error: Exception) -> RpcError | None:
@@ -122,3 +124,36 @@ def test_rpc_errors_carry_their_own_code(
 
     assert failure.id == 3
     assert failure.error.code == -32001
+
+
+async def test_a_boolean_id_on_a_failed_request_is_not_echoed_back(
+    protocol: RpcProtocol,
+    handler: GreetingRpcMethods,
+) -> None:
+    response = await _server(protocol, handler).handle(
+        {"jsonrpc": "2.0", "id": True, "method": "greeting.unknown", "params": {}}
+    )
+
+    assert isinstance(response, RpcFailure)
+    assert response.id is None
+
+
+async def test_a_validation_error_naming_a_params_field_becomes_invalid_params() -> None:
+    class NestedParams(BaseModel):
+        params: str
+
+    class Handler(rpc.RpcHandler):
+        @rpc.method("greeting.broken", summary="Trigger an internal validation error.")
+        async def broken(self, params: SayParams) -> None:
+            NestedParams.model_validate({"params": 1})
+
+    feature = rpc.rpc_feature("greeting", handlers=(Handler,))
+    broken_handler = Handler()
+    server = RpcServer(RpcProtocol((feature,)), (broken_handler,))
+
+    response = await server.handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "greeting.broken", "params": {"name": "M"}}
+    )
+
+    assert isinstance(response, RpcFailure)
+    assert response.error.code == RpcErrorCode.INVALID_PARAMS
