@@ -5,8 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
-from pyrpckit import RpcErrorCode, RpcProtocol, rpc_feature
-from pyrpckit.protocol import RpcNotificationDefinition
+from pyrpckit import RpcProtocol
 
 
 class GreetingRpcMethod(StrEnum):
@@ -30,13 +29,13 @@ class ForgetParams(BaseModel):
     name: str
 
 
-@rpc.event("greeting.said")
+@rpc.event
 class GreetingSaid(BaseModel):
     type: Literal["greeting.said"] = "greeting.said"
     text: str
 
 
-@rpc.event("greeting.forgotten")
+@rpc.event
 class GreetingForgotten(BaseModel):
     type: Literal["greeting.forgotten"] = "greeting.forgotten"
     name: str
@@ -45,37 +44,35 @@ class GreetingForgotten(BaseModel):
 type GreetingEvent = GreetingSaid | GreetingForgotten
 
 
-class UnknownGreetingError(Exception):
-    pass
+class UnknownGreetingError(rpc.RpcError):
+    code = -32001
+    message = "Unknown greeting"
 
 
-class GreetingRpcMethods(rpc.RpcHandler):
+class GreetingRpcMethods:
     def __init__(self) -> None:
         self.greeted: list[str] = []
 
-    @rpc.method(
-        GreetingRpcMethod.SAY,
-        summary="Greet someone by name.",
-        errors=(RpcErrorCode.INTERNAL_ERROR,),
-    )
+    @rpc.method(GreetingRpcMethod.SAY, summary="Greet someone by name.")
     async def say(self, params: SayParams) -> SayResult:
         self.greeted.append(params.name)
         return SayResult(text=f"Hello, {params.name}!")
 
-    @rpc.method(GreetingRpcMethod.FORGET, summary="Forget a greeted name.")
+    @rpc.method(GreetingRpcMethod.FORGET, errors=(UnknownGreetingError,))
     async def forget(self, params: ForgetParams) -> None:
+        """Forget a greeted name."""
         if params.name not in self.greeted:
-            raise UnknownGreetingError(params.name)
+            raise UnknownGreetingError(f"Unknown greeting: {params.name}")
         self.greeted.remove(params.name)
 
 
-GREETING_FEATURE = rpc_feature(
+GREETING_FEATURE = rpc.feature(
     "greeting",
     handlers=(GreetingRpcMethods,),
     notifications=(
-        RpcNotificationDefinition(
-            name=GreetingNotificationMethod.CHANGED,
-            payload=GreetingEvent,
+        rpc.notification(
+            GreetingNotificationMethod.CHANGED,
+            GreetingEvent,
             summary="Publish a greeting change.",
         ),
     ),
@@ -84,7 +81,7 @@ GREETING_FEATURE = rpc_feature(
 
 @pytest.fixture
 def protocol() -> RpcProtocol:
-    return RpcProtocol((GREETING_FEATURE,))
+    return RpcProtocol(GREETING_FEATURE)
 
 
 @pytest.fixture

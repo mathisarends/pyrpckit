@@ -47,23 +47,16 @@ def render_json_schema(
             "oneOf": [refs[name] for name in _frame_names(protocol)],
             "$defs": definitions,
             "x-rpc-protocol-version": protocol.version,
-            "x-rpc-methods": [
-                {
-                    "name": method.name,
-                    "summary": method.summary,
-                    "request": refs[method.request_name],
-                    "params": refs[type_name(method.params)],
-                    "result": refs[type_name(method.result)],
-                }
-                for method in protocol.methods
-            ],
+            "x-rpc-methods": [_method_entry(method, refs) for method in protocol.methods],
             "x-rpc-notifications": [
-                {
-                    "name": notification.name,
-                    "summary": notification.summary,
-                    "payload": refs[type_name(notification.payload)],
-                    "message": refs[notification_schema_name(notification.name)],
-                }
+                described(
+                    {
+                        "name": notification.name,
+                        "payload": refs[type_name(notification.payload)],
+                        "message": refs[notification_schema_name(notification.name)],
+                    },
+                    notification.summary,
+                )
                 for notification in protocol.notifications
             ],
             "x-rpc-events": [
@@ -73,6 +66,31 @@ def render_json_schema(
         }
     )
     return document
+
+
+def _method_entry(method: RpcMethodDefinition, refs: dict[str, Any]) -> dict[str, Any]:
+    entry = described({"name": method.name}, method.summary)
+    if method.feature is not None:
+        entry["feature"] = method.feature
+    entry.update(
+        {
+            "request": refs[method.request_name],
+            "params": refs[type_name(method.params)],
+            "result": refs[type_name(method.result)],
+        }
+    )
+    if method.errors:
+        entry["errors"] = [
+            {"code": int(error.code), "message": error.message} for error in method.errors
+        ]
+    return entry
+
+
+def described(entry: dict[str, Any], summary: str | None) -> dict[str, Any]:
+    """Attach a summary only when the definition carries one."""
+    if summary is not None:
+        entry["summary"] = summary
+    return entry
 
 
 def type_name(annotation: Any) -> str:
@@ -123,11 +141,10 @@ def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
     required = ["jsonrpc", "method"]
     if params_schema.get("required"):
         required.append("params")
-    return {
+    schema: dict[str, Any] = {
         "additionalProperties": False,
         "type": "object",
         "title": method.request_name,
-        "description": method.summary,
         "properties": {
             "jsonrpc": {"const": "2.0", "type": "string"},
             "id": {
@@ -143,17 +160,19 @@ def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
         },
         "required": required,
     }
+    if method.summary is not None:
+        schema["description"] = method.summary
+    return schema
 
 
 def _notification_schema(
     notification: RpcNotificationDefinition,
     schema_name: str,
 ) -> dict[str, Any]:
-    return {
+    schema: dict[str, Any] = {
         "additionalProperties": False,
         "type": "object",
         "title": schema_name,
-        "description": notification.summary,
         "properties": {
             "jsonrpc": {"const": "2.0", "type": "string"},
             "method": {"const": notification.name, "type": "string"},
@@ -161,6 +180,9 @@ def _notification_schema(
         },
         "required": ["jsonrpc", "method", "params"],
     }
+    if notification.summary is not None:
+        schema["description"] = notification.summary
+    return schema
 
 
 def _ref(name: str) -> dict[str, str]:

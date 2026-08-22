@@ -1,13 +1,12 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 
 from pydantic import ValidationError
 
-from pyrpckit.decorators import RpcHandler
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
     RpcError,
-    RpcErrorCode,
+    RpcInternalError,
     RpcInvalidParamsError,
     RpcInvalidRequestError,
 )
@@ -19,19 +18,28 @@ type RpcErrorMapper = Callable[[Exception], RpcError | None]
 class RpcServer:
     """Serves a protocol over any transport that can carry decoded JSON.
 
-    Domain exceptions are translated by ``error_mapper``; anything it does not
-    recognise becomes an internal error, so handler internals never leak.
+    The protocol is derived from the handler instances unless one is passed
+    explicitly, in which case the two are checked against each other.
+
+    Handlers report failures by raising an ``RpcError`` subclass, which is put on
+    the wire as declared. Foreign exceptions are translated by ``error_mapper``;
+    anything it does not recognise becomes an internal error, so handler
+    internals never leak.
     """
 
     def __init__(
         self,
-        protocol: RpcProtocol,
-        handlers: Iterable[RpcHandler],
-        *,
+        *handlers: object,
+        protocol: RpcProtocol | None = None,
         error_mapper: RpcErrorMapper | None = None,
     ) -> None:
-        self._dispatcher = RpcDispatcher(protocol, handlers)
+        self._protocol = protocol if protocol is not None else _derived_protocol(handlers)
+        self._dispatcher = RpcDispatcher(self._protocol, handlers)
         self._error_mapper = error_mapper
+
+    @property
+    def protocol(self) -> RpcProtocol:
+        return self._protocol
 
     async def handle(self, raw_request: object) -> RpcSuccess | RpcFailure | None:
         """Serve one request, returning ``None`` for a notification."""
@@ -57,7 +65,11 @@ class RpcServer:
                 return mapped
         if isinstance(error, ValidationError):
             return _validation_error(error)
-        return RpcError(RpcErrorCode.INTERNAL_ERROR, "Internal error")
+        return RpcInternalError()
+
+
+def _derived_protocol(handlers: tuple[object, ...]) -> RpcProtocol:
+    return RpcProtocol.of(*(type(handler) for handler in handlers))
 
 
 def _validation_error(error: ValidationError) -> RpcError:

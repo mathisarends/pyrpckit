@@ -1,6 +1,6 @@
 import json
 
-from pyrpckit import RpcErrorCode, RpcProtocol
+from pyrpckit import RpcProtocol
 from pyrpckit.schema import render_json_schema, render_openrpc
 
 from .conftest import GreetingNotificationMethod, GreetingRpcMethod
@@ -82,10 +82,24 @@ def test_openrpc_documents_the_declared_errors(protocol: RpcProtocol) -> None:
         method for method in document["methods"] if method["name"] == GreetingRpcMethod.FORGET
     )
 
-    assert say["errors"] == [
-        {"code": int(RpcErrorCode.INTERNAL_ERROR), "message": "Internal error"}
-    ]
-    assert "errors" not in forget
+    assert "errors" not in say
+    assert forget["errors"] == [{"code": -32001, "message": "Unknown greeting"}]
+
+
+def test_openrpc_tags_each_method_with_its_feature(protocol: RpcProtocol) -> None:
+    document = render_openrpc(protocol, title="Greeting")
+    say = next(method for method in document["methods"] if method["name"] == GreetingRpcMethod.SAY)
+
+    assert say["tags"] == [{"name": "greeting"}]
+
+
+def test_openrpc_takes_a_missing_summary_from_the_docstring(protocol: RpcProtocol) -> None:
+    document = render_openrpc(protocol, title="Greeting")
+    forget = next(
+        method for method in document["methods"] if method["name"] == GreetingRpcMethod.FORGET
+    )
+
+    assert forget["summary"] == "Forget a greeted name."
 
 
 def test_openrpc_rewrites_every_reference_into_components(

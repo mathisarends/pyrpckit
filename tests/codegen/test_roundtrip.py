@@ -5,13 +5,9 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import RpcError, RpcProtocol, RpcServer
+from pyrpckit import RpcProtocol, RpcServer
 from pyrpckit.client import RpcRemoteError
-from tests.conftest import (
-    GREETING_FEATURE,
-    GreetingRpcMethods,
-    UnknownGreetingError,
-)
+from tests.conftest import GREETING_FEATURE, GreetingRpcMethods
 
 
 class LoopbackTransport:
@@ -46,12 +42,6 @@ class LoopbackTransport:
         self._queue.put_nowait(None)
 
 
-def _to_rpc_error(error: Exception) -> RpcError | None:
-    if isinstance(error, UnknownGreetingError):
-        return RpcError(-32004, f"Unknown greeting: {error}")
-    return None
-
-
 @pytest.fixture
 def handler() -> GreetingRpcMethods:
     return GreetingRpcMethods()
@@ -59,11 +49,7 @@ def handler() -> GreetingRpcMethods:
 
 @pytest.fixture
 def transport(handler: GreetingRpcMethods) -> LoopbackTransport:
-    server = RpcServer(
-        RpcProtocol((GREETING_FEATURE,)),
-        (handler,),
-        error_mapper=_to_rpc_error,
-    )
+    server = RpcServer(handler, protocol=RpcProtocol(GREETING_FEATURE))
     return LoopbackTransport(server)
 
 
@@ -102,7 +88,7 @@ async def test_a_server_failure_surfaces_as_a_remote_error(
     with pytest.raises(RpcRemoteError) as error:
         await client.greeting.forget(name="nobody")
 
-    assert error.value.code == -32004
+    assert error.value.code == -32001
     assert error.value.message == "Unknown greeting: nobody"
 
 

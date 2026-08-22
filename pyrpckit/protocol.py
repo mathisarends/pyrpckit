@@ -15,11 +15,10 @@ from pydantic import BaseModel
 
 from pyrpckit.decorators import (
     DecoratedRpcMethod,
-    RpcHandler,
     decorated_methods,
     event_metadata,
 )
-from pyrpckit.errors import ProtocolDefinitionError, RpcMethodNotFoundError
+from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,15 +28,16 @@ class RpcMethodDefinition:
     request_name: str
     params: type[BaseModel]
     result: Any
-    summary: str
-    errors: tuple[int, ...] = ()
+    summary: str | None = None
+    errors: tuple[type[RpcError], ...] = ()
+    feature: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RpcNotificationDefinition:
     name: str
     payload: Any
-    summary: str
+    summary: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,8 +48,8 @@ class RpcEventDefinition:
 
 @dataclass(frozen=True, slots=True)
 class RpcFeatureDefinition:
-    name: str
-    handlers: tuple[type[RpcHandler], ...]
+    name: str | None
+    handlers: tuple[type, ...]
     methods: tuple[RpcMethodDefinition, ...] = ()
     notifications: tuple[RpcNotificationDefinition, ...] = ()
     events: tuple[RpcEventDefinition, ...] = ()
@@ -60,12 +60,11 @@ class RpcProtocol:
 
     def __init__(
         self,
-        features: Iterable[RpcFeatureDefinition],
-        *,
+        *features: RpcFeatureDefinition,
         version: int = 1,
     ) -> None:
         self._version = version
-        self._features = tuple(features)
+        self._features = features
         self._methods = _unique(
             "method",
             ((method.name, method) for method in _all_methods(self._features)),
@@ -81,6 +80,11 @@ class RpcProtocol:
             "event",
             ((event.name, event) for event in _all_events(self._features)),
         )
+
+    @classmethod
+    def of(cls, *handlers: type, version: int = 1) -> "RpcProtocol":
+        """Assemble a protocol straight from handler classes, without features."""
+        return cls(_feature_definition(None, handlers, ()), version=version)
 
     @property
     def version(self) -> int:
@@ -109,35 +113,67 @@ class RpcProtocol:
             raise RpcMethodNotFoundError(name) from error
 
 
-def rpc_feature(
+def feature(
     name: str,
     *,
-    handlers: Iterable[type[RpcHandler]],
+    handlers: Iterable[type] = (),
     notifications: Iterable[RpcNotificationDefinition] = (),
 ) -> RpcFeatureDefinition:
-    """Describe one feature of the API from its handler classes."""
-    handler_types = tuple(handlers)
-    notification_definitions = tuple(notifications)
+    """Describe one feature of the API from its handler classes.
+
+    The name groups the methods of that feature in the generated contract, where
+    it becomes an OpenRPC tag.
+    """
+    return _feature_definition(str(name), tuple(handlers), tuple(notifications))
+
+
+def notification(
+    name: str,
+    payload: Any,
+    *,
+    summary: str | None = None,
+) -> RpcNotificationDefinition:
+    """Describe a server-initiated message carrying one event or a union of them."""
+    return RpcNotificationDefinition(name=str(name), payload=payload, summary=summary)
+
+
+def _feature_definition(
+    name: str | None,
+    handlers: tuple[type, ...],
+    notifications: tuple[RpcNotificationDefinition, ...],
+) -> RpcFeatureDefinition:
     methods = tuple(
-        _method_definition(decorated)
-        for handler in handler_types
-        for decorated in decorated_methods(handler)
+        _method_definition(decorated, name)
+        for handler in handlers
+        for decorated in _handler_methods(handler)
     )
     events = tuple(
         event
-        for notification in notification_definitions
+        for notification in notifications
         for event in _event_definitions(notification.payload)
     )
     return RpcFeatureDefinition(
-        name=str(name),
-        handlers=handler_types,
+        name=name,
+        handlers=handlers,
         methods=methods,
-        notifications=notification_definitions,
+        notifications=notifications,
         events=events,
     )
 
 
-def _method_definition(decorated: DecoratedRpcMethod) -> RpcMethodDefinition:
+def _handler_methods(handler: type) -> tuple[DecoratedRpcMethod, ...]:
+    if not isinstance(handler, type):
+        raise ProtocolDefinitionError(f"RPC handler must be a class, got {handler!r}")
+    methods = tuple(decorated_methods(handler))
+    if not methods:
+        raise ProtocolDefinitionError(f"RPC handler {handler.__name__} declares no @method")
+    return methods
+
+
+def _method_definition(
+    decorated: DecoratedRpcMethod,
+    feature_name: str | None,
+) -> RpcMethodDefinition:
     function = decorated.function
     metadata = decorated.metadata
     params = _params_model(function)
@@ -150,6 +186,7 @@ def _method_definition(decorated: DecoratedRpcMethod) -> RpcMethodDefinition:
         result=result,
         summary=metadata.summary,
         errors=metadata.errors,
+        feature=feature_name,
     )
 
 

@@ -1,26 +1,26 @@
+import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
-from pyrpckit import RpcError, RpcErrorCode, RpcFailure, RpcProtocol, RpcServer, RpcSuccess
+from pyrpckit import (
+    ProtocolDefinitionError,
+    RpcError,
+    RpcErrorCode,
+    RpcFailure,
+    RpcProtocol,
+    RpcServer,
+    RpcSuccess,
+)
 
-from .conftest import GreetingRpcMethod, GreetingRpcMethods, SayParams, UnknownGreetingError
-
-
-def _greeting_error(error: Exception) -> RpcError | None:
-    if isinstance(error, UnknownGreetingError):
-        return RpcError(-32004, f"Unknown greeting: {error}")
-    return None
-
-
-def _server(protocol: RpcProtocol, handler: GreetingRpcMethods) -> RpcServer:
-    return RpcServer(protocol, (handler,), error_mapper=_greeting_error)
+from .conftest import GreetingRpcMethod, GreetingRpcMethods, SayParams
 
 
-async def test_a_request_is_answered_with_its_result(
-    protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
-) -> None:
-    response = await _server(protocol, handler).handle(
+def _server(handler: GreetingRpcMethods) -> RpcServer:
+    return RpcServer(handler)
+
+
+async def test_a_request_is_answered_with_its_result(handler: GreetingRpcMethods) -> None:
+    response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": 7, "method": GreetingRpcMethod.SAY, "params": {"name": "M"}}
     )
 
@@ -30,11 +30,24 @@ async def test_a_request_is_answered_with_its_result(
     assert response.result.text == "Hello, M!"
 
 
-async def test_a_notification_is_served_without_a_response(
+async def test_the_protocol_is_derived_from_the_handlers(handler: GreetingRpcMethods) -> None:
+    server = _server(handler)
+
+    assert [method.name for method in server.protocol.methods] == [
+        GreetingRpcMethod.SAY,
+        GreetingRpcMethod.FORGET,
+    ]
+
+
+async def test_an_explicit_protocol_is_checked_against_the_handlers(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
 ) -> None:
-    response = await _server(protocol, handler).handle(
+    with pytest.raises(ProtocolDefinitionError, match="missing="):
+        RpcServer(protocol=protocol)
+
+
+async def test_a_notification_is_served_without_a_response(handler: GreetingRpcMethods) -> None:
+    response = await _server(handler).handle(
         {"jsonrpc": "2.0", "method": GreetingRpcMethod.SAY, "params": {"name": "M"}}
     )
 
@@ -42,11 +55,8 @@ async def test_a_notification_is_served_without_a_response(
     assert handler.greeted == ["M"]
 
 
-async def test_an_unknown_method_becomes_a_failure(
-    protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
-) -> None:
-    response = await _server(protocol, handler).handle(
+async def test_an_unknown_method_becomes_a_failure(handler: GreetingRpcMethods) -> None:
+    response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.unknown", "params": {}}
     )
 
@@ -55,11 +65,8 @@ async def test_an_unknown_method_becomes_a_failure(
     assert response.error.code == RpcErrorCode.METHOD_NOT_FOUND
 
 
-async def test_invalid_params_become_a_failure(
-    protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
-) -> None:
-    response = await _server(protocol, handler).handle(
+async def test_invalid_params_become_a_failure(handler: GreetingRpcMethods) -> None:
+    response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": 1, "method": GreetingRpcMethod.SAY, "params": {}}
     )
 
@@ -69,68 +76,64 @@ async def test_invalid_params_become_a_failure(
 
 
 async def test_a_malformed_envelope_becomes_an_invalid_request(
-    protocol: RpcProtocol,
     handler: GreetingRpcMethods,
 ) -> None:
-    response = await _server(protocol, handler).handle({"id": 1, "method": "x"})
+    response = await _server(handler).handle({"id": 1, "method": "x"})
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INVALID_REQUEST
 
 
-async def test_domain_errors_are_translated_by_the_error_mapper(
-    protocol: RpcProtocol,
+async def test_a_declared_error_goes_on_the_wire_as_declared(
     handler: GreetingRpcMethods,
 ) -> None:
-    response = await _server(protocol, handler).handle(
+    response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": 1, "method": GreetingRpcMethod.FORGET, "params": {"name": "M"}}
     )
 
     assert isinstance(response, RpcFailure)
-    assert response.error.code == -32004
+    assert response.error.code == -32001
     assert response.error.message == "Unknown greeting: M"
 
 
-async def test_unmapped_handler_failures_stay_internal(
-    protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
-) -> None:
-    server = RpcServer(protocol, (handler,))
+async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
+    server = RpcServer(BrokenRpcMethods(), error_mapper=_broken_error)
 
-    response = await server.handle(
-        {"jsonrpc": "2.0", "id": 1, "method": GreetingRpcMethod.FORGET, "params": {"name": "M"}}
-    )
+    response = await server.handle({"jsonrpc": "2.0", "id": 1, "method": "greeting.break"})
+
+    assert isinstance(response, RpcFailure)
+    assert response.error.code == -32004
+    assert response.error.message == "Mapped: boom"
+
+
+async def test_unmapped_handler_failures_stay_internal() -> None:
+    server = RpcServer(BrokenRpcMethods())
+
+    response = await server.handle({"jsonrpc": "2.0", "id": 1, "method": "greeting.break"})
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INTERNAL_ERROR
     assert response.error.message == "Internal error"
 
 
-async def test_a_non_object_payload_fails_without_an_id(
-    protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
-) -> None:
-    response = await _server(protocol, handler).handle("nonsense")
+async def test_a_non_object_payload_fails_without_an_id(handler: GreetingRpcMethods) -> None:
+    response = await _server(handler).handle("nonsense")
 
     assert isinstance(response, RpcFailure)
     assert response.id is None
 
 
-def test_rpc_errors_carry_their_own_code(
-    protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
-) -> None:
-    failure = _server(protocol, handler).failure(3, rpc.RpcError(-32001, "Busy"))
+def test_rpc_errors_carry_their_own_code(handler: GreetingRpcMethods) -> None:
+    failure = _server(handler).failure(3, RpcError("Busy", code=-32001))
 
     assert failure.id == 3
     assert failure.error.code == -32001
 
 
 async def test_a_boolean_id_on_a_failed_request_is_not_echoed_back(
-    protocol: RpcProtocol,
     handler: GreetingRpcMethods,
 ) -> None:
-    response = await _server(protocol, handler).handle(
+    response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": True, "method": "greeting.unknown", "params": {}}
     )
 
@@ -142,18 +145,34 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     class NestedParams(BaseModel):
         params: str
 
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.broken", summary="Trigger an internal validation error.")
+    class Handler:
+        @rpc.method("greeting.broken")
         async def broken(self, params: SayParams) -> None:
             NestedParams.model_validate({"params": 1})
 
-    feature = rpc.rpc_feature("greeting", handlers=(Handler,))
-    broken_handler = Handler()
-    server = RpcServer(RpcProtocol((feature,)), (broken_handler,))
-
-    response = await server.handle(
+    response = await RpcServer(Handler()).handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.broken", "params": {"name": "M"}}
     )
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INVALID_PARAMS
+
+
+class BreakageError(Exception):
+    pass
+
+
+class BrokenParams(BaseModel):
+    pass
+
+
+class BrokenRpcMethods:
+    @rpc.method("greeting.break")
+    async def fail(self, params: BrokenParams) -> None:
+        raise BreakageError("boom")
+
+
+def _broken_error(error: Exception) -> RpcError | None:
+    if isinstance(error, BreakageError):
+        return RpcError(f"Mapped: {error}", code=-32004)
+    return None

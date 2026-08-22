@@ -3,9 +3,9 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from pyrpckit.errors import error_message
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
 from pyrpckit.schema.json_schema import (
+    described,
     notification_schema_name,
     render_json_schema,
     type_name,
@@ -39,12 +39,14 @@ def render_openrpc(
         "components": {"schemas": components},
         "x-rpc-protocol-version": protocol.version,
         "x-rpc-notifications": [
-            {
-                "name": notification.name,
-                "summary": notification.summary,
-                "payload": _ref(type_name(notification.payload)),
-                "message": _ref(notification_schema_name(notification.name)),
-            }
+            described(
+                {
+                    "name": notification.name,
+                    "payload": _ref(type_name(notification.payload)),
+                    "message": _ref(notification_schema_name(notification.name)),
+                },
+                notification.summary,
+            )
             for notification in protocol.notifications
         ],
         "x-rpc-events": [
@@ -61,9 +63,12 @@ def _method(
     params_name = type_name(method.params)
     params_schema = components[params_name]
     required = set(params_schema.get("required", ()))
-    document: dict[str, Any] = {
-        "name": method.name,
-        "summary": method.summary,
+    document: dict[str, Any] = {"name": method.name}
+    if method.summary is not None:
+        document["summary"] = method.summary
+    if method.feature is not None:
+        document["tags"] = [{"name": method.feature}]
+    document |= {
         "paramStructure": "by-name",
         "params": [
             {"name": name, "required": name in required, "schema": schema}
@@ -75,7 +80,7 @@ def _method(
     }
     if method.errors:
         document["errors"] = [
-            {"code": int(code), "message": error_message(code)} for code in method.errors
+            {"code": int(error.code), "message": error.message} for error in method.errors
         ]
     return document
 

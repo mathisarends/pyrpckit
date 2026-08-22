@@ -17,7 +17,7 @@ PACKAGE = "greeting_client"
 
 @pytest.fixture(scope="session")
 def document() -> dict[str, Any]:
-    return render_openrpc(RpcProtocol((GREETING_FEATURE,)), title="Greeting")
+    return render_openrpc(RpcProtocol(GREETING_FEATURE), title="Greeting")
 
 
 @pytest.fixture(scope="session")

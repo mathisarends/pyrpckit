@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from types import FunctionType
@@ -5,21 +6,17 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from pyrpckit.errors import ProtocolDefinitionError
+from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 
 _METHOD_METADATA_KEY = "__pyrpckit_method__"
 _EVENT_METADATA_KEY = "__pyrpckit_event__"
 
 
-class RpcHandler:
-    """Base for classes whose methods are exposed through ``@method``."""
-
-
 @dataclass(frozen=True, slots=True)
 class RpcMethodMetadata:
     name: str
-    summary: str
-    errors: tuple[int, ...]
+    summary: str | None
+    errors: tuple[type[RpcError], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,13 +34,16 @@ class DecoratedRpcMethod:
 def method[HandlerT: Callable[..., Any]](
     name: str,
     *,
-    summary: str,
-    errors: Iterable[int] = (),
+    summary: str | None = None,
+    errors: Iterable[type[RpcError]] = (),
 ) -> Callable[[HandlerT], HandlerT]:
     """Expose a handler method under ``name`` in the RPC protocol.
 
     The decorated method must accept exactly ``self`` and a Pydantic params model
-    and must annotate its return type with a Pydantic model or ``None``.
+    and must annotate its return type with a Pydantic model or ``None``. Without
+    an explicit ``summary`` the first line of the docstring is used, if there is
+    one. Each declared error must be an ``RpcError`` subclass; the server
+    serialises those directly, so they need no ``error_mapper``.
     """
 
     def decorate(handler: HandlerT) -> HandlerT:
@@ -54,8 +54,8 @@ def method[HandlerT: Callable[..., Any]](
             _METHOD_METADATA_KEY,
             RpcMethodMetadata(
                 name=str(name),
-                summary=summary,
-                errors=tuple(int(code) for code in errors),
+                summary=summary if summary is not None else _docstring_summary(handler),
+                errors=tuple(declared_error(error) for error in errors),
             ),
         )
         return handler
@@ -63,28 +63,25 @@ def method[HandlerT: Callable[..., Any]](
     return decorate
 
 
-def event[EventT: type[BaseModel]](name: str) -> Callable[[EventT], EventT]:
-    """Register a Pydantic model as the payload of the ``name`` event.
+def event[EventT: type[BaseModel]](message: EventT) -> EventT:
+    """Register a Pydantic model as an event payload.
 
-    The model must discriminate itself with a ``type`` field pinned to ``name``,
-    so that clients can narrow a union of events on the wire.
+    The model must discriminate itself with a ``type`` field pinned to a literal,
+    so that clients can narrow a union of events on the wire. That literal is the
+    event name.
     """
-
-    def decorate(message: EventT) -> EventT:
-        if _EVENT_METADATA_KEY in message.__dict__:
-            raise ProtocolDefinitionError(f"RPC event is already decorated: {message.__name__}")
-        declared = _declared_event_type(message)
-        if declared != str(name):
-            raise ProtocolDefinitionError(
-                f"RPC event {message.__name__} declares type {declared!r}, expected {str(name)!r}"
-            )
-        setattr(message, _EVENT_METADATA_KEY, RpcEventMetadata(name=str(name)))
-        return message
-
-    return decorate
+    if _EVENT_METADATA_KEY in message.__dict__:
+        raise ProtocolDefinitionError(f"RPC event is already decorated: {message.__name__}")
+    declared = _declared_event_type(message)
+    if not isinstance(declared, str):
+        raise ProtocolDefinitionError(
+            f"RPC event {message.__name__} needs a type field pinned to a string literal"
+        )
+    setattr(message, _EVENT_METADATA_KEY, RpcEventMetadata(name=declared))
+    return message
 
 
-def decorated_methods(handler: type[RpcHandler]) -> Iterator[DecoratedRpcMethod]:
+def decorated_methods(handler: type) -> Iterator[DecoratedRpcMethod]:
     for attribute_name, attribute in vars(handler).items():
         metadata = _method_metadata(attribute)
         if metadata is not None:
@@ -109,6 +106,13 @@ def _method_metadata(attribute: object) -> RpcMethodMetadata | None:
     if not isinstance(metadata, RpcMethodMetadata):
         raise ProtocolDefinitionError(f"Invalid RPC method metadata on {attribute.__name__}")
     return metadata
+
+
+def _docstring_summary(handler: Any) -> str | None:
+    docstring = inspect.getdoc(handler)
+    if not docstring:
+        return None
+    return docstring.splitlines()[0].strip() or None
 
 
 def _declared_event_type(message: type[BaseModel]) -> Any:
