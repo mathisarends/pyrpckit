@@ -12,6 +12,10 @@ _METHOD_METADATA_KEY = "__pyrpckit_method__"
 _EVENT_METADATA_KEY = "__pyrpckit_event__"
 
 
+class RpcHandler:
+    """Base for classes whose methods are exposed through ``@method``."""
+
+
 @dataclass(frozen=True, slots=True)
 class RpcMethodMetadata:
     name: str
@@ -86,7 +90,7 @@ def event[EventT: type[BaseModel]](message: EventT) -> EventT:
     return message
 
 
-def decorated_methods(handler: type) -> Iterator[DecoratedRpcMethod]:
+def decorated_methods(handler: type[RpcHandler]) -> Iterator[DecoratedRpcMethod]:
     for attribute_name, attribute in vars(handler).items():
         metadata = _method_metadata(attribute)
         if metadata is not None:

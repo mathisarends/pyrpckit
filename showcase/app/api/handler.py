@@ -8,7 +8,7 @@ from showcase.app.api.models import (
 )
 
 
-class CalculatorRpc:
+class CalculatorRpc(rpc.RpcHandler):
     @rpc.method(CalculatorMethod.ADD)
     async def add(self, params: BinaryOperationParams) -> CalculationResult:
         """Add two numbers."""

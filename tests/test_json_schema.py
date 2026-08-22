@@ -15,7 +15,7 @@ def test_rendering_rejects_two_distinct_types_sharing_a_schema_name() -> None:
     ParamsA = create_model("Dup", value=(int, ...))
     ParamsB = create_model("Dup", value=(str, ...))
 
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.a")
         async def a(self, params: ParamsA) -> None: ...
 

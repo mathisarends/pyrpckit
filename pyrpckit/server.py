@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
+from pyrpckit.decorators import RpcHandler
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
@@ -29,7 +30,7 @@ class RpcServer:
 
     def __init__(
         self,
-        *handlers: object,
+        *handlers: RpcHandler,
         protocol: RpcProtocol | None = None,
         error_mapper: RpcErrorMapper | None = None,
     ) -> None:
@@ -70,7 +71,7 @@ class RpcServer:
         return RpcInternalError()
 
 
-def _derived_protocol(handlers: tuple[object, ...]) -> RpcProtocol:
+def _derived_protocol(handlers: tuple[RpcHandler, ...]) -> RpcProtocol:
     return RpcProtocol.of(*(type(handler) for handler in handlers))
 
 

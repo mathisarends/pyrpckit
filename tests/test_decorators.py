@@ -40,7 +40,7 @@ def test_decorated_methods_expose_their_metadata() -> None:
 
 
 def test_a_summary_falls_back_to_the_first_docstring_line() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say")
         async def say(self, params: SayParams) -> None:
             """Greet someone.
@@ -52,7 +52,7 @@ def test_a_summary_falls_back_to_the_first_docstring_line() -> None:
 
 
 def test_a_method_without_a_docstring_has_no_summary() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say")
         async def say(self, params: SayParams) -> None: ...
 
@@ -60,7 +60,7 @@ def test_a_method_without_a_docstring_has_no_summary() -> None:
 
 
 def test_an_explicit_summary_wins_over_the_docstring() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say", summary="From the decorator.")
         async def say(self, params: SayParams) -> None:
             """From the docstring."""
@@ -71,7 +71,7 @@ def test_an_explicit_summary_wins_over_the_docstring() -> None:
 def test_a_declared_error_must_be_an_rpc_error_subclass() -> None:
     with pytest.raises(ProtocolDefinitionError, match="must be an RpcError subclass"):
 
-        class Handler:
+        class Handler(rpc.RpcHandler):
             @rpc.method("greeting.say", errors=(ValueError,))
             async def say(self, params: SayParams) -> None: ...
 
@@ -82,13 +82,13 @@ def test_a_declared_error_must_carry_a_code() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match="declares no code"):
 
-        class Handler:
+        class Handler(rpc.RpcHandler):
             @rpc.method("greeting.say", errors=(Codeless,))
             async def say(self, params: SayParams) -> None: ...
 
 
 def test_undecorated_methods_are_ignored() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         async def helper(self, params: SayParams) -> None: ...
 
     assert list(decorated_methods(Handler)) == []
@@ -97,7 +97,7 @@ def test_undecorated_methods_are_ignored() -> None:
 def test_a_method_cannot_be_decorated_twice() -> None:
     with pytest.raises(ProtocolDefinitionError, match="already decorated"):
 
-        class Handler:
+        class Handler(rpc.RpcHandler):
             @rpc.method("a")
             @rpc.method("b")
             async def say(self, params: SayParams) -> None: ...

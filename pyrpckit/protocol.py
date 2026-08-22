@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from pyrpckit.decorators import (
     DecoratedRpcMethod,
+    RpcHandler,
     decorated_methods,
     event_metadata,
 )
@@ -49,7 +50,7 @@ class RpcEventDefinition:
 @dataclass(frozen=True, slots=True)
 class RpcFeatureDefinition:
     name: str | None
-    handlers: tuple[type, ...]
+    handlers: tuple[type[RpcHandler], ...]
     methods: tuple[RpcMethodDefinition, ...] = ()
     notifications: tuple[RpcNotificationDefinition, ...] = ()
     events: tuple[RpcEventDefinition, ...] = ()
@@ -82,7 +83,7 @@ class RpcProtocol:
         )
 
     @classmethod
-    def of(cls, *handlers: type, version: int = 1) -> "RpcProtocol":
+    def of(cls, *handlers: type[RpcHandler], version: int = 1) -> "RpcProtocol":
         """Assemble a protocol straight from handler classes, without features."""
         return cls(_feature_definition(None, handlers, ()), version=version)
 
@@ -116,7 +117,7 @@ class RpcProtocol:
 def feature(
     name: str,
     *,
-    handlers: Iterable[type] = (),
+    handlers: Iterable[type[RpcHandler]] = (),
     notifications: Iterable[RpcNotificationDefinition] = (),
 ) -> RpcFeatureDefinition:
     """Describe one feature of the API from its handler classes.
@@ -139,7 +140,7 @@ def notification(
 
 def _feature_definition(
     name: str | None,
-    handlers: tuple[type, ...],
+    handlers: tuple[type[RpcHandler], ...],
     notifications: tuple[RpcNotificationDefinition, ...],
 ) -> RpcFeatureDefinition:
     methods = tuple(
@@ -161,7 +162,9 @@ def _feature_definition(
     )
 
 
-def _handler_methods(handler: type) -> tuple[DecoratedRpcMethod, ...]:
+def _handler_methods(
+    handler: type[RpcHandler],
+) -> tuple[DecoratedRpcMethod, ...]:
     if not isinstance(handler, type):
         raise ProtocolDefinitionError(f"RPC handler must be a class, got {handler!r}")
     methods = tuple(decorated_methods(handler))

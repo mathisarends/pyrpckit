@@ -42,7 +42,7 @@ class AutomationNotFound(rpc.RpcError):
     message = "Automation not found"
 
 
-class AutomationRpcMethods:
+class AutomationRpcMethods(rpc.RpcHandler):
     def __init__(self, service: AutomationService) -> None:
         self._service = service
 
@@ -53,10 +53,10 @@ class AutomationRpcMethods:
         return AutomationResponse(id=job.id, name=job.name)
 ```
 
-Handler classes need no base class. A decorated method must accept exactly `self`
-and one Pydantic params model, and must annotate its return type with a Pydantic
-model or `None`. Violations are reported as a `ProtocolDefinitionError` when the
-protocol is assembled — never at request time.
+Handler classes inherit from `RpcHandler`. A decorated method must accept exactly
+`self` and one Pydantic params model, and must annotate its return type with a
+Pydantic model or `None`. Violations are reported as a
+`ProtocolDefinitionError` when the protocol is assembled — never at request time.
 
 The `summary` is optional: without one, the first line of the docstring is used,
 and a method with neither simply carries no summary into the generated contract.

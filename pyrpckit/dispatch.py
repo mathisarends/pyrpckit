@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from pyrpckit.decorators import decorated_methods
+from pyrpckit.decorators import RpcHandler, decorated_methods
 from pyrpckit.envelopes import RpcRequestEnvelope
 from pyrpckit.errors import ProtocolDefinitionError, RpcInvalidParamsError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
@@ -24,7 +24,7 @@ class RpcDispatcher:
     def __init__(
         self,
         protocol: RpcProtocol,
-        handlers: Iterable[object],
+        handlers: Iterable[RpcHandler],
     ) -> None:
         self._protocol = protocol
         self._bound = _bound_methods(handlers)
@@ -49,7 +49,7 @@ class RpcDispatcher:
         return await self._bound[invocation.method.name](invocation.params)
 
 
-def _bound_methods(handlers: Iterable[object]) -> dict[str, BoundRpcMethod]:
+def _bound_methods(handlers: Iterable[RpcHandler]) -> dict[str, BoundRpcMethod]:
     bound: dict[str, BoundRpcMethod] = {}
     for owner in handlers:
         for decorated in decorated_methods(type(owner)):

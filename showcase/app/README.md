@@ -12,7 +12,7 @@ the complete public contract. The implementation remains plain Python and has no
 FastAPI dependency.
 
 ```python
-class CalculatorRpc:
+class CalculatorRpc(rpc.RpcHandler):
     @rpc.method("calculator.add")
     async def add(self, params: BinaryOperationParams) -> CalculationResult:
         return CalculationResult(value=params.left + params.right)

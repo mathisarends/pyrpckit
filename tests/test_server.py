@@ -169,7 +169,7 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     class NestedParams(BaseModel):
         params: str
 
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.broken")
         async def broken(self, params: SayParams) -> None:
             NestedParams.model_validate({"params": 1})
@@ -195,7 +195,7 @@ class BrokenParams(BaseModel):
     pass
 
 
-class BrokenRpcMethods:
+class BrokenRpcMethods(rpc.RpcHandler):
     @rpc.method("greeting.break")
     async def fail(self, params: BrokenParams) -> None:
         raise BreakageError("boom")

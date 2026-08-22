@@ -49,7 +49,7 @@ class UnknownGreetingError(rpc.RpcError):
     message = "Unknown greeting"
 
 
-class GreetingRpcMethods:
+class GreetingRpcMethods(rpc.RpcHandler):
     def __init__(self) -> None:
         self.greeted: list[str] = []
 

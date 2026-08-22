@@ -89,7 +89,7 @@ def test_features_may_not_declare_the_same_method_twice() -> None:
 
 
 def test_a_handler_without_any_decorated_method_is_rejected() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         async def helper(self, params: SayParams) -> None: ...
 
     with pytest.raises(ProtocolDefinitionError, match="declares no @method"):
@@ -102,7 +102,7 @@ def test_a_handler_must_be_a_class() -> None:
 
 
 def test_params_must_be_a_pydantic_model() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say")
         async def say(self, params: str) -> None: ...
 
@@ -111,7 +111,7 @@ def test_params_must_be_a_pydantic_model() -> None:
 
 
 def test_a_result_annotation_is_required() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say")
         async def say(self, params: SayParams): ...
 
@@ -120,7 +120,7 @@ def test_a_result_annotation_is_required() -> None:
 
 
 def test_a_handler_takes_exactly_self_and_params() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say")
         async def say(self, params: SayParams, extra: int) -> None: ...
 
@@ -140,7 +140,7 @@ def test_notification_payloads_must_be_decorated_events() -> None:
 
 
 def test_a_result_must_be_a_pydantic_model_or_none() -> None:
-    class Handler:
+    class Handler(rpc.RpcHandler):
         @rpc.method("greeting.say")
         async def say(self, params: SayParams) -> str: ...
 
