@@ -4,14 +4,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from examples.calculator_client import CalculatorClient
-from examples.fastapi_app.app import app
-from examples.fastapi_app.transport import HttpJsonRpcTransport
 from pyrpckit.client import RpcRemoteError
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
+from showcase.app.server import app
+from showcase.client import CalculatorClient
+from showcase.client.transport import HttpJsonRpcTransport
 
-EXAMPLE = Path(__file__).parents[2] / "examples" / "fastapi_app"
+SHOWCASE = Path(__file__).parents[2] / "showcase"
 
 
 @pytest.fixture
@@ -49,7 +49,9 @@ async def test_the_app_publishes_its_openrpc_contract() -> None:
     ) as client:
         response = await client.get("/openrpc.json")
 
-    committed = json.loads((EXAMPLE / "calculator.openrpc.json").read_text(encoding="utf-8"))
+    committed = json.loads(
+        (SHOWCASE / "app" / "calculator.openrpc.json").read_text(encoding="utf-8")
+    )
     assert response.status_code == 200
     assert response.json() == committed
     assert [method["name"] for method in committed["methods"]] == [
@@ -59,9 +61,11 @@ async def test_the_app_publishes_its_openrpc_contract() -> None:
 
 
 def test_the_committed_client_matches_the_committed_contract() -> None:
-    document = json.loads((EXAMPLE / "calculator.openrpc.json").read_text(encoding="utf-8"))
+    document = json.loads(
+        (SHOWCASE / "app" / "calculator.openrpc.json").read_text(encoding="utf-8")
+    )
     options = PythonClientOptions(
-        package="examples.calculator_client",
+        package="showcase.client",
         client_name="CalculatorClient",
         source="calculator.openrpc.json",
     )
@@ -69,7 +73,7 @@ def test_the_committed_client_matches_the_committed_contract() -> None:
     assert (
         generate_python_client(
             document,
-            EXAMPLE.parent / "calculator_client",
+            SHOWCASE / "client",
             options,
             check=True,
         )

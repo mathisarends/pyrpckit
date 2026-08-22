@@ -1,7 +1,7 @@
 import asyncio
 
-from examples.calculator_client import CalculatorClient
-from examples.fastapi_app.transport import HttpJsonRpcTransport
+from showcase.client import CalculatorClient
+from showcase.client.transport import HttpJsonRpcTransport
 
 
 async def call_api() -> None:

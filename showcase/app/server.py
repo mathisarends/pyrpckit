@@ -5,9 +5,9 @@ from fastapi import Body, FastAPI, Response
 from fastapi.responses import JSONResponse
 from pyrpckit.schema import render_openrpc
 
-from examples.fastapi_app.api import PROTOCOL, CalculatorRpc
+from showcase.app.api import PROTOCOL, CalculatorRpc
 
-app = FastAPI(title="pyrpckit FastAPI example")
+app = FastAPI(title="pyrpckit FastAPI showcase")
 server = rpc.RpcServer(CalculatorRpc(), protocol=PROTOCOL)
 
 

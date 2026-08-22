@@ -4,7 +4,7 @@ from typing import Self
 
 from pyrpckit.client import RpcTransport
 
-from examples.calculator_client.namespaces import CalculatorNamespaceClient
+from showcase.client.namespaces import CalculatorNamespaceClient
 
 
 class CalculatorClient:

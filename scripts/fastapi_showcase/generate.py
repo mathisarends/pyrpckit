@@ -3,18 +3,18 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from examples.fastapi_app.api import PROTOCOL
 from pyrpckit.codegen import PythonClientOptions, generate_python_client
 from pyrpckit.schema import render_openrpc
+from showcase.app.api import PROTOCOL
 
-EXAMPLE = Path(__file__).parents[1] / "examples" / "fastapi_app"
-SCHEMA = EXAMPLE / "calculator.openrpc.json"
-CLIENT = EXAMPLE.parent / "calculator_client"
+SHOWCASE = Path(__file__).parents[2] / "showcase"
+SCHEMA = SHOWCASE / "app" / "calculator.openrpc.json"
+CLIENT = SHOWCASE / "client"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Generate the FastAPI example contract and client."
+        description="Generate the FastAPI showcase contract and client."
     )
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)
@@ -34,7 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         document,
         CLIENT,
         PythonClientOptions(
-            package="examples.calculator_client",
+            package="showcase.client",
             client_name="CalculatorClient",
             source=SCHEMA.name,
         ),
@@ -43,12 +43,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     paths = ((SCHEMA,) if schema_changed else ()) + changed
     if arguments.check:
         for path in paths:
-            print(f"Out of date: {path.relative_to(EXAMPLE.parent)}")
+            print(f"Out of date: {path.relative_to(SHOWCASE)}")
     else:
         for path in paths:
-            print(f"Wrote {path.relative_to(EXAMPLE.parent)}")
+            print(f"Wrote {path.relative_to(SHOWCASE)}")
     if not paths:
-        print("Example contract and client are up to date")
+        print("Showcase contract and client are up to date")
     return int(arguments.check and bool(paths))
 
 

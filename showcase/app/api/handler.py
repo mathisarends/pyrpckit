@@ -1,26 +1,11 @@
-from enum import StrEnum
-
 import pyrpckit as rpc
-from pydantic import BaseModel
 
-
-class CalculatorMethod(StrEnum):
-    ADD = "calculator.add"
-    DIVIDE = "calculator.divide"
-
-
-class BinaryOperationParams(BaseModel):
-    left: float
-    right: float
-
-
-class CalculationResult(BaseModel):
-    value: float
-
-
-class DivisionByZero(rpc.RpcError):
-    code = -32001
-    message = "Cannot divide by zero"
+from showcase.app.api.errors import DivisionByZero
+from showcase.app.api.models import (
+    BinaryOperationParams,
+    CalculationResult,
+    CalculatorMethod,
+)
 
 
 class CalculatorRpc:
@@ -35,7 +20,3 @@ class CalculatorRpc:
         if params.right == 0:
             raise DivisionByZero()
         return CalculationResult(value=params.left / params.right)
-
-
-CALCULATOR = rpc.feature("calculator", handlers=(CalculatorRpc,))
-PROTOCOL = rpc.RpcProtocol(CALCULATOR, version=1)
