@@ -8,12 +8,6 @@ derives the protocol from those declarations, validates and dispatches incoming
 requests against it, and renders the same definition as JSON Schema and OpenRPC
 so clients can be generated from it.
 
-## Installation
-
-```bash
-pip install pyrpckit
-```
-
 ## Declaring handlers
 
 ```python
