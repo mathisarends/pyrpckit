@@ -5,6 +5,7 @@ from types import UnionType
 from typing import (
     Annotated,
     Any,
+    Self,
     TypeAliasType,
     get_args,
     get_origin,
@@ -83,7 +84,7 @@ class RpcProtocol:
         )
 
     @classmethod
-    def of(cls, *handlers: type[RpcHandler], version: int = 1) -> "RpcProtocol":
+    def of(cls, *handlers: type[RpcHandler], version: int = 1) -> Self:
         """Assemble a protocol straight from handler classes, without features."""
         return cls(_feature_definition(None, handlers, ()), version=version)
 
