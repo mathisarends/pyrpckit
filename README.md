@@ -143,6 +143,42 @@ under a single `oneOf`, and indexes the protocol in `x-rpc-methods`,
 `x-rpc-notifications`, and `x-rpc-events`. The OpenRPC document describes the same
 methods with their summaries and declared errors.
 
+## Generating a client
+
+The OpenRPC document is the input to the client generator. It writes a typed,
+ready-to-use package into the repository that consumes the API:
+
+```bash
+pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_client
+```
+
+The generated package holds no hand-written code and is meant to be committed:
+
+- `models.py` — every schema as a Pydantic model, plus an `RpcMethod` enum
+- `namespaces/<name>.py` — one class per method prefix, one typed `async def` per method
+- `client.py` — the facade that wires the namespaces together, plus the typed
+  notification stream
+- `__init__.py` — the package exports
+
+```python
+async with GreetingClient(transport) as client:
+    greeting = await client.greeting.say(name="Mathis")  # -> SayResult
+    async for notification in client.notifications():  # -> GreetingChangedNotification
+        print(notification.params)
+```
+
+Only the schemas the client actually reaches are emitted — request and response
+envelopes stay out of the generated models. The transport is not generated: the
+client is constructed with anything satisfying the `pyrpckit.client.RpcTransport`
+protocol, so it works over a WebSocket, HTTP, or a queue.
+
+Run the generator with `--check` in CI to fail the build when the committed
+client no longer matches the server schema:
+
+```bash
+pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_client --check
+```
+
 ## Development
 
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management.

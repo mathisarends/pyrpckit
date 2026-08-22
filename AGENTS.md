@@ -6,7 +6,9 @@ Guidance for AI coding agents working in this repository.
 
 `pyrpckit` is a Python library, packaged for distribution on PyPI. It turns decorated
 handler classes into a JSON-RPC 2.0 protocol: definition (`decorators.py`, `protocol.py`),
-serving (`dispatch.py`, `server.py`), and contract generation (`schema/`).
+serving (`dispatch.py`, `server.py`), contract generation (`schema/`), and client
+generation (`codegen/`). `client/` holds the runtime contract that generated clients
+import.
 
 ## Environment
 
@@ -26,5 +28,8 @@ serving (`dispatch.py`, `server.py`), and contract generation (`schema/`).
 - Library code lives in `pyrpckit/`; the public API is re-exported from `pyrpckit/__init__.py`.
 - No module-level docstrings. Document a class or function only where the name is not enough.
 - The library stays transport-agnostic: no HTTP, WebSocket, or framework dependencies.
+- Generators read the OpenRPC document, never the `RpcProtocol` object, so a new target
+  language only needs an emitter beside `codegen/python.py` on top of `codegen/ir.py`.
+- Generated code must pass `ruff check` and `ruff format` in the consuming repository.
 - Tests live in `tests/` and mirror the package structure.
 - Keep `pyproject.toml` as the single source of truth for metadata and tool config.

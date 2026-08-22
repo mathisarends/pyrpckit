@@ -8,6 +8,9 @@ license = "MIT"
 authors = [{ name = "Mathis Arends", email = "mathisarends27@gmail.com" }]
 dependencies = ["pydantic>=2.7"]
 
+[project.scripts]
+pyrpckit = "pyrpckit.codegen.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
