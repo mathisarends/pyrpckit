@@ -1,14 +1,19 @@
+from typing import Annotated
+
 import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
 from pyrpckit import ProtocolDefinitionError, RpcProtocol, rpc_feature
+from pyrpckit.protocol import RpcNotificationDefinition
 
 from .conftest import (
     GREETING_FEATURE,
     ForgetParams,
+    GreetingForgotten,
     GreetingNotificationMethod,
     GreetingRpcMethod,
+    GreetingSaid,
     SayParams,
     SayResult,
 )
@@ -21,6 +26,12 @@ def test_the_protocol_collects_methods_from_its_features(
         GreetingRpcMethod.SAY,
         GreetingRpcMethod.FORGET,
     ]
+
+
+def test_the_protocol_exposes_the_features_it_was_built_from(
+    protocol: RpcProtocol,
+) -> None:
+    assert protocol.features == (GREETING_FEATURE,)
 
 
 def test_a_method_definition_describes_its_wire_contract(
@@ -94,7 +105,7 @@ def test_notification_payloads_must_be_decorated_events() -> None:
     class Undecorated(BaseModel):
         text: str
 
-    notification = rpc.RpcNotificationDefinition(
+    notification = RpcNotificationDefinition(
         name="greeting.changed",
         payload=Undecorated,
         summary="Publish a greeting change.",
@@ -102,3 +113,38 @@ def test_notification_payloads_must_be_decorated_events() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match="not decorated"):
         rpc_feature("greeting", handlers=(), notifications=(notification,))
+
+
+def test_a_result_must_be_a_pydantic_model_or_none() -> None:
+    class Handler(rpc.RpcHandler):
+        @rpc.method("greeting.say", summary="Greet someone.")
+        async def say(self, params: SayParams) -> str: ...
+
+    with pytest.raises(ProtocolDefinitionError, match="result must be"):
+        rpc_feature("greeting", handlers=(Handler,))
+
+
+def test_notification_payloads_must_be_pydantic_models() -> None:
+    notification = RpcNotificationDefinition(
+        name="greeting.changed",
+        payload=str,
+        summary="Publish a greeting change.",
+    )
+
+    with pytest.raises(ProtocolDefinitionError, match="must contain Pydantic event models"):
+        rpc_feature("greeting", handlers=(), notifications=(notification,))
+
+
+def test_an_annotated_union_of_events_still_expands_into_events() -> None:
+    notification = RpcNotificationDefinition(
+        name="greeting.changed",
+        payload=Annotated[GreetingSaid | GreetingForgotten, "wire payload"],
+        summary="Publish a greeting change.",
+    )
+
+    feature = rpc_feature("greeting", handlers=(), notifications=(notification,))
+
+    assert [event.name for event in feature.events] == [
+        "greeting.said",
+        "greeting.forgotten",
+    ]

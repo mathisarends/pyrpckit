@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 import pyrpckit as rpc
 from pyrpckit import RpcErrorCode, RpcProtocol, rpc_feature
+from pyrpckit.protocol import RpcNotificationDefinition
 
 
 class GreetingRpcMethod(StrEnum):
@@ -72,7 +73,7 @@ GREETING_FEATURE = rpc_feature(
     "greeting",
     handlers=(GreetingRpcMethods,),
     notifications=(
-        rpc.RpcNotificationDefinition(
+        RpcNotificationDefinition(
             name=GreetingNotificationMethod.CHANGED,
             payload=GreetingEvent,
             summary="Publish a greeting change.",

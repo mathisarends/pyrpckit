@@ -1,7 +1,8 @@
 import pytest
 
 import pyrpckit as rpc
-from pyrpckit import ProtocolDefinitionError, RpcDispatcher, RpcProtocol
+from pyrpckit import ProtocolDefinitionError, RpcProtocol
+from pyrpckit.dispatch import RpcDispatcher
 
 from .conftest import (
     GreetingRpcMethod,

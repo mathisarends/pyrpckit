@@ -4,7 +4,14 @@ import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
-from pyrpckit import ProtocolDefinitionError, decorated_methods, event_metadata
+from pyrpckit import ProtocolDefinitionError
+from pyrpckit.decorators import (
+    _EVENT_METADATA_KEY,
+    _METHOD_METADATA_KEY,
+    _method_metadata,
+    decorated_methods,
+    event_metadata,
+)
 
 from .conftest import GreetingRpcMethod, GreetingRpcMethods, GreetingSaid, SayParams
 
@@ -57,3 +64,31 @@ def test_an_event_must_pin_its_type_field_to_the_event_name() -> None:
         @rpc.event("greeting.said")
         class Mismatched(BaseModel):
             type: Literal["greeting.other"] = "greeting.other"
+
+
+def test_an_event_cannot_be_decorated_twice() -> None:
+    with pytest.raises(ProtocolDefinitionError, match="already decorated"):
+
+        @rpc.event("greeting.twice")
+        @rpc.event("greeting.twice")
+        class Twice(BaseModel):
+            type: Literal["greeting.twice"] = "greeting.twice"
+
+
+def test_event_metadata_rejects_a_corrupted_metadata_value() -> None:
+    class Corrupted(BaseModel):
+        pass
+
+    setattr(Corrupted, _EVENT_METADATA_KEY, "not-metadata")
+
+    with pytest.raises(ProtocolDefinitionError, match="Invalid RPC event metadata"):
+        event_metadata(Corrupted)
+
+
+def test_method_metadata_rejects_a_corrupted_metadata_value() -> None:
+    def handler() -> None: ...
+
+    setattr(handler, _METHOD_METADATA_KEY, "not-metadata")
+
+    with pytest.raises(ProtocolDefinitionError, match="Invalid RPC method metadata"):
+        _method_metadata(handler)
