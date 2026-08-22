@@ -66,5 +66,6 @@ def _assert_complete(protocol: RpcProtocol, bound: dict[str, BoundRpcMethod]) ->
     unexpected = sorted(set(bound) - declared)
     if missing or unexpected:
         raise ProtocolDefinitionError(
-            f"RPC handlers do not match the protocol: missing={missing}, unexpected={unexpected}"
+            f"RPC handlers do not match the protocol: "
+            f"missing={missing}, unexpected={unexpected}"
         )

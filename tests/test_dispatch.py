@@ -22,7 +22,9 @@ def test_parsing_resolves_the_method_and_validates_the_params(
 ) -> None:
     dispatcher = RpcDispatcher(protocol, (handler,))
 
-    invocation = dispatcher.parse_request(_request(GreetingRpcMethod.SAY, {"name": "Mathis"}))
+    invocation = dispatcher.parse_request(
+        _request(GreetingRpcMethod.SAY, {"name": "Mathis"})
+    )
 
     assert invocation.method.handler_name == "say"
     assert invocation.params == SayParams(name="Mathis")
@@ -34,7 +36,9 @@ async def test_execution_invokes_the_bound_handler(
     handler: GreetingRpcMethods,
 ) -> None:
     dispatcher = RpcDispatcher(protocol, (handler,))
-    invocation = dispatcher.parse_request(_request(GreetingRpcMethod.SAY, {"name": "Mathis"}))
+    invocation = dispatcher.parse_request(
+        _request(GreetingRpcMethod.SAY, {"name": "Mathis"})
+    )
 
     result = await dispatcher.execute(invocation)
 

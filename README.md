@@ -166,7 +166,9 @@ from pyrpckit.schema import render_json_schema, render_openrpc
 
 render_json_schema(protocol, title="Automation Protocol")
 render_openrpc(
-    protocol, title="Automation", servers=({"name": "local", "url": "ws://127.0.0.1:8000/rpc"},)
+    protocol,
+    title="Automation",
+    servers=({"name": "local", "url": "ws://127.0.0.1:8000/rpc"},),
 )
 ```
 

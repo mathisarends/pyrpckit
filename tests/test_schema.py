@@ -60,26 +60,42 @@ def test_the_json_schema_is_serialisable(protocol: RpcProtocol) -> None:
         schema_id="https://example.test/greeting.schema.json",
     )
 
-    assert json.loads(json.dumps(document))["$id"] == ("https://example.test/greeting.schema.json")
+    assert json.loads(json.dumps(document))["$id"] == (
+        "https://example.test/greeting.schema.json"
+    )
 
 
 def test_openrpc_describes_methods_by_name(protocol: RpcProtocol) -> None:
     document = render_openrpc(protocol, title="Greeting")
-    say = next(method for method in document["methods"] if method["name"] == GreetingRpcMethod.SAY)
+    say = next(
+        method
+        for method in document["methods"]
+        if method["name"] == GreetingRpcMethod.SAY
+    )
 
     assert say["summary"] == "Greet someone by name."
     assert say["paramStructure"] == "by-name"
     assert say["params"] == [
-        {"name": "name", "required": True, "schema": {"title": "Name", "type": "string"}}
+        {
+            "name": "name",
+            "required": True,
+            "schema": {"title": "Name", "type": "string"},
+        }
     ]
     assert say["result"]["schema"] == {"$ref": "#/components/schemas/SayResult"}
 
 
 def test_openrpc_documents_the_declared_errors(protocol: RpcProtocol) -> None:
     document = render_openrpc(protocol, title="Greeting")
-    say = next(method for method in document["methods"] if method["name"] == GreetingRpcMethod.SAY)
+    say = next(
+        method
+        for method in document["methods"]
+        if method["name"] == GreetingRpcMethod.SAY
+    )
     forget = next(
-        method for method in document["methods"] if method["name"] == GreetingRpcMethod.FORGET
+        method
+        for method in document["methods"]
+        if method["name"] == GreetingRpcMethod.FORGET
     )
 
     assert "errors" not in say
@@ -88,15 +104,23 @@ def test_openrpc_documents_the_declared_errors(protocol: RpcProtocol) -> None:
 
 def test_openrpc_tags_each_method_with_its_feature(protocol: RpcProtocol) -> None:
     document = render_openrpc(protocol, title="Greeting")
-    say = next(method for method in document["methods"] if method["name"] == GreetingRpcMethod.SAY)
+    say = next(
+        method
+        for method in document["methods"]
+        if method["name"] == GreetingRpcMethod.SAY
+    )
 
     assert say["tags"] == [{"name": "greeting"}]
 
 
-def test_openrpc_takes_a_missing_summary_from_the_docstring(protocol: RpcProtocol) -> None:
+def test_openrpc_takes_a_missing_summary_from_the_docstring(
+    protocol: RpcProtocol,
+) -> None:
     document = render_openrpc(protocol, title="Greeting")
     forget = next(
-        method for method in document["methods"] if method["name"] == GreetingRpcMethod.FORGET
+        method
+        for method in document["methods"]
+        if method["name"] == GreetingRpcMethod.FORGET
     )
 
     assert forget["summary"] == "Forget a greeted name."

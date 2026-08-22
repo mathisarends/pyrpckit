@@ -41,7 +41,10 @@ def test_operations_become_typed_keyword_only_methods(
 ) -> None:
     namespace = render_python_client(document, options)["namespaces/greeting.py"]
 
-    assert "    async def say(\n        self,\n        *,\n        name: str,\n" in namespace
+    assert (
+        "    async def say(\n        self,\n        *,\n        name: str,\n"
+        in namespace
+    )
     assert "    ) -> SayResult:" in namespace
     assert '        """Greet someone by name."""' in namespace
     assert "        return SayResult.model_validate(result)" in namespace
@@ -65,7 +68,8 @@ def test_the_result_model_is_imported(
     namespace = render_python_client(document, options)["namespaces/greeting.py"]
 
     assert (
-        f"from {PACKAGE}.models import ForgetParams, RpcMethod, SayParams, SayResult" in namespace
+        f"from {PACKAGE}.models import ForgetParams, RpcMethod, SayParams, SayResult"
+        in namespace
     )
 
 
@@ -97,7 +101,8 @@ def test_the_notification_stream_is_typed(
     client = render_python_client(document, options)["client.py"]
 
     assert (
-        "    async def notifications(self) -> AsyncIterator[GreetingChangedNotification]:" in client
+        "    async def notifications(self) -> "
+        "AsyncIterator[GreetingChangedNotification]:" in client
     )
 
 

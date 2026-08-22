@@ -149,8 +149,12 @@ def test_a_result_must_be_a_pydantic_model_or_none() -> None:
 
 
 def test_notification_payloads_must_be_pydantic_models() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="must contain Pydantic event models"):
-        rpc.feature("greeting", notifications=(rpc.notification("greeting.changed", str),))
+    with pytest.raises(
+        ProtocolDefinitionError, match="must contain Pydantic event models"
+    ):
+        rpc.feature(
+            "greeting", notifications=(rpc.notification("greeting.changed", str),)
+        )
 
 
 def test_an_annotated_union_of_events_still_expands_into_events() -> None:

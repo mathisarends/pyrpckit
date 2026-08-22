@@ -19,9 +19,16 @@ def _server(handler: GreetingRpcMethods) -> RpcServer:
     return RpcServer(handler)
 
 
-async def test_a_request_is_answered_with_its_result(handler: GreetingRpcMethods) -> None:
+async def test_a_request_is_answered_with_its_result(
+    handler: GreetingRpcMethods,
+) -> None:
     response = await _server(handler).handle(
-        {"jsonrpc": "2.0", "id": 7, "method": GreetingRpcMethod.SAY, "params": {"name": "M"}}
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": GreetingRpcMethod.SAY,
+            "params": {"name": "M"},
+        }
     )
 
     assert isinstance(response, RpcSuccess)
@@ -30,7 +37,9 @@ async def test_a_request_is_answered_with_its_result(handler: GreetingRpcMethods
     assert response.result.text == "Hello, M!"
 
 
-async def test_the_protocol_is_derived_from_the_handlers(handler: GreetingRpcMethods) -> None:
+async def test_the_protocol_is_derived_from_the_handlers(
+    handler: GreetingRpcMethods,
+) -> None:
     server = _server(handler)
 
     assert [method.name for method in server.protocol.methods] == [
@@ -46,7 +55,9 @@ async def test_an_explicit_protocol_is_checked_against_the_handlers(
         RpcServer(protocol=protocol)
 
 
-async def test_a_notification_is_served_without_a_response(handler: GreetingRpcMethods) -> None:
+async def test_a_notification_is_served_without_a_response(
+    handler: GreetingRpcMethods,
+) -> None:
     response = await _server(handler).handle(
         {"jsonrpc": "2.0", "method": GreetingRpcMethod.SAY, "params": {"name": "M"}}
     )
@@ -88,7 +99,12 @@ async def test_a_declared_error_goes_on_the_wire_as_declared(
     handler: GreetingRpcMethods,
 ) -> None:
     response = await _server(handler).handle(
-        {"jsonrpc": "2.0", "id": 1, "method": GreetingRpcMethod.FORGET, "params": {"name": "M"}}
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": GreetingRpcMethod.FORGET,
+            "params": {"name": "M"},
+        }
     )
 
     assert isinstance(response, RpcFailure)
@@ -99,7 +115,9 @@ async def test_a_declared_error_goes_on_the_wire_as_declared(
 async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
     server = RpcServer(BrokenRpcMethods(), error_mapper=_broken_error)
 
-    response = await server.handle({"jsonrpc": "2.0", "id": 1, "method": "greeting.break"})
+    response = await server.handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
+    )
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == -32004
@@ -109,14 +127,18 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
 async def test_unmapped_handler_failures_stay_internal() -> None:
     server = RpcServer(BrokenRpcMethods())
 
-    response = await server.handle({"jsonrpc": "2.0", "id": 1, "method": "greeting.break"})
+    response = await server.handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
+    )
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INTERNAL_ERROR
     assert response.error.message == "Internal error"
 
 
-async def test_a_non_object_payload_fails_without_an_id(handler: GreetingRpcMethods) -> None:
+async def test_a_non_object_payload_fails_without_an_id(
+    handler: GreetingRpcMethods,
+) -> None:
     response = await _server(handler).handle("nonsense")
 
     assert isinstance(response, RpcFailure)
@@ -141,7 +163,9 @@ async def test_a_boolean_id_on_a_failed_request_is_not_echoed_back(
     assert response.id is None
 
 
-async def test_a_validation_error_naming_a_params_field_becomes_invalid_params() -> None:
+async def test_a_validation_error_naming_a_params_field_becomes_invalid_params() -> (
+    None
+):
     class NestedParams(BaseModel):
         params: str
 
@@ -151,7 +175,12 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
             NestedParams.model_validate({"params": 1})
 
     response = await RpcServer(Handler()).handle(
-        {"jsonrpc": "2.0", "id": 1, "method": "greeting.broken", "params": {"name": "M"}}
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "greeting.broken",
+            "params": {"name": "M"},
+        }
     )
 
     assert isinstance(response, RpcFailure)

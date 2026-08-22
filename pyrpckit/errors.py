@@ -38,9 +38,13 @@ class RpcError(Exception):
     def __init__(self, message: str | None = None, *, code: int | None = None) -> None:
         declared_code = code if code is not None else getattr(type(self), "code", None)
         if declared_code is None:
-            raise ProtocolDefinitionError(f"RPC error {type(self).__name__} declares no code")
+            raise ProtocolDefinitionError(
+                f"RPC error {type(self).__name__} declares no code"
+            )
         self.code = int(declared_code)
-        self.message = message or getattr(type(self), "message", None) or error_message(self.code)
+        self.message = (
+            message or getattr(type(self), "message", None) or error_message(self.code)
+        )
         super().__init__(self.message)
 
 
@@ -91,7 +95,9 @@ def error_message(code: int) -> str:
 def declared_error(error: Any) -> type[RpcError]:
     """Validate that ``error`` is an ``RpcError`` subclass carrying a code."""
     if not (isinstance(error, type) and issubclass(error, RpcError)):
-        raise ProtocolDefinitionError(f"Declared RPC error must be an RpcError subclass: {error!r}")
+        raise ProtocolDefinitionError(
+            f"Declared RPC error must be an RpcError subclass: {error!r}"
+        )
     if getattr(error, "code", None) is None:
         raise ProtocolDefinitionError(f"RPC error {error.__name__} declares no code")
     return error

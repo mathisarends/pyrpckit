@@ -24,7 +24,10 @@ def render_json_schema(
     """Render every frame of the protocol as one ``oneOf`` schema document."""
     annotations = _annotations(protocol)
     schema_map, root = TypeAdapter.json_schemas(
-        ((name, "validation", TypeAdapter(annotation)) for name, annotation in annotations.items()),
+        (
+            (name, "validation", TypeAdapter(annotation))
+            for name, annotation in annotations.items()
+        ),
         title=title,
         description=description,
     )
@@ -47,7 +50,9 @@ def render_json_schema(
             "oneOf": [refs[name] for name in _frame_names(protocol)],
             "$defs": definitions,
             "x-rpc-protocol-version": protocol.version,
-            "x-rpc-methods": [_method_entry(method, refs) for method in protocol.methods],
+            "x-rpc-methods": [
+                _method_entry(method, refs) for method in protocol.methods
+            ],
             "x-rpc-notifications": [
                 described(
                     {
@@ -81,7 +86,8 @@ def _method_entry(method: RpcMethodDefinition, refs: dict[str, Any]) -> dict[str
     )
     if method.errors:
         entry["errors"] = [
-            {"code": int(error.code), "message": error.message} for error in method.errors
+            {"code": int(error.code), "message": error.message}
+            for error in method.errors
         ]
     return entry
 
@@ -96,7 +102,9 @@ def described(entry: dict[str, Any], summary: str | None) -> dict[str, Any]:
 def type_name(annotation: Any) -> str:
     name = getattr(annotation, "__name__", None)
     if not isinstance(name, str):
-        raise ProtocolDefinitionError(f"Protocol type has no stable schema name: {annotation!r}")
+        raise ProtocolDefinitionError(
+            f"Protocol type has no stable schema name: {annotation!r}"
+        )
     return name
 
 
@@ -109,7 +117,8 @@ def _frame_names(protocol: RpcProtocol) -> list[str]:
     names = [method.request_name for method in protocol.methods]
     names.extend((type_name(RpcSuccess), type_name(RpcFailure)))
     names.extend(
-        notification_schema_name(notification.name) for notification in protocol.notifications
+        notification_schema_name(notification.name)
+        for notification in protocol.notifications
     )
     return names
 

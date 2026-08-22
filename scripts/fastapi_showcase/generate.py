@@ -26,7 +26,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         servers=({"name": "local", "url": "http://127.0.0.1:8000/rpc"},),
     )
     rendered_schema = json.dumps(document, indent=2) + "\n"
-    schema_changed = not SCHEMA.exists() or SCHEMA.read_text(encoding="utf-8") != rendered_schema
+    schema_changed = (
+        not SCHEMA.exists() or SCHEMA.read_text(encoding="utf-8") != rendered_schema
+    )
     if schema_changed and not arguments.check:
         SCHEMA.write_text(rendered_schema, encoding="utf-8")
 

@@ -166,7 +166,9 @@ def _handler_methods(handler: type) -> tuple[DecoratedRpcMethod, ...]:
         raise ProtocolDefinitionError(f"RPC handler must be a class, got {handler!r}")
     methods = tuple(decorated_methods(handler))
     if not methods:
-        raise ProtocolDefinitionError(f"RPC handler {handler.__name__} declares no @method")
+        raise ProtocolDefinitionError(
+            f"RPC handler {handler.__name__} declares no @method"
+        )
     return methods
 
 
@@ -212,7 +214,8 @@ def _result_model(function: Any) -> Any:
         )
     if result is not type(None) and not _is_model(result):
         raise ProtocolDefinitionError(
-            f"RPC handler {function.__qualname__} result must be a Pydantic model or None"
+            f"RPC handler {function.__qualname__} result must be "
+            "a Pydantic model or None"
         )
     return result
 
@@ -222,18 +225,24 @@ def _event_definitions(annotation: Any) -> tuple[RpcEventDefinition, ...]:
     for message in _event_message_types(annotation):
         metadata = event_metadata(message)
         if metadata is None:
-            raise ProtocolDefinitionError(f"RPC event is not decorated: {message.__name__}")
+            raise ProtocolDefinitionError(
+                f"RPC event is not decorated: {message.__name__}"
+            )
         definitions.append(RpcEventDefinition(metadata.name, message))
     return tuple(definitions)
 
 
 def _event_message_types(annotation: Any) -> tuple[type[BaseModel], ...]:
-    value = annotation.__value__ if isinstance(annotation, TypeAliasType) else annotation
+    value = (
+        annotation.__value__ if isinstance(annotation, TypeAliasType) else annotation
+    )
     if get_origin(value) is Annotated:
         value = get_args(value)[0]
     members = get_args(value) if get_origin(value) is UnionType else (value,)
     if not all(_is_model(member) for member in members):
-        raise ProtocolDefinitionError("RPC notification payload must contain Pydantic event models")
+        raise ProtocolDefinitionError(
+            "RPC notification payload must contain Pydantic event models"
+        )
     return members
 
 
@@ -246,7 +255,9 @@ def _all_methods(
 def _all_notifications(
     features: tuple[RpcFeatureDefinition, ...],
 ) -> Iterable[RpcNotificationDefinition]:
-    return (notification for feature in features for notification in feature.notifications)
+    return (
+        notification for feature in features for notification in feature.notifications
+    )
 
 
 def _all_events(

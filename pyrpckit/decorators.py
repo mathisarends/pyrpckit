@@ -48,7 +48,9 @@ def method[HandlerT: Callable[..., Any]](
 
     def decorate(handler: HandlerT) -> HandlerT:
         if _METHOD_METADATA_KEY in handler.__dict__:
-            raise ProtocolDefinitionError(f"RPC handler is already decorated: {handler.__name__}")
+            raise ProtocolDefinitionError(
+                f"RPC handler is already decorated: {handler.__name__}"
+            )
         setattr(
             handler,
             _METHOD_METADATA_KEY,
@@ -71,11 +73,14 @@ def event[EventT: type[BaseModel]](message: EventT) -> EventT:
     event name.
     """
     if _EVENT_METADATA_KEY in message.__dict__:
-        raise ProtocolDefinitionError(f"RPC event is already decorated: {message.__name__}")
+        raise ProtocolDefinitionError(
+            f"RPC event is already decorated: {message.__name__}"
+        )
     declared = _declared_event_type(message)
     if not isinstance(declared, str):
         raise ProtocolDefinitionError(
-            f"RPC event {message.__name__} needs a type field pinned to a string literal"
+            f"RPC event {message.__name__} needs a type field "
+            "pinned to a string literal"
         )
     setattr(message, _EVENT_METADATA_KEY, RpcEventMetadata(name=declared))
     return message
@@ -93,7 +98,9 @@ def event_metadata(message: type[BaseModel]) -> RpcEventMetadata | None:
     if metadata is None:
         return None
     if not isinstance(metadata, RpcEventMetadata):
-        raise ProtocolDefinitionError(f"Invalid RPC event metadata on {message.__name__}")
+        raise ProtocolDefinitionError(
+            f"Invalid RPC event metadata on {message.__name__}"
+        )
     return metadata
 
 
@@ -104,7 +111,9 @@ def _method_metadata(attribute: object) -> RpcMethodMetadata | None:
     if metadata is None:
         return None
     if not isinstance(metadata, RpcMethodMetadata):
-        raise ProtocolDefinitionError(f"Invalid RPC method metadata on {attribute.__name__}")
+        raise ProtocolDefinitionError(
+            f"Invalid RPC method metadata on {attribute.__name__}"
+        )
     return metadata
 
 

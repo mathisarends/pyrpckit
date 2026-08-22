@@ -25,7 +25,8 @@ from .conftest import (
 
 def _metadata_by_name(handler: type) -> dict[str, RpcMethodMetadata]:
     return {
-        decorated.attribute_name: decorated.metadata for decorated in decorated_methods(handler)
+        decorated.attribute_name: decorated.metadata
+        for decorated in decorated_methods(handler)
     }
 
 

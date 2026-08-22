@@ -4,7 +4,13 @@ from enum import StrEnum
 from typing import Any
 
 type TypeExpr = (
-    PrimitiveType | LiteralType | EnumLiteralType | NamedType | ListType | MapType | UnionType
+    PrimitiveType
+    | LiteralType
+    | EnumLiteralType
+    | NamedType
+    | ListType
+    | MapType
+    | UnionType
 )
 type Declaration = EnumDecl | ModelDecl | AliasDecl
 
@@ -135,7 +141,9 @@ class ClientIr:
     title: str
     version: str
     declarations: tuple[Declaration, ...] = ()
-    method_enum: EnumDecl = field(default_factory=lambda: EnumDecl(METHOD_ENUM_NAME, ()))
+    method_enum: EnumDecl = field(
+        default_factory=lambda: EnumDecl(METHOD_ENUM_NAME, ())
+    )
     namespaces: tuple[NamespaceDecl, ...] = ()
     root_operations: tuple[OperationDecl, ...] = ()
     notifications: tuple[NotificationDecl, ...] = ()
@@ -143,13 +151,17 @@ class ClientIr:
     @property
     def models(self) -> tuple[ModelDecl, ...]:
         return tuple(
-            declaration for declaration in self.declarations if isinstance(declaration, ModelDecl)
+            declaration
+            for declaration in self.declarations
+            if isinstance(declaration, ModelDecl)
         )
 
     @property
     def operations(self) -> tuple[OperationDecl, ...]:
         return self.root_operations + tuple(
-            operation for namespace in self.namespaces for operation in namespace.operations
+            operation
+            for namespace in self.namespaces
+            for operation in namespace.operations
         )
 
 
@@ -178,7 +190,10 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         ),
         method_enum=EnumDecl(
             METHOD_ENUM_NAME,
-            tuple(EnumMember(_member_name(method["name"]), method["name"]) for method in methods),
+            tuple(
+                EnumMember(_member_name(method["name"]), method["name"])
+                for method in methods
+            ),
         ),
         namespaces=namespaces,
         root_operations=root_operations,
@@ -259,13 +274,17 @@ def _reachable(
             for dependency in _dependencies(by_name[name])
             if dependency in by_name and dependency not in keep
         )
-    return tuple(declaration for declaration in declarations if declaration.name in keep)
+    return tuple(
+        declaration for declaration in declarations if declaration.name in keep
+    )
 
 
 def _dependencies(declaration: Declaration) -> set[str]:
     if isinstance(declaration, ModelDecl):
         return {
-            name for model_field in declaration.fields for name in named_types(model_field.type)
+            name
+            for model_field in declaration.fields
+            for name in named_types(model_field.type)
         }
     if isinstance(declaration, AliasDecl):
         return named_types(declaration.target)
@@ -337,7 +356,9 @@ def _type_field_first(properties: dict[str, Any]) -> list[tuple[str, Any]]:
 def _primitive(schema: dict[str, Any]) -> TypeExpr:
     schema_type = schema.get("type")
     if schema_type == "string":
-        return PrimitiveType(_STRING_FORMATS.get(schema.get("format", ""), Primitive.STRING))
+        return PrimitiveType(
+            _STRING_FORMATS.get(schema.get("format", ""), Primitive.STRING)
+        )
     if schema_type == "array":
         return ListType(type_expression(schema.get("items", {})))
     if schema_type == "object":

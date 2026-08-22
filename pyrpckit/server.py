@@ -33,7 +33,9 @@ class RpcServer:
         protocol: RpcProtocol | None = None,
         error_mapper: RpcErrorMapper | None = None,
     ) -> None:
-        self._protocol = protocol if protocol is not None else _derived_protocol(handlers)
+        self._protocol = (
+            protocol if protocol is not None else _derived_protocol(handlers)
+        )
         self._dispatcher = RpcDispatcher(self._protocol, handlers)
         self._error_mapper = error_mapper
 

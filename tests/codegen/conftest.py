@@ -44,6 +44,8 @@ def generated_client(
     finally:
         sys.path.remove(str(root))
         for name in [
-            name for name in sys.modules if name == PACKAGE or name.startswith(f"{PACKAGE}.")
+            name
+            for name in sys.modules
+            if name == PACKAGE or name.startswith(f"{PACKAGE}.")
         ]:
             del sys.modules[name]

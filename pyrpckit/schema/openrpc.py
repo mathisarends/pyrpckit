@@ -80,7 +80,8 @@ def _method(
     }
     if method.errors:
         document["errors"] = [
-            {"code": int(error.code), "message": error.message} for error in method.errors
+            {"code": int(error.code), "message": error.message}
+            for error in method.errors
         ]
     return document
 

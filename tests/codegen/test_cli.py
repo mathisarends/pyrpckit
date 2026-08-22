@@ -31,9 +31,9 @@ def test_the_package_name_defaults_to_the_output_directory(
     output = tmp_path / PACKAGE
     main(["generate", "python", str(schema), "--output", str(output)])
 
-    assert f"from {PACKAGE}.models import" in (output / "namespaces" / "greeting.py").read_text(
-        encoding="utf-8"
-    )
+    assert f"from {PACKAGE}.models import" in (
+        output / "namespaces" / "greeting.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_the_client_class_can_be_named(schema: Path, tmp_path: Path) -> None:
@@ -56,7 +56,10 @@ def test_the_client_class_can_be_named(schema: Path, tmp_path: Path) -> None:
 def test_check_fails_when_the_client_is_missing(schema: Path, tmp_path: Path) -> None:
     output = tmp_path / PACKAGE
 
-    assert main(["generate", "python", str(schema), "--output", str(output), "--check"]) == 1
+    assert (
+        main(["generate", "python", str(schema), "--output", str(output), "--check"])
+        == 1
+    )
     assert not output.exists()
 
 
@@ -67,4 +70,7 @@ def test_check_passes_once_the_client_is_generated(
     output = tmp_path / PACKAGE
     main(["generate", "python", str(schema), "--output", str(output)])
 
-    assert main(["generate", "python", str(schema), "--output", str(output), "--check"]) == 0
+    assert (
+        main(["generate", "python", str(schema), "--output", str(output), "--check"])
+        == 0
+    )
