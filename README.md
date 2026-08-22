@@ -1,12 +1,147 @@
 # pyrpckit
 
-Add your description here.
+Decorator-driven, transport-agnostic [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
+protocols for Python.
+
+Declare your API once on plain handler classes with Pydantic models. `pyrpckit`
+derives the protocol from those declarations, validates and dispatches incoming
+requests against it, and renders the same definition as JSON Schema and OpenRPC
+so clients can be generated from it.
 
 ## Installation
 
 ```bash
 pip install pyrpckit
 ```
+
+## Declaring handlers
+
+```python
+from enum import StrEnum
+
+import pyrpckit as rpc
+from pydantic import BaseModel
+
+
+class AutomationRpcMethod(StrEnum):
+    LIST = "automation.list"
+    GET = "automation.get"
+
+
+class GetAutomationParams(BaseModel):
+    automation_id: str
+
+
+class AutomationResponse(BaseModel):
+    id: str
+    name: str
+
+
+class AutomationRpcMethods(rpc.RpcHandler):
+    def __init__(self, service: AutomationService) -> None:
+        self._service = service
+
+    @rpc.method(
+        AutomationRpcMethod.GET,
+        summary="Get an automation.",
+        errors=(rpc.RpcErrorCode.INTERNAL_ERROR,),
+    )
+    async def get_automation(self, params: GetAutomationParams) -> AutomationResponse:
+        job = await self._service.get(params.automation_id)
+        return AutomationResponse(id=job.id, name=job.name)
+```
+
+A decorated method must accept exactly `self` and one Pydantic params model, and
+must annotate its return type with a Pydantic model or `None`. Violations are
+reported as a `ProtocolDefinitionError` when the protocol is assembled — never at
+request time.
+
+## Assembling the protocol
+
+Group handlers into features, then combine the features into one protocol:
+
+```python
+AUTOMATION_PROTOCOL = rpc.rpc_feature("automation", handlers=(AutomationRpcMethods,))
+
+protocol = rpc.RpcProtocol((AUTOMATION_PROTOCOL,), version=1)
+```
+
+## Serving requests
+
+`RpcServer` turns a decoded JSON payload into a response envelope, so it fits any
+transport — WebSocket, HTTP, stdio, a message queue:
+
+```python
+def to_rpc_error(error: Exception) -> rpc.RpcError | None:
+    if isinstance(error, AutomationNotFoundError):
+        return rpc.RpcError(-32004, f"Not found: {error}")
+    return None
+
+
+server = rpc.RpcServer(
+    protocol,
+    (AutomationRpcMethods(service),),
+    error_mapper=to_rpc_error,
+)
+
+response = await server.handle(await socket.receive_json())
+if response is not None:
+    await socket.send_json(response.model_dump(mode="json"))
+```
+
+Unknown methods, malformed envelopes, and invalid params become the matching
+JSON-RPC failures. Domain exceptions are translated by `error_mapper`; anything
+it does not recognise becomes an internal error, so handler internals never leak
+to clients.
+
+`RpcDispatcher` is available if you would rather build responses yourself: it
+exposes `parse_request` and `execute` and raises the errors above.
+
+## Server-initiated notifications
+
+Notifications carry a payload that is either a decorated event model or a union of
+them. Each event pins a `type` field to its name, so clients can narrow the union:
+
+```python
+@rpc.event("automation.started")
+class AutomationStarted(BaseModel):
+    type: Literal["automation.started"] = "automation.started"
+    automation_id: str
+
+
+type AutomationEvent = AutomationStarted | AutomationFinished
+
+AUTOMATION_PROTOCOL = rpc.rpc_feature(
+    "automation",
+    handlers=(AutomationRpcMethods,),
+    notifications=(
+        rpc.RpcNotificationDefinition(
+            name="automation.event",
+            payload=AutomationEvent,
+            summary="Publish an automation lifecycle event.",
+        ),
+    ),
+)
+```
+
+Send one with the `RpcNotification` envelope.
+
+## Generating the contract
+
+```python
+from pyrpckit.schema import render_json_schema, render_openrpc
+
+render_json_schema(protocol, title="Automation Protocol")
+render_openrpc(
+    protocol, title="Automation", servers=({"name": "local", "url": "ws://127.0.0.1:8000/rpc"},)
+)
+```
+
+The JSON Schema document lists every frame on the wire — one request schema per
+method, the success and failure envelopes, and one envelope per notification —
+under a single `oneOf`, and indexes the protocol in `x-rpc-methods`,
+`x-rpc-notifications`, and `x-rpc-events`. The OpenRPC document describes the same
+methods with their summaries and declared errors.
 
 ## Development
 
@@ -15,11 +150,7 @@ This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
 ```bash
 uv sync --all-groups
 uv run pre-commit install
-```
-
-Run linting and formatting:
-
-```bash
 uv run ruff check .
 uv run ruff format .
+uv run pytest
 ```
