@@ -37,33 +37,47 @@ class AutomationResponse(BaseModel):
     name: str
 
 
-class AutomationRpcMethods(rpc.RpcHandler):
+class AutomationNotFound(rpc.RpcError):
+    code = -32004
+    message = "Automation not found"
+
+
+class AutomationRpcMethods:
     def __init__(self, service: AutomationService) -> None:
         self._service = service
 
-    @rpc.method(
-        AutomationRpcMethod.GET,
-        summary="Get an automation.",
-        errors=(rpc.RpcErrorCode.INTERNAL_ERROR,),
-    )
+    @rpc.method(AutomationRpcMethod.GET, errors=(AutomationNotFound,))
     async def get_automation(self, params: GetAutomationParams) -> AutomationResponse:
+        """Get an automation."""
         job = await self._service.get(params.automation_id)
         return AutomationResponse(id=job.id, name=job.name)
 ```
 
-A decorated method must accept exactly `self` and one Pydantic params model, and
-must annotate its return type with a Pydantic model or `None`. Violations are
-reported as a `ProtocolDefinitionError` when the protocol is assembled — never at
-request time.
+Handler classes need no base class. A decorated method must accept exactly `self`
+and one Pydantic params model, and must annotate its return type with a Pydantic
+model or `None`. Violations are reported as a `ProtocolDefinitionError` when the
+protocol is assembled — never at request time.
+
+The `summary` is optional: without one, the first line of the docstring is used,
+and a method with neither simply carries no summary into the generated contract.
 
 ## Assembling the protocol
 
-Group handlers into features, then combine the features into one protocol:
+Group handlers into features, then combine the features into one protocol. The
+feature name tags its methods in the generated contract:
 
 ```python
-AUTOMATION_PROTOCOL = rpc.rpc_feature("automation", handlers=(AutomationRpcMethods,))
+AUTOMATION = rpc.feature("automation", handlers=(AutomationRpcMethods,))
 
-protocol = rpc.RpcProtocol((AUTOMATION_PROTOCOL,), version=1)
+protocol = rpc.RpcProtocol(AUTOMATION, version=1)
+```
+
+Features are worth it once the API has more than one area to group. For a small
+protocol, or for a quick round-trip test, assemble one straight from the handler
+classes:
+
+```python
+protocol = rpc.RpcProtocol.of(AutomationRpcMethods, version=1)
 ```
 
 ## Serving requests
@@ -72,27 +86,45 @@ protocol = rpc.RpcProtocol((AUTOMATION_PROTOCOL,), version=1)
 transport — WebSocket, HTTP, stdio, a message queue:
 
 ```python
-def to_rpc_error(error: Exception) -> rpc.RpcError | None:
-    if isinstance(error, AutomationNotFoundError):
-        return rpc.RpcError(-32004, f"Not found: {error}")
-    return None
-
-
-server = rpc.RpcServer(
-    protocol,
-    (AutomationRpcMethods(service),),
-    error_mapper=to_rpc_error,
-)
+server = rpc.RpcServer(AutomationRpcMethods(service))
 
 response = await server.handle(await socket.receive_json())
 if response is not None:
     await socket.send_json(response.model_dump(mode="json"))
 ```
 
+The protocol is derived from the handlers you pass, so nothing is registered
+twice. Pass `protocol=` to serve one you assembled yourself; the server then
+checks the two against each other.
+
 Unknown methods, malformed envelopes, and invalid params become the matching
-JSON-RPC failures. Domain exceptions are translated by `error_mapper`; anything
-it does not recognise becomes an internal error, so handler internals never leak
-to clients.
+JSON-RPC failures.
+
+## Reporting errors
+
+A handler reports a failure by raising an `RpcError` subclass. It goes on the wire
+with the code and message it declares — the same class the method lists in
+`errors=`, so the contract and the implementation cannot drift:
+
+```python
+raise AutomationNotFound(f"No automation {params.automation_id}")
+```
+
+Exceptions you cannot make into an `RpcError` — from a library, say — are
+translated by an optional `error_mapper`:
+
+```python
+def to_rpc_error(error: Exception) -> rpc.RpcError | None:
+    if isinstance(error, HttpxTimeout):
+        return rpc.RpcError("Upstream timed out", code=-32005)
+    return None
+
+
+server = rpc.RpcServer(AutomationRpcMethods(service), error_mapper=to_rpc_error)
+```
+
+Anything neither declared nor mapped becomes an internal error, so handler
+internals never leak to clients.
 
 `RpcDispatcher` is available if you would rather build responses yourself: it
 exposes `parse_request` and `execute` and raises the errors above.
@@ -100,10 +132,11 @@ exposes `parse_request` and `execute` and raises the errors above.
 ## Server-initiated notifications
 
 Notifications carry a payload that is either a decorated event model or a union of
-them. Each event pins a `type` field to its name, so clients can narrow the union:
+them. Each event pins a `type` field to a literal, so clients can narrow the
+union — and that literal is the event name:
 
 ```python
-@rpc.event("automation.started")
+@rpc.event
 class AutomationStarted(BaseModel):
     type: Literal["automation.started"] = "automation.started"
     automation_id: str
@@ -111,13 +144,13 @@ class AutomationStarted(BaseModel):
 
 type AutomationEvent = AutomationStarted | AutomationFinished
 
-AUTOMATION_PROTOCOL = rpc.rpc_feature(
+AUTOMATION = rpc.feature(
     "automation",
     handlers=(AutomationRpcMethods,),
     notifications=(
-        rpc.RpcNotificationDefinition(
-            name="automation.event",
-            payload=AutomationEvent,
+        rpc.notification(
+            "automation.event",
+            AutomationEvent,
             summary="Publish an automation lifecycle event.",
         ),
     ),
@@ -141,7 +174,8 @@ The JSON Schema document lists every frame on the wire — one request schema pe
 method, the success and failure envelopes, and one envelope per notification —
 under a single `oneOf`, and indexes the protocol in `x-rpc-methods`,
 `x-rpc-notifications`, and `x-rpc-events`. The OpenRPC document describes the same
-methods with their summaries and declared errors.
+methods with their summaries and declared errors, and tags each one with the
+feature it came from.
 
 ## Generating a client
 
