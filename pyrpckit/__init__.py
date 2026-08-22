@@ -1,5 +1,5 @@
 from pyrpckit.decorators import RpcHandler, event, method
-from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
+from pyrpckit.envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
     ProtocolDefinitionError,
     RpcError,
@@ -34,6 +34,7 @@ __all__ = [
     "RpcInvalidParamsError",
     "RpcInvalidRequestError",
     "RpcMethodNotFoundError",
+    "RpcNotification",
     "RpcNotificationDefinition",
     "RpcParseError",
     "RpcProtocol",
