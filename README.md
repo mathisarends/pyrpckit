@@ -215,6 +215,9 @@ pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_clie
 
 ## Development
 
+For a complete, runnable server-to-generated-client walkthrough, see the
+[FastAPI example](examples/fastapi_app/README.md).
+
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
 
 ```bash

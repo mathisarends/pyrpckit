@@ -1,0 +1,5 @@
+extend = "../pyproject.toml"
+
+[lint.isort]
+known-first-party = ["examples"]
+known-third-party = ["pyrpckit"]

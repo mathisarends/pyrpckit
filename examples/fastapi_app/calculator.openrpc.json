@@ -1,0 +1,294 @@
+{
+  "openrpc": "1.3.2",
+  "info": {
+    "title": "Calculator API",
+    "version": "1.0.0",
+    "description": "A small pyrpckit API served through FastAPI."
+  },
+  "servers": [
+    {
+      "name": "local",
+      "url": "http://127.0.0.1:8000/rpc"
+    }
+  ],
+  "methods": [
+    {
+      "name": "calculator.add",
+      "summary": "Add two numbers.",
+      "tags": [
+        {
+          "name": "calculator"
+        }
+      ],
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "left",
+          "required": true,
+          "schema": {
+            "title": "Left",
+            "type": "number"
+          }
+        },
+        {
+          "name": "right",
+          "required": true,
+          "schema": {
+            "title": "Right",
+            "type": "number"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/CalculationResult"
+        }
+      },
+      "x-rpc-request-schema": {
+        "$ref": "#/components/schemas/AddRequest"
+      },
+      "x-rpc-params-schema": {
+        "$ref": "#/components/schemas/BinaryOperationParams"
+      }
+    },
+    {
+      "name": "calculator.divide",
+      "summary": "Divide the left number by the right number.",
+      "tags": [
+        {
+          "name": "calculator"
+        }
+      ],
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "left",
+          "required": true,
+          "schema": {
+            "title": "Left",
+            "type": "number"
+          }
+        },
+        {
+          "name": "right",
+          "required": true,
+          "schema": {
+            "title": "Right",
+            "type": "number"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/CalculationResult"
+        }
+      },
+      "x-rpc-request-schema": {
+        "$ref": "#/components/schemas/DivideRequest"
+      },
+      "x-rpc-params-schema": {
+        "$ref": "#/components/schemas/BinaryOperationParams"
+      },
+      "errors": [
+        {
+          "code": -32001,
+          "message": "Cannot divide by zero"
+        }
+      ]
+    }
+  ],
+  "components": {
+    "schemas": {
+      "BinaryOperationParams": {
+        "properties": {
+          "left": {
+            "title": "Left",
+            "type": "number"
+          },
+          "right": {
+            "title": "Right",
+            "type": "number"
+          }
+        },
+        "required": [
+          "left",
+          "right"
+        ],
+        "title": "BinaryOperationParams",
+        "type": "object"
+      },
+      "CalculationResult": {
+        "properties": {
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "CalculationResult",
+        "type": "object"
+      },
+      "RpcErrorData": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "RpcErrorData",
+        "type": "object"
+      },
+      "RpcFailure": {
+        "additionalProperties": false,
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "default": "2.0",
+            "title": "Jsonrpc",
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/RpcRequestId"
+          },
+          "error": {
+            "$ref": "#/components/schemas/RpcErrorData"
+          }
+        },
+        "required": [
+          "id",
+          "error"
+        ],
+        "title": "RpcFailure",
+        "type": "object"
+      },
+      "RpcRequestId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "RpcSuccess": {
+        "additionalProperties": false,
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "default": "2.0",
+            "title": "Jsonrpc",
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/RpcRequestId"
+          },
+          "result": {
+            "title": "Result"
+          }
+        },
+        "required": [
+          "id",
+          "result"
+        ],
+        "title": "RpcSuccess",
+        "type": "object"
+      },
+      "AddRequest": {
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AddRequest",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "method": {
+            "const": "calculator.add",
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/BinaryOperationParams"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params"
+        ],
+        "description": "Add two numbers."
+      },
+      "DivideRequest": {
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DivideRequest",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "method": {
+            "const": "calculator.divide",
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/BinaryOperationParams"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params"
+        ],
+        "description": "Divide the left number by the right number."
+      }
+    }
+  },
+  "x-rpc-protocol-version": 1,
+  "x-rpc-notifications": [],
+  "x-rpc-events": []
+}
