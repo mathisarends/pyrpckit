@@ -4,6 +4,8 @@ The showcase demonstrates a complete integration rather than isolated API calls:
 
 - [`app/`](app/) declares and serves the protocol and publishes
   its OpenRPC document.
+- [`spec/`](spec/) contains the generated OpenRPC contract shared between server
+  and client.
 - [`client/`](client/) contains the generated client and the small hand-written
   HTTP transport used to call the app.
 - [`../scripts/`](../scripts/) contains commands for serving, regenerating, and

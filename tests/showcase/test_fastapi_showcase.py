@@ -50,7 +50,7 @@ async def test_the_app_publishes_its_openrpc_contract() -> None:
         response = await client.get("/openrpc.json")
 
     committed = json.loads(
-        (SHOWCASE / "app" / "calculator.openrpc.json").read_text(encoding="utf-8")
+        (SHOWCASE / "spec" / "calculator.openrpc.json").read_text(encoding="utf-8")
     )
     assert response.status_code == 200
     assert response.json() == committed
@@ -62,7 +62,7 @@ async def test_the_app_publishes_its_openrpc_contract() -> None:
 
 def test_the_committed_client_matches_the_committed_contract() -> None:
     document = json.loads(
-        (SHOWCASE / "app" / "calculator.openrpc.json").read_text(encoding="utf-8")
+        (SHOWCASE / "spec" / "calculator.openrpc.json").read_text(encoding="utf-8")
     )
     options = PythonClientOptions(
         package="showcase.client",

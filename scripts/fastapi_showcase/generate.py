@@ -8,7 +8,7 @@ from pyrpckit.schema import render_openrpc
 from showcase.app.api import PROTOCOL
 
 SHOWCASE = Path(__file__).parents[2] / "showcase"
-SCHEMA = SHOWCASE / "app" / "calculator.openrpc.json"
+SCHEMA = SHOWCASE / "spec" / "calculator.openrpc.json"
 CLIENT = SHOWCASE / "client"
 
 

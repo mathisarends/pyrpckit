@@ -40,10 +40,10 @@ curl http://127.0.0.1:8000/rpc \
 
 ## 3. Generate the client
 
-The committed [`calculator.openrpc.json`](calculator.openrpc.json) and the modules
-in [`showcase/client`](../client/) are generated artifacts. The client lives beside
-the FastAPI app because it represents a separate consumer. Update both after
-changing the API:
+The committed [`calculator.openrpc.json`](../spec/calculator.openrpc.json) in
+`showcase/spec` and the modules in [`showcase/client`](../client/) are generated
+artifacts. The client lives beside the FastAPI app because it represents a
+separate consumer. Update both after changing the API:
 
 ```bash
 uv run --group showcase python -m scripts.fastapi_showcase.generate
