@@ -28,7 +28,7 @@ class RpcMethodDefinition:
     name: str
     handler_name: str
     request_name: str
-    params: type[BaseModel]
+    params: type[BaseModel] | None
     result: Any
     summary: str | None = None
     errors: tuple[type[RpcError], ...] = ()
@@ -196,12 +196,15 @@ def _method_definition(
     )
 
 
-def _params_model(function: Any) -> type[BaseModel]:
+def _params_model(function: Any) -> type[BaseModel] | None:
+    """The params model of a handler, or ``None`` when it takes no params."""
     parameters = tuple(inspect.signature(function).parameters.values())
-    if len(parameters) != 2 or parameters[0].name != "self":
+    if not parameters or parameters[0].name != "self" or len(parameters) > 2:
         raise ProtocolDefinitionError(
             f"RPC handler {function.__qualname__} must accept only self and params"
         )
+    if len(parameters) == 1:
+        return None
     params = get_type_hints(function).get(parameters[1].name)
     if not _is_model(params):
         raise ProtocolDefinitionError(
@@ -211,6 +214,7 @@ def _params_model(function: Any) -> type[BaseModel]:
 
 
 def _result_model(function: Any) -> Any:
+    """The result model of a handler, or ``NoneType`` when it returns nothing."""
     result = get_type_hints(function).get("return")
     if result is None:
         raise ProtocolDefinitionError(

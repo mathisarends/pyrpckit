@@ -60,9 +60,6 @@ def _method(
     method: RpcMethodDefinition,
     components: dict[str, Any],
 ) -> dict[str, Any]:
-    params_name = type_name(method.params)
-    params_schema = components[params_name]
-    required = set(params_schema.get("required", ()))
     document: dict[str, Any] = {"name": method.name}
     if method.summary is not None:
         document["summary"] = method.summary
@@ -70,20 +67,32 @@ def _method(
         document["tags"] = [{"name": method.feature}]
     document |= {
         "paramStructure": "by-name",
-        "params": [
-            {"name": name, "required": name in required, "schema": schema}
-            for name, schema in params_schema.get("properties", {}).items()
-        ],
+        "params": _params(method, components),
         "result": {"name": "result", "schema": _result_schema(method, components)},
         "x-rpc-request-schema": _ref(method.request_name),
-        "x-rpc-params-schema": _ref(params_name),
     }
+    if method.params is not None:
+        document["x-rpc-params-schema"] = _ref(type_name(method.params))
     if method.errors:
         document["errors"] = [
             {"code": int(error.code), "message": error.message}
             for error in method.errors
         ]
     return document
+
+
+def _params(
+    method: RpcMethodDefinition,
+    components: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if method.params is None:
+        return []
+    schema = components[type_name(method.params)]
+    required = set(schema.get("required", ()))
+    return [
+        {"name": name, "required": name in required, "schema": member}
+        for name, member in schema.get("properties", {}).items()
+    ]
 
 
 def _result_schema(

@@ -207,7 +207,9 @@ def _operation_lines(
     imports: _Imports,
 ) -> list[str]:
     models = f"{options.package}.models"
-    imports.add(models, operation.params_model, ir.method_enum.name)
+    imports.add(models, ir.method_enum.name)
+    if operation.params_model is not None:
+        imports.add(models, operation.params_model)
     imports.add(models, *named_types(operation.result))
     for parameter in operation.params:
         imports.add(models, *named_types(parameter.type))
@@ -234,20 +236,11 @@ def _operation_body(
     operation: OperationDecl,
     imports: _Imports,
 ) -> list[str]:
-    if operation.params:
-        lines = [f"        params = {operation.params_model}("]
-        lines.extend(
-            f"            {_identifier(parameter.name)}={_identifier(parameter.name)},"
-            for parameter in operation.params
-        )
-        lines.append("        )")
-    else:
-        lines = [f"        params = {operation.params_model}()"]
-    call = [
-        f"            {ir.method_enum.name}.{operation.method_member},",
-        '            params.model_dump(mode="json", exclude_none=True),',
-        "        )",
-    ]
+    lines = _params_lines(operation)
+    call = [f"            {ir.method_enum.name}.{operation.method_member},"]
+    if operation.params_model is not None:
+        call.append('            params.model_dump(mode="json", exclude_none=True),')
+    call.append("        )")
     if _is_null(operation.result):
         return [*lines, "        await self._transport.request(", *call]
     return [
@@ -256,6 +249,20 @@ def _operation_body(
         *call,
         f"        return {_validation(ir, operation.result, imports)}",
     ]
+
+
+def _params_lines(operation: OperationDecl) -> list[str]:
+    if operation.params_model is None:
+        return []
+    if not operation.params:
+        return [f"        params = {operation.params_model}()"]
+    lines = [f"        params = {operation.params_model}("]
+    lines.extend(
+        f"            {_identifier(parameter.name)}={_identifier(parameter.name)},"
+        for parameter in operation.params
+    )
+    lines.append("        )")
+    return lines
 
 
 def _notifications_lines(

@@ -55,7 +55,7 @@ def test_a_method_without_a_result_returns_none(
     options: PythonClientOptions,
 ) -> None:
     namespace = render_python_client(document, options)["namespaces/greeting.py"]
-    forget = namespace.split("    async def forget(", 1)[1]
+    forget = namespace.split("    async def forget(", 1)[1].split("    async def", 1)[0]
 
     assert "    ) -> None:" in forget
     assert "result = await" not in forget
@@ -67,10 +67,15 @@ def test_the_result_model_is_imported(
 ) -> None:
     namespace = render_python_client(document, options)["namespaces/greeting.py"]
 
-    assert (
-        f"from {PACKAGE}.models import ForgetParams, RpcMethod, SayParams, SayResult"
-        in namespace
-    )
+    imported = namespace.split(f"from {PACKAGE}.models import (", 1)[1]
+
+    assert imported.split(")", 1)[0].split() == [
+        "ForgetParams,",
+        "GreetedResult,",
+        "RpcMethod,",
+        "SayParams,",
+        "SayResult,",
+    ]
 
 
 def test_a_namespace_class_never_collides_with_the_client(
@@ -131,3 +136,14 @@ def test_check_reports_without_writing(
 
     assert len(outdated) == 5
     assert not output.exists()
+
+
+def test_a_method_without_params_takes_no_arguments(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    namespace = render_python_client(document, options)["namespaces/greeting.py"]
+    greeted = namespace.split("    async def greeted(", 1)[1]
+
+    assert greeted.startswith("self) -> GreetedResult:")
+    assert "params" not in greeted.split("    async def", 1)[0]

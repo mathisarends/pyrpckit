@@ -13,6 +13,12 @@ from pyrpckit.protocol import (
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
+EMPTY_PARAMS_SCHEMA: dict[str, Any] = {
+    "additionalProperties": False,
+    "type": "object",
+}
+"""What a method without params accepts: an omitted or empty ``params`` member."""
+
 
 def render_json_schema(
     protocol: RpcProtocol,
@@ -77,13 +83,10 @@ def _method_entry(method: RpcMethodDefinition, refs: dict[str, Any]) -> dict[str
     entry = described({"name": method.name}, method.summary)
     if method.feature is not None:
         entry["feature"] = method.feature
-    entry.update(
-        {
-            "request": refs[method.request_name],
-            "params": refs[type_name(method.params)],
-            "result": refs[type_name(method.result)],
-        }
-    )
+    entry["request"] = refs[method.request_name]
+    if method.params is not None:
+        entry["params"] = refs[type_name(method.params)]
+    entry["result"] = refs[type_name(method.result)]
     if method.errors:
         entry["errors"] = [
             {"code": int(error.code), "message": error.message}
@@ -126,7 +129,8 @@ def _frame_names(protocol: RpcProtocol) -> list[str]:
 def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
     annotations: dict[str, Any] = {}
     for method in protocol.methods:
-        _add(annotations, method.params)
+        if method.params is not None:
+            _add(annotations, method.params)
         _add(annotations, method.result)
     for notification in protocol.notifications:
         _add(annotations, notification.payload)
@@ -146,10 +150,13 @@ def _add(annotations: dict[str, Any], annotation: Any) -> None:
 
 
 def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
-    params_schema = method.params.model_json_schema()
     required = ["jsonrpc", "method"]
-    if params_schema.get("required"):
-        required.append("params")
+    if method.params is None:
+        params = EMPTY_PARAMS_SCHEMA
+    else:
+        params = _ref(type_name(method.params))
+        if method.params.model_json_schema().get("required"):
+            required.append("params")
     schema: dict[str, Any] = {
         "additionalProperties": False,
         "type": "object",
@@ -165,7 +172,7 @@ def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
                 "default": None,
             },
             "method": {"const": method.name, "type": "string"},
-            "params": _ref(type_name(method.params)),
+            "params": params,
         },
         "required": required,
     }

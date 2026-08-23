@@ -14,6 +14,8 @@ def test_the_json_schema_lists_every_frame_of_the_protocol(
     assert [frame["$ref"] for frame in document["oneOf"]] == [
         "#/$defs/SayRequest",
         "#/$defs/ForgetRequest",
+        "#/$defs/GreetedNamesRequest",
+        "#/$defs/ClearRequest",
         "#/$defs/RpcSuccess",
         "#/$defs/RpcFailure",
         "#/$defs/GreetingChangedNotification",
@@ -138,3 +140,42 @@ def test_openrpc_rewrites_every_reference_into_components(
     assert "#/$defs/" not in json.dumps(document)
     assert document["servers"] == [{"name": "local", "url": "ws://127.0.0.1:8000/rpc"}]
     assert "SayParams" in document["components"]["schemas"]
+
+
+def test_a_request_without_params_accepts_an_omitted_or_empty_member(
+    protocol: RpcProtocol,
+) -> None:
+    document = render_json_schema(protocol, title="Greeting Protocol")
+    request = document["$defs"]["ClearRequest"]
+
+    assert request["required"] == ["jsonrpc", "method"]
+    assert request["properties"]["params"] == {
+        "additionalProperties": False,
+        "type": "object",
+    }
+
+
+def test_openrpc_describes_a_method_without_params_as_taking_none(
+    protocol: RpcProtocol,
+) -> None:
+    document = render_openrpc(protocol, title="Greeting")
+    greeted = _method(document, GreetingRpcMethod.GREETED)
+
+    assert greeted["params"] == []
+    assert "x-rpc-params-schema" not in greeted
+    assert greeted["result"]["schema"] == {"$ref": "#/components/schemas/GreetedResult"}
+
+
+def test_openrpc_still_names_the_request_schema_of_a_method_without_params(
+    protocol: RpcProtocol,
+) -> None:
+    document = render_openrpc(protocol, title="Greeting")
+
+    assert _method(document, GreetingRpcMethod.CLEAR)["x-rpc-request-schema"] == {
+        "$ref": "#/components/schemas/ClearRequest"
+    }
+
+
+def _method(document: dict[str, object], name: str) -> dict[str, object]:
+    methods: list[dict[str, object]] = document["methods"]
+    return next(method for method in methods if method["name"] == name)

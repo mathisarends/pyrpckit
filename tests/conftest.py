@@ -11,6 +11,8 @@ from pyrpckit import RpcProtocol
 class GreetingRpcMethod(StrEnum):
     SAY = "greeting.say"
     FORGET = "greeting.forget"
+    GREETED = "greeting.greeted"
+    CLEAR = "greeting.clear"
 
 
 class GreetingNotificationMethod(StrEnum):
@@ -27,6 +29,10 @@ class SayResult(BaseModel):
 
 class ForgetParams(BaseModel):
     name: str
+
+
+class GreetedResult(BaseModel):
+    names: list[str]
 
 
 @rpc.event
@@ -64,6 +70,16 @@ class GreetingRpcMethods(rpc.RpcHandler):
         if params.name not in self.greeted:
             raise UnknownGreetingError(f"Unknown greeting: {params.name}")
         self.greeted.remove(params.name)
+
+    @rpc.method(GreetingRpcMethod.GREETED)
+    async def greeted_names(self) -> GreetedResult:
+        """List everyone greeted so far."""
+        return GreetedResult(names=list(self.greeted))
+
+    @rpc.method(GreetingRpcMethod.CLEAR)
+    async def clear(self) -> None:
+        """Forget everyone."""
+        self.greeted.clear()
 
 
 GREETING_FEATURE = rpc.feature(

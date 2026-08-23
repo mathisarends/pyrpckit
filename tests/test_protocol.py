@@ -9,6 +9,7 @@ from pyrpckit import ProtocolDefinitionError, RpcProtocol
 from .conftest import (
     GREETING_FEATURE,
     ForgetParams,
+    GreetedResult,
     GreetingForgotten,
     GreetingNotificationMethod,
     GreetingRpcMethod,
@@ -25,6 +26,8 @@ def test_the_protocol_collects_methods_from_its_features(
     assert [method.name for method in protocol.methods] == [
         GreetingRpcMethod.SAY,
         GreetingRpcMethod.FORGET,
+        GreetingRpcMethod.GREETED,
+        GreetingRpcMethod.CLEAR,
     ]
 
 
@@ -62,6 +65,8 @@ def test_a_protocol_can_be_assembled_from_handlers_alone() -> None:
     assert [method.name for method in protocol.methods] == [
         GreetingRpcMethod.SAY,
         GreetingRpcMethod.FORGET,
+        GreetingRpcMethod.GREETED,
+        GreetingRpcMethod.CLEAR,
     ]
     assert protocol.method(GreetingRpcMethod.SAY).feature is None
 
@@ -172,3 +177,17 @@ def test_an_annotated_union_of_events_still_expands_into_events() -> None:
         "greeting.said",
         "greeting.forgotten",
     ]
+
+
+def test_a_method_may_take_no_params(protocol: RpcProtocol) -> None:
+    greeted = protocol.method(GreetingRpcMethod.GREETED)
+
+    assert greeted.params is None
+    assert greeted.result is GreetedResult
+
+
+def test_a_method_may_take_no_params_and_return_nothing(protocol: RpcProtocol) -> None:
+    clear = protocol.method(GreetingRpcMethod.CLEAR)
+
+    assert clear.params is None
+    assert clear.result is type(None)

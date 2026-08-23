@@ -16,17 +16,20 @@ class HttpJsonRpcTransport:
         self._client = client or httpx.AsyncClient()
         self._request_id = 0
 
-    async def request(self, method: str, params: dict[str, Any]) -> Any:
+    async def request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         self._request_id += 1
-        response = await self._client.post(
-            self._endpoint,
-            json={
-                "jsonrpc": "2.0",
-                "id": self._request_id,
-                "method": method,
-                "params": params,
-            },
-        )
+        request: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": method,
+        }
+        if params is not None:
+            request["params"] = params
+        response = await self._client.post(self._endpoint, json=request)
         response.raise_for_status()
         envelope = response.json()
         if error := envelope.get("error"):
