@@ -11,7 +11,7 @@ from pyrpckit.schema.json_schema import (
     type_name,
 )
 
-OPENRPC_VERSION = "1.3.2"
+OPENRPC_VERSION = "1.4.1"
 
 type Server = Mapping[str, str]
 
@@ -23,7 +23,7 @@ def render_openrpc(
     description: str = "Typed JSON-RPC API.",
     servers: Iterable[Server] = (),
 ) -> dict[str, Any]:
-    """Render the protocol as an OpenRPC 1.3.2 document."""
+    """Render the protocol as an OpenRPC 1.4.1 document."""
     components = _rewrite_refs(
         render_json_schema(protocol, title=title, description=description)["$defs"]
     )

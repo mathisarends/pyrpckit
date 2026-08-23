@@ -29,18 +29,15 @@ class NavigationRpc(rpc.RpcHandler):
 
     @rpc.method(NavigationMethod.NAVIGATE)
     async def navigate(self, params: NavigateParams) -> None:
-        """Open a URL, answering with an empty result."""
         self._history.append(params.url)
 
     @rpc.method(NavigationMethod.BACK)
     async def back(self) -> None:
-        """Go back, taking no params and answering with an empty result."""
         if len(self._history) > 1:
             self._history.pop()
 
     @rpc.method(NavigationMethod.STATE)
     async def state(self) -> NavigationState:
-        """Report where the browser stands, taking no params."""
         return NavigationState(
             url=self._history[-1],
             can_go_back=len(self._history) > 1,

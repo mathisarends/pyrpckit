@@ -15,7 +15,6 @@ class CalculatorNamespaceClient:
         left: float,
         right: float,
     ) -> CalculationResult:
-        """Add two numbers."""
         params = BinaryOperationParams(
             left=left,
             right=right,
@@ -32,7 +31,6 @@ class CalculatorNamespaceClient:
         left: float,
         right: float,
     ) -> CalculationResult:
-        """Divide the left number by the right number."""
         params = BinaryOperationParams(
             left=left,
             right=right,

@@ -18,7 +18,6 @@ class SearchResult(BaseModel):
 class SearchRpc(rpc.RpcHandler):
     @rpc.method("search.run")
     async def search(self, params: SearchParams) -> SearchResult:
-        """Search for matching items."""
         return SearchResult(items=[])
 
 

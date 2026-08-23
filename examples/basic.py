@@ -16,7 +16,6 @@ class Greeting(BaseModel):
 class GreetingRpc(rpc.RpcHandler):
     @rpc.method("greeting.say")
     async def say(self, params: GreetParams) -> Greeting:
-        """Greet someone by name."""
         return Greeting(text=f"Hello, {params.name}!")
 
 
