@@ -5,6 +5,7 @@ from pyrpckit import ProtocolDefinitionError, RpcProtocol
 from pyrpckit.dispatch import RpcDispatcher
 
 from .conftest import (
+    GreetedResult,
     GreetingRpcMethod,
     GreetingRpcMethods,
     SayParams,
@@ -90,3 +91,41 @@ def test_handlers_must_cover_the_whole_protocol(protocol: RpcProtocol) -> None:
 def test_two_handlers_may_not_serve_the_same_method(protocol: RpcProtocol) -> None:
     with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC handler"):
         RpcDispatcher(protocol, (GreetingRpcMethods(), GreetingRpcMethods()))
+
+
+async def test_a_method_without_params_is_invoked_without_them(
+    protocol: RpcProtocol,
+    handler: GreetingRpcMethods,
+) -> None:
+    dispatcher = RpcDispatcher(protocol, (handler,))
+    invocation = dispatcher.parse_request(
+        {"jsonrpc": "2.0", "id": 1, "method": GreetingRpcMethod.GREETED}
+    )
+
+    assert invocation.params is None
+    assert await dispatcher.execute(invocation) == GreetedResult(names=[])
+
+
+async def test_an_empty_params_member_still_reaches_a_method_without_params(
+    protocol: RpcProtocol,
+    handler: GreetingRpcMethods,
+) -> None:
+    dispatcher = RpcDispatcher(protocol, (handler,))
+
+    invocation = dispatcher.parse_request(_request(GreetingRpcMethod.CLEAR, {}))
+
+    assert invocation.params is None
+    assert await dispatcher.execute(invocation) is None
+
+
+def test_params_sent_to_a_method_without_params_are_rejected(
+    protocol: RpcProtocol,
+    handler: GreetingRpcMethods,
+) -> None:
+    dispatcher = RpcDispatcher(protocol, (handler,))
+
+    with pytest.raises(rpc.RpcInvalidParamsError) as error:
+        dispatcher.parse_request(_request(GreetingRpcMethod.CLEAR, {"name": "Mathis"}))
+
+    assert "params.name" in error.value.message
+    assert error.value.code == rpc.RpcErrorCode.INVALID_PARAMS

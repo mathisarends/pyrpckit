@@ -47,10 +47,26 @@ class AutomationRpcMethods(rpc.RpcHandler):
         return AutomationResponse(id=job.id, name=job.name)
 ```
 
-Handler classes inherit from `RpcHandler`. A decorated method must accept exactly
-`self` and one Pydantic params model, and must annotate its return type with a
-Pydantic model or `None`. Violations are reported as a
-`ProtocolDefinitionError` when the protocol is assembled — never at request time.
+Handler classes inherit from `RpcHandler`. A decorated method accepts `self` and at
+most one Pydantic params model, and must annotate its return type with a Pydantic
+model or `None`. Violations are reported as a `ProtocolDefinitionError` when the
+protocol is assembled — never at request time.
+
+A method that needs nothing from the caller simply leaves the params out, and one
+that answers with nothing returns `None` — no placeholder models:
+
+```python
+@rpc.method(AutomationRpcMethod.LIST)
+async def list_automations(self) -> AutomationListResponse: ...
+
+
+@rpc.method(AutomationRpcMethod.CANCEL_ALL)
+async def cancel_all(self) -> None: ...
+```
+
+Both stay OpenRPC conformant: such a method is described with `"params": []` and a
+`null` result schema, its request may omit `params` entirely, and the generated
+client exposes it as `await client.automation.cancel_all()`.
 
 The `summary` is optional: without one, the first line of the docstring is used,
 and a method with neither simply carries no summary into the generated contract.

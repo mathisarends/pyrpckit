@@ -45,6 +45,8 @@ async def test_the_protocol_is_derived_from_the_handlers(
     assert [method.name for method in server.protocol.methods] == [
         GreetingRpcMethod.SAY,
         GreetingRpcMethod.FORGET,
+        GreetingRpcMethod.GREETED,
+        GreetingRpcMethod.CLEAR,
     ]
 
 

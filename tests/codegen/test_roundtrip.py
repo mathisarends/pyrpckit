@@ -19,11 +19,20 @@ class LoopbackTransport:
         self._next_id = 0
         self.closed = False
 
-    async def request(self, method: str, params: dict[str, Any]) -> Any:
+    async def request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         self._next_id += 1
-        response = await self._server.handle(
-            {"jsonrpc": "2.0", "id": self._next_id, "method": method, "params": params}
-        )
+        request: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": self._next_id,
+            "method": method,
+        }
+        if params is not None:
+            request["params"] = params
+        response = await self._server.handle(request)
         assert response is not None
         payload = response.model_dump(mode="json")
         if "error" in payload:
@@ -120,3 +129,27 @@ async def test_the_client_closes_its_transport(
         await client.greeting.say(name="Mathis")
 
     assert transport.closed
+
+
+async def test_a_call_without_params_takes_no_arguments(
+    generated_client: ModuleType,
+    transport: LoopbackTransport,
+) -> None:
+    client = generated_client.GreetingClient(transport)
+    await client.greeting.say(name="Mathis")
+
+    greeted = await client.greeting.greeted()
+
+    assert greeted.names == ["Mathis"]
+
+
+async def test_a_call_without_params_or_result_returns_none(
+    generated_client: ModuleType,
+    transport: LoopbackTransport,
+    handler: GreetingRpcMethods,
+) -> None:
+    client = generated_client.GreetingClient(transport)
+    await client.greeting.say(name="Mathis")
+
+    assert await client.greeting.clear() is None
+    assert handler.greeted == []

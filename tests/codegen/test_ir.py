@@ -19,6 +19,8 @@ def test_methods_are_grouped_into_namespaces(document: dict[str, Any]) -> None:
     assert [operation.name for operation in ir.namespaces[0].operations] == [
         "say",
         "forget",
+        "greeted",
+        "clear",
     ]
     assert ir.root_operations == ()
 
@@ -48,6 +50,8 @@ def test_the_method_enum_covers_every_operation(document: dict[str, Any]) -> Non
     assert [(member.name, member.value) for member in ir.method_enum.members] == [
         ("GREETING_SAY", "greeting.say"),
         ("GREETING_FORGET", "greeting.forget"),
+        ("GREETING_GREETED", "greeting.greeted"),
+        ("GREETING_CLEAR", "greeting.clear"),
     ]
 
 
@@ -92,5 +96,16 @@ def test_notifications_are_lowered(document: dict[str, Any]) -> None:
 def test_a_foreign_openrpc_document_is_rejected(document: dict[str, Any]) -> None:
     foreign = {**document, "methods": [{"name": "a.b", "params": [], "result": {}}]}
 
-    with pytest.raises(UnsupportedSchemaError, match="x-rpc-params-schema"):
+    with pytest.raises(UnsupportedSchemaError, match="x-rpc-request-schema"):
         build_ir(foreign)
+
+
+def test_an_operation_without_params_carries_no_params_model(
+    document: dict[str, Any],
+) -> None:
+    ir = build_ir(document)
+    greeted = ir.operations[2]
+
+    assert greeted.params == ()
+    assert greeted.params_model is None
+    assert greeted.result == NamedType("GreetedResult")

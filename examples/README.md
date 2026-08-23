@@ -5,6 +5,8 @@ client, or application structure. Each file is standalone and executable.
 
 - [`basic.py`](basic.py) declares a typed method, serves one raw JSON-RPC request,
   and prints the response.
+- [`no_params.py`](no_params.py) declares methods that take no params and answer
+  with nothing, and shows how they reach the OpenRPC contract.
 - [`features.py`](features.py) groups multiple handlers into named features and
   inspects the resulting versioned protocol.
 - [`errors.py`](errors.py) declares an application error as part of a method's
@@ -20,6 +22,7 @@ Run an example from the repository root:
 
 ```bash
 uv run python examples/basic.py
+uv run python examples/no_params.py
 uv run python examples/features.py
 uv run python examples/errors.py
 uv run python examples/error_mapping.py

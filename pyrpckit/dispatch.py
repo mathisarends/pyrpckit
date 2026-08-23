@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -8,14 +9,14 @@ from pyrpckit.envelopes import RpcRequestEnvelope
 from pyrpckit.errors import ProtocolDefinitionError, RpcInvalidParamsError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
 
-type BoundRpcMethod = Callable[[BaseModel], Awaitable[BaseModel | None]]
+type BoundRpcMethod = Callable[..., Awaitable[BaseModel | None]]
 
 
 @dataclass(frozen=True, slots=True)
 class RpcInvocation:
     request: RpcRequestEnvelope
     method: RpcMethodDefinition
-    params: BaseModel
+    params: BaseModel | None
 
 
 class RpcDispatcher:
@@ -39,14 +40,51 @@ class RpcDispatcher:
         """
         request = RpcRequestEnvelope.model_validate(raw_request)
         method = self._protocol.method(request.method)
-        try:
-            params = TypeAdapter(method.params).validate_python(request.params)
-        except ValidationError as error:
-            raise RpcInvalidParamsError(error) from error
-        return RpcInvocation(request=request, method=method, params=params)
+        return RpcInvocation(
+            request=request,
+            method=method,
+            params=_validated_params(method, request.params),
+        )
 
     async def execute(self, invocation: RpcInvocation) -> BaseModel | None:
-        return await self._bound[invocation.method.name](invocation.params)
+        bound = self._bound[invocation.method.name]
+        if invocation.params is None:
+            return await bound()
+        return await bound(invocation.params)
+
+
+def _validated_params(
+    method: RpcMethodDefinition,
+    raw_params: dict[str, Any],
+) -> BaseModel | None:
+    if method.params is None:
+        if raw_params:
+            raise RpcInvalidParamsError(
+                _unexpected_params_error(method, sorted(raw_params))
+            )
+        return None
+    try:
+        return TypeAdapter(method.params).validate_python(raw_params)
+    except ValidationError as error:
+        raise RpcInvalidParamsError(error) from error
+
+
+def _unexpected_params_error(
+    method: RpcMethodDefinition,
+    names: list[str],
+) -> ValidationError:
+    """A validation error shaped like the one a params model would have raised."""
+    return ValidationError.from_exception_data(
+        method.name,
+        [
+            {
+                "type": "extra_forbidden",
+                "loc": (name,),
+                "input": None,
+            }
+            for name in names
+        ],
+    )
 
 
 def _bound_methods(handlers: Iterable[RpcHandler]) -> dict[str, BoundRpcMethod]:

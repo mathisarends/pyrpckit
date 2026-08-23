@@ -43,11 +43,13 @@ def method[HandlerT: Callable[..., Any]](
 ) -> Callable[[HandlerT], HandlerT]:
     """Expose a handler method under ``name`` in the RPC protocol.
 
-    The decorated method must accept exactly ``self`` and a Pydantic params model
-    and must annotate its return type with a Pydantic model or ``None``. Without
-    an explicit ``summary`` the first line of the docstring is used, if there is
-    one. Each declared error must be an ``RpcError`` subclass; the server
-    serialises those directly, so they need no ``error_mapper``.
+    The decorated method accepts ``self`` and at most one Pydantic params model,
+    and must annotate its return type with a Pydantic model or ``None``. A method
+    that takes no params declares none, and one that answers with nothing returns
+    ``None``; neither needs a placeholder model. Without an explicit ``summary``
+    the first line of the docstring is used, if there is one. Each declared error
+    must be an ``RpcError`` subclass; the server serialises those directly, so
+    they need no ``error_mapper``.
     """
 
     def decorate(handler: HandlerT) -> HandlerT:

@@ -117,7 +117,7 @@ class OperationDecl:
     name: str
     method_member: str
     params: tuple[ParamDecl, ...]
-    params_model: str
+    params_model: str | None
     result: TypeExpr
     summary: str = ""
 
@@ -245,7 +245,11 @@ def _roots(
     operations = root_operations + tuple(
         operation for namespace in namespaces for operation in namespace.operations
     )
-    roots = {operation.params_model for operation in operations}
+    roots = {
+        operation.params_model
+        for operation in operations
+        if operation.params_model is not None
+    }
     for operation in operations:
         roots.update(named_types(operation.result))
         for parameter in operation.params:
@@ -398,12 +402,12 @@ def _grouped_operations(
 
 
 def _operation(method: dict[str, Any], name: str) -> OperationDecl:
-    params_schema = method.get("x-rpc-params-schema")
-    if params_schema is None:
+    if "x-rpc-request-schema" not in method:
         raise UnsupportedSchemaError(
-            f"Method {method['name']} carries no x-rpc-params-schema; "
+            f"Method {method['name']} carries no x-rpc-request-schema; "
             "the document was not rendered by pyrpckit"
         )
+    params_schema = method.get("x-rpc-params-schema")
     return OperationDecl(
         rpc_name=method["name"],
         name=name,
@@ -416,7 +420,7 @@ def _operation(method: dict[str, Any], name: str) -> OperationDecl:
             )
             for parameter in method.get("params", ())
         ),
-        params_model=ref_name(params_schema),
+        params_model=None if params_schema is None else ref_name(params_schema),
         result=type_expression(method["result"]["schema"]),
         summary=method.get("summary", ""),
     )
