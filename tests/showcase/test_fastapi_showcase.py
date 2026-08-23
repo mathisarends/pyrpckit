@@ -53,7 +53,6 @@ def test_the_committed_contract_matches_the_declared_api() -> None:
     assert committed == json.loads(
         render_contract(
             PROTOCOL,
-            "openrpc",
             title=TITLE,
             description=DESCRIPTION,
             servers=SERVERS,

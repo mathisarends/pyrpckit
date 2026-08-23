@@ -1,49 +1,36 @@
 import json
 
 from pyrpckit import RpcProtocol
-from pyrpckit.schema import render_json_schema, render_openrpc
+from pyrpckit.schema import render_openrpc
 
 from .conftest import GreetingNotificationMethod, GreetingRpcMethod
 
 
-def test_the_json_schema_lists_every_frame_of_the_protocol(
+def test_openrpc_request_components_pin_the_method_name(
     protocol: RpcProtocol,
 ) -> None:
-    document = render_json_schema(protocol, title="Greeting Protocol")
-
-    assert [frame["$ref"] for frame in document["oneOf"]] == [
-        "#/$defs/SayRequest",
-        "#/$defs/ForgetRequest",
-        "#/$defs/GreetedNamesRequest",
-        "#/$defs/ClearRequest",
-        "#/$defs/RpcSuccess",
-        "#/$defs/RpcFailure",
-        "#/$defs/GreetingChangedNotification",
-    ]
-
-
-def test_request_schemas_pin_the_method_name(protocol: RpcProtocol) -> None:
-    document = render_json_schema(protocol, title="Greeting Protocol")
-    request = document["$defs"]["SayRequest"]
+    document = render_openrpc(protocol, title="Greeting Protocol")
+    request = document["components"]["schemas"]["SayRequest"]
 
     assert request["properties"]["method"]["const"] == GreetingRpcMethod.SAY
-    assert request["properties"]["params"] == {"$ref": "#/$defs/SayParams"}
+    assert request["properties"]["params"] == {"$ref": "#/components/schemas/SayParams"}
     assert request["required"] == ["jsonrpc", "method", "params"]
 
 
 def test_params_are_optional_when_the_model_has_no_required_fields(
     protocol: RpcProtocol,
 ) -> None:
-    document = render_json_schema(protocol, title="Greeting Protocol")
+    document = render_openrpc(protocol, title="Greeting Protocol")
+    schemas = document["components"]["schemas"]
 
-    assert document["$defs"]["SayParams"]["required"] == ["name"]
-    assert "params" in document["$defs"]["SayRequest"]["required"]
+    assert schemas["SayParams"]["required"] == ["name"]
+    assert "params" in schemas["SayRequest"]["required"]
 
 
 def test_events_and_notifications_are_indexed_as_extensions(
     protocol: RpcProtocol,
 ) -> None:
-    document = render_json_schema(protocol, title="Greeting Protocol")
+    document = render_openrpc(protocol, title="Greeting Protocol")
 
     assert document["x-rpc-protocol-version"] == protocol.version
     assert [event["name"] for event in document["x-rpc-events"]] == [
@@ -52,19 +39,9 @@ def test_events_and_notifications_are_indexed_as_extensions(
     ]
     notification = document["x-rpc-notifications"][0]
     assert notification["name"] == GreetingNotificationMethod.CHANGED
-    assert notification["message"] == {"$ref": "#/$defs/GreetingChangedNotification"}
-
-
-def test_the_json_schema_is_serialisable(protocol: RpcProtocol) -> None:
-    document = render_json_schema(
-        protocol,
-        title="Greeting Protocol",
-        schema_id="https://example.test/greeting.schema.json",
-    )
-
-    assert json.loads(json.dumps(document))["$id"] == (
-        "https://example.test/greeting.schema.json"
-    )
+    assert notification["message"] == {
+        "$ref": "#/components/schemas/GreetingChangedNotification"
+    }
 
 
 def test_openrpc_describes_methods_by_name(protocol: RpcProtocol) -> None:
@@ -145,8 +122,8 @@ def test_openrpc_rewrites_every_reference_into_components(
 def test_a_request_without_params_accepts_an_omitted_or_empty_member(
     protocol: RpcProtocol,
 ) -> None:
-    document = render_json_schema(protocol, title="Greeting Protocol")
-    request = document["$defs"]["ClearRequest"]
+    document = render_openrpc(protocol, title="Greeting Protocol")
+    request = document["components"]["schemas"]["ClearRequest"]
 
     assert request["required"] == ["jsonrpc", "method"]
     assert request["properties"]["params"] == {

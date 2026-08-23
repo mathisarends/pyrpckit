@@ -4,10 +4,10 @@ from typing import Any
 from pydantic import TypeAdapter
 
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
-from pyrpckit.schema.json_schema import (
+from pyrpckit.schema._components import (
+    components,
     described,
     notification_schema_name,
-    render_json_schema,
     type_name,
 )
 
@@ -24,9 +24,7 @@ def render_openrpc(
     servers: Iterable[Server] = (),
 ) -> dict[str, Any]:
     """Render the protocol as an OpenRPC 1.4.1 document."""
-    components = _rewrite_refs(
-        render_json_schema(protocol, title=title, description=description)["$defs"]
-    )
+    schemas = _rewrite_refs(components(protocol))
     return {
         "openrpc": OPENRPC_VERSION,
         "info": {
@@ -35,8 +33,8 @@ def render_openrpc(
             "description": description,
         },
         "servers": [dict(server) for server in servers],
-        "methods": [_method(method, components) for method in protocol.methods],
-        "components": {"schemas": components},
+        "methods": [_method(method, schemas) for method in protocol.methods],
+        "components": {"schemas": schemas},
         "x-rpc-protocol-version": protocol.version,
         "x-rpc-notifications": [
             described(

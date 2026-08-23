@@ -3,15 +3,12 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from pyrpckit.envelopes import RpcFailure, RpcSuccess
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import (
     RpcMethodDefinition,
     RpcNotificationDefinition,
     RpcProtocol,
 )
-
-JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
 EMPTY_PARAMS_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
@@ -20,79 +17,22 @@ EMPTY_PARAMS_SCHEMA: dict[str, Any] = {
 """What a method without params accepts: an omitted or empty ``params`` member."""
 
 
-def render_json_schema(
-    protocol: RpcProtocol,
-    *,
-    title: str,
-    description: str = "JSON-RPC requests, responses, and notifications.",
-    schema_id: str | None = None,
-) -> dict[str, Any]:
-    """Render every frame of the protocol as one ``oneOf`` schema document."""
+def components(protocol: RpcProtocol) -> dict[str, Any]:
+    """Build the JSON Schema components referenced by the OpenRPC document."""
     annotations = _annotations(protocol)
-    schema_map, root = TypeAdapter.json_schemas(
+    _, root = TypeAdapter.json_schemas(
         (
             (name, "validation", TypeAdapter(annotation))
             for name, annotation in annotations.items()
-        ),
-        title=title,
-        description=description,
+        )
     )
-    refs = {name: schema_map[(name, "validation")] for name in annotations}
     definitions = root["$defs"]
     for method in protocol.methods:
         definitions[method.request_name] = _request_schema(method)
-        refs[method.request_name] = _ref(method.request_name)
     for notification in protocol.notifications:
         name = notification_schema_name(notification.name)
         definitions[name] = _notification_schema(notification, name)
-        refs[name] = _ref(name)
-    document: dict[str, Any] = {"$schema": JSON_SCHEMA_DIALECT}
-    if schema_id is not None:
-        document["$id"] = schema_id
-    document.update(
-        {
-            "title": title,
-            "description": description,
-            "oneOf": [refs[name] for name in _frame_names(protocol)],
-            "$defs": definitions,
-            "x-rpc-protocol-version": protocol.version,
-            "x-rpc-methods": [
-                _method_entry(method, refs) for method in protocol.methods
-            ],
-            "x-rpc-notifications": [
-                described(
-                    {
-                        "name": notification.name,
-                        "payload": refs[type_name(notification.payload)],
-                        "message": refs[notification_schema_name(notification.name)],
-                    },
-                    notification.summary,
-                )
-                for notification in protocol.notifications
-            ],
-            "x-rpc-events": [
-                {"name": event.name, "payload": refs[type_name(event.payload)]}
-                for event in protocol.events
-            ],
-        }
-    )
-    return document
-
-
-def _method_entry(method: RpcMethodDefinition, refs: dict[str, Any]) -> dict[str, Any]:
-    entry = described({"name": method.name}, method.summary)
-    if method.feature is not None:
-        entry["feature"] = method.feature
-    entry["request"] = refs[method.request_name]
-    if method.params is not None:
-        entry["params"] = refs[type_name(method.params)]
-    entry["result"] = refs[type_name(method.result)]
-    if method.errors:
-        entry["errors"] = [
-            {"code": int(error.code), "message": error.message}
-            for error in method.errors
-        ]
-    return entry
+    return definitions
 
 
 def described(entry: dict[str, Any], summary: str | None) -> dict[str, Any]:
@@ -116,16 +56,6 @@ def notification_schema_name(name: str) -> str:
     return "".join(part.capitalize() for part in parts) + "Notification"
 
 
-def _frame_names(protocol: RpcProtocol) -> list[str]:
-    names = [method.request_name for method in protocol.methods]
-    names.extend((type_name(RpcSuccess), type_name(RpcFailure)))
-    names.extend(
-        notification_schema_name(notification.name)
-        for notification in protocol.notifications
-    )
-    return names
-
-
 def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
     annotations: dict[str, Any] = {}
     for method in protocol.methods:
@@ -136,8 +66,6 @@ def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
         _add(annotations, notification.payload)
     for event in protocol.events:
         _add(annotations, event.payload)
-    for envelope in (RpcSuccess, RpcFailure):
-        _add(annotations, envelope)
     return annotations
 
 

@@ -9,7 +9,6 @@ from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 from pyrpckit.codegen.writer import write_files
 from pyrpckit.schema.export import (
-    FORMATS,
     ProtocolReferenceError,
     load_protocol,
     render_contract,
@@ -36,7 +35,6 @@ def _schema(arguments: argparse.Namespace) -> int:
         return 2
     contract = render_contract(
         protocol,
-        arguments.format,
         title=arguments.title,
         description=arguments.description,
         servers=tuple(_server(entry) for entry in arguments.server),
@@ -134,17 +132,11 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
     schema.add_argument("--title", required=True, help="Title of the API.")
     schema.add_argument("--description", help="Description of the API.")
     schema.add_argument(
-        "--format",
-        choices=FORMATS,
-        default="openrpc",
-        help="Contract format (default: openrpc).",
-    )
-    schema.add_argument(
         "--server",
         action="append",
         default=[],
         metavar="NAME=URL",
-        help="Server the API is reachable at; repeatable, OpenRPC only.",
+        help="Server the API is reachable at; repeatable.",
     )
     schema.add_argument(
         "--check",

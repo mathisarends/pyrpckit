@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from pyrpckit.codegen.cli import main
-from pyrpckit.schema import render_json_schema, render_openrpc
+from pyrpckit.schema import render_openrpc
 from pyrpckit.schema.export import (
     ProtocolReferenceError,
     load_protocol,
@@ -43,17 +43,12 @@ def test_an_unusable_reference_is_reported(reference: str) -> None:
 
 
 def test_the_contract_is_rendered_as_indented_json() -> None:
-    contract = render_contract(GREETING_PROTOCOL, "openrpc", title="Greeting API")
+    contract = render_contract(GREETING_PROTOCOL, title="Greeting API")
 
     assert contract.endswith("\n")
     assert json.loads(contract) == render_openrpc(
         GREETING_PROTOCOL, title="Greeting API"
     )
-
-
-def test_an_unknown_format_is_rejected() -> None:
-    with pytest.raises(ValueError, match="jsonschema"):
-        render_contract(GREETING_PROTOCOL, "jsonschema", title="Greeting API")
 
 
 def test_the_schema_command_writes_the_contract(tmp_path: Path) -> None:
@@ -71,15 +66,6 @@ def test_the_description_reaches_the_contract(tmp_path: Path) -> None:
 
     document = json.loads(output.read_text(encoding="utf-8"))
     assert document["info"]["description"] == "Greets people by name."
-
-
-def test_the_schema_command_renders_json_schema(tmp_path: Path) -> None:
-    output = tmp_path / "greeting.schema.json"
-    _schema(output, "--format", "json-schema")
-
-    assert json.loads(output.read_text(encoding="utf-8")) == render_json_schema(
-        GREETING_PROTOCOL, title="Greeting API"
-    )
 
 
 def test_the_schema_command_records_the_servers(tmp_path: Path) -> None:

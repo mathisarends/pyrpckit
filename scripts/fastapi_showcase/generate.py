@@ -25,7 +25,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     contract = render_contract(
         PROTOCOL,
-        "openrpc",
         title=TITLE,
         description=DESCRIPTION,
         servers=SERVERS,

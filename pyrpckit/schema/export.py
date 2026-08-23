@@ -1,12 +1,8 @@
 import importlib
 import json
-from typing import Any
 
 from pyrpckit.protocol import RpcProtocol
-from pyrpckit.schema.json_schema import render_json_schema
 from pyrpckit.schema.openrpc import Server, render_openrpc
-
-FORMATS = ("openrpc", "json-schema")
 
 
 class ProtocolReferenceError(Exception):
@@ -39,34 +35,12 @@ def load_protocol(reference: str) -> RpcProtocol:
 
 def render_contract(
     protocol: RpcProtocol,
-    schema_format: str,
     *,
     title: str,
     description: str | None = None,
     servers: tuple[Server, ...] = (),
 ) -> str:
     """Render a contract as the JSON text committed to the repository."""
-    document = _document(
-        protocol,
-        schema_format,
-        title=title,
-        description=description,
-        servers=servers,
-    )
-    return json.dumps(document, indent=2) + "\n"
-
-
-def _document(
-    protocol: RpcProtocol,
-    schema_format: str,
-    *,
-    title: str,
-    description: str | None,
-    servers: tuple[Server, ...],
-) -> dict[str, Any]:
     described = {} if description is None else {"description": description}
-    if schema_format == "openrpc":
-        return render_openrpc(protocol, title=title, servers=servers, **described)
-    if schema_format == "json-schema":
-        return render_json_schema(protocol, title=title, **described)
-    raise ValueError(f"Unknown schema format: {schema_format}")
+    document = render_openrpc(protocol, title=title, servers=servers, **described)
+    return json.dumps(document, indent=2) + "\n"

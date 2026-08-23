@@ -5,8 +5,8 @@ protocols for Python.
 
 Declare your API once on plain handler classes with Pydantic models. `pyrpckit`
 derives the protocol from those declarations, validates and dispatches incoming
-requests against it, and renders the same definition as JSON Schema and OpenRPC
-so clients can be generated from it.
+requests against it, and renders the same definition as an OpenRPC contract so
+clients can be generated from it.
 
 ## Declaring handlers
 
@@ -179,16 +179,14 @@ committed — no running server is involved. Name the protocol as
 pyrpckit schema automation.api:PROTOCOL   --output schema/automation.openrpc.json   --title Automation   --server local=ws://127.0.0.1:8000/rpc
 ```
 
-Pass `--format json-schema` for the JSON Schema document instead, and `--check`
-in CI to fail the build when the committed contract no longer matches the
-decorated API.
+Pass `--check` in CI to fail the build when the committed contract no longer
+matches the decorated API.
 
-Both documents are available as plain functions too:
+The document is available as a plain function too:
 
 ```python
-from pyrpckit.schema import render_json_schema, render_openrpc
+from pyrpckit.schema import render_openrpc
 
-render_json_schema(protocol, title="Automation Protocol")
 render_openrpc(
     protocol,
     title="Automation",
@@ -196,12 +194,9 @@ render_openrpc(
 )
 ```
 
-The JSON Schema document lists every frame on the wire — one request schema per
-method, the success and failure envelopes, and one envelope per notification —
-under a single `oneOf`, and indexes the protocol in `x-rpc-methods`,
-`x-rpc-notifications`, and `x-rpc-events`. The OpenRPC document describes the same
-methods with their summaries and declared errors, and tags each one with the
-feature it came from.
+The OpenRPC document describes every method with its parameters, result,
+summaries, declared errors, and originating feature. Its JSON Schema components
+also describe the request and notification envelopes used by client generation.
 
 ## Generating a client
 
