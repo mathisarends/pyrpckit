@@ -171,6 +171,20 @@ Send one with the `RpcNotification` envelope.
 
 ## Generating the contract
 
+The contract is a build-time artefact, so it is rendered from the protocol and
+committed — no running server is involved. Name the protocol as
+`module:attribute`, the way uvicorn names an app:
+
+```bash
+pyrpckit schema automation.api:PROTOCOL   --output schema/automation.openrpc.json   --title Automation   --server local=ws://127.0.0.1:8000/rpc
+```
+
+Pass `--format json-schema` for the JSON Schema document instead, and `--check`
+in CI to fail the build when the committed contract no longer matches the
+decorated API.
+
+Both documents are available as plain functions too:
+
 ```python
 from pyrpckit.schema import render_json_schema, render_openrpc
 

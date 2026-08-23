@@ -11,7 +11,7 @@ SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
 for _ in $(seq 1 30); do
-    if curl --silent --fail http://127.0.0.1:8000/openrpc.json >/dev/null 2>&1; then
+    if curl --silent --fail http://127.0.0.1:8000/rpc         -H "content-type: application/json"         -d '{"jsonrpc":"2.0","method":"calculator.add","params":{"left":1,"right":1}}'         >/dev/null 2>&1; then
         break
     fi
     sleep 0.5

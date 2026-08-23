@@ -21,8 +21,9 @@ class CalculatorRpc(rpc.RpcHandler):
 ## 2. Attach a transport
 
 [`server.py`](server.py) contains the whole FastAPI integration: one POST route
-passes decoded JSON to `RpcServer`, then serializes its response. The GET route
-publishes the generated OpenRPC contract.
+passes decoded JSON to `RpcServer`, then serializes its response. The contract is
+not served at runtime — it is rendered from the protocol with `pyrpckit schema`
+and committed.
 
 Run it from the repository root:
 
@@ -49,9 +50,9 @@ separate consumer. Update both after changing the API:
 uv run --group showcase python -m scripts.fastapi_showcase.generate
 ```
 
-The convenience script renders OpenRPC with `render_openrpc`, then calls
-`generate_python_client`. Both are public APIs; the equivalent standalone client
-command is `pyrpckit generate python ...`.
+The convenience script renders the contract with `render_contract`, then calls
+`generate_python_client`. Both are public APIs; the equivalent standalone
+commands are `pyrpckit schema ...` and `pyrpckit generate python ...`.
 
 The useful part of the generated surface is intentionally small:
 
