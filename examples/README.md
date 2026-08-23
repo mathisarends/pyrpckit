@@ -17,6 +17,9 @@ client, or application structure. Each file is standalone and executable.
   serializes a server-initiated notification.
 - [`schemas.py`](schemas.py) renders JSON Schema and OpenRPC documents from the
   same protocol definition.
+- [`typescript_codegen.py`](typescript_codegen.py) renders OpenRPC and generates
+  the inspectable client under [`typescript_client/generated`](typescript_client/generated),
+  with example calls in [`typescript_client/usage.ts`](typescript_client/usage.ts).
 
 Run an example from the repository root:
 
@@ -28,6 +31,7 @@ uv run python examples/errors.py
 uv run python examples/error_mapping.py
 uv run python examples/notifications.py
 uv run python examples/schemas.py
+uv run python examples/typescript_codegen.py
 ```
 
 For a complete FastAPI integration and generated client, see the
