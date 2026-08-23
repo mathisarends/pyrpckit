@@ -7,6 +7,9 @@ import pytest
 from pyrpckit.client import RpcRemoteError
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
+from pyrpckit.schema.export import render_contract
+from scripts.fastapi_showcase.generate import DESCRIPTION, SERVERS, TITLE
+from showcase.app.api import PROTOCOL
 from showcase.app.server import app
 from showcase.client import CalculatorClient
 from showcase.client.transport import HttpJsonRpcTransport
@@ -42,18 +45,20 @@ async def test_declared_errors_reach_the_generated_client(
     assert raised.value.code == -32001
 
 
-async def test_the_app_publishes_its_openrpc_contract() -> None:
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        response = await client.get("/openrpc.json")
-
+def test_the_committed_contract_matches_the_declared_api() -> None:
     committed = json.loads(
         (SHOWCASE / "spec" / "calculator.openrpc.json").read_text(encoding="utf-8")
     )
-    assert response.status_code == 200
-    assert response.json() == committed
+
+    assert committed == json.loads(
+        render_contract(
+            PROTOCOL,
+            "openrpc",
+            title=TITLE,
+            description=DESCRIPTION,
+            servers=SERVERS,
+        )
+    )
     assert [method["name"] for method in committed["methods"]] == [
         "calculator.add",
         "calculator.divide",

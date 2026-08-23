@@ -4,12 +4,16 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pyrpckit.codegen import PythonClientOptions, generate_python_client
-from pyrpckit.schema import render_openrpc
+from pyrpckit.codegen.writer import write_files
+from pyrpckit.schema.export import render_contract
 from showcase.app.api import PROTOCOL
 
 SHOWCASE = Path(__file__).parents[2] / "showcase"
 SCHEMA = SHOWCASE / "spec" / "calculator.openrpc.json"
 CLIENT = SHOWCASE / "client"
+TITLE = "Calculator API"
+DESCRIPTION = "A small pyrpckit API served through FastAPI."
+SERVERS = ({"name": "local", "url": "http://127.0.0.1:8000/rpc"},)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -19,21 +23,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)
 
-    document = render_openrpc(
+    contract = render_contract(
         PROTOCOL,
-        title="Calculator API",
-        description="A small pyrpckit API served through FastAPI.",
-        servers=({"name": "local", "url": "http://127.0.0.1:8000/rpc"},),
+        "openrpc",
+        title=TITLE,
+        description=DESCRIPTION,
+        servers=SERVERS,
     )
-    rendered_schema = json.dumps(document, indent=2) + "\n"
-    schema_changed = (
-        not SCHEMA.exists() or SCHEMA.read_text(encoding="utf-8") != rendered_schema
+    paths = write_files(
+        SCHEMA.parent,
+        {SCHEMA.name: contract},
+        check=arguments.check,
     )
-    if schema_changed and not arguments.check:
-        SCHEMA.write_text(rendered_schema, encoding="utf-8")
-
-    changed = generate_python_client(
-        document,
+    paths += generate_python_client(
+        json.loads(contract),
         CLIENT,
         PythonClientOptions(
             package="showcase.client",
@@ -42,7 +45,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         check=arguments.check,
     )
-    paths = ((SCHEMA,) if schema_changed else ()) + changed
     if arguments.check:
         for path in paths:
             print(f"Out of date: {path.relative_to(SHOWCASE)}")

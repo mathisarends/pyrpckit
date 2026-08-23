@@ -95,6 +95,9 @@ GREETING_FEATURE = rpc.feature(
 )
 
 
+GREETING_PROTOCOL = RpcProtocol(GREETING_FEATURE)
+
+
 @pytest.fixture
 def protocol() -> RpcProtocol:
     return RpcProtocol(GREETING_FEATURE)
