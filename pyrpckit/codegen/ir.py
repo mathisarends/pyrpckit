@@ -224,6 +224,9 @@ def type_expression(schema: dict[str, Any] | bool) -> TypeExpr:
         return NamedType(ref_name(schema))
     if "const" in schema:
         return LiteralType(schema["const"])
+    if "enum" in schema:
+        literals = tuple(LiteralType(value) for value in schema["enum"])
+        return literals[0] if len(literals) == 1 else UnionType(literals)
     variants = schema.get("anyOf") or schema.get("oneOf")
     if variants:
         return UnionType(

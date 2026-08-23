@@ -4,11 +4,14 @@ import pytest
 
 from pyrpckit.codegen import build_ir
 from pyrpckit.codegen.ir import (
+    LiteralType,
     ModelDecl,
     NamedType,
     Primitive,
     PrimitiveType,
+    UnionType,
     UnsupportedSchemaError,
+    type_expression,
 )
 
 
@@ -109,3 +112,9 @@ def test_an_operation_without_params_carries_no_params_model(
     assert greeted.params == ()
     assert greeted.params_model is None
     assert greeted.result == NamedType("GreetedResult")
+
+
+def test_inline_enums_become_literal_unions() -> None:
+    assert type_expression({"type": "string", "enum": ["left", "right"]}) == (
+        UnionType((LiteralType("left"), LiteralType("right")))
+    )

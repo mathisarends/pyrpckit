@@ -74,3 +74,30 @@ def test_check_passes_once_the_client_is_generated(
         main(["generate", "python", str(schema), "--output", str(output), "--check"])
         == 0
     )
+
+
+def test_generate_writes_a_typescript_client(schema: Path, tmp_path: Path) -> None:
+    output = tmp_path / "generated"
+
+    assert (
+        main(
+            [
+                "generate",
+                "typescript",
+                str(schema),
+                "--output",
+                str(output),
+                "--client-name",
+                "GreetingClient",
+                "--transport-module",
+                "../rpc-transport",
+            ]
+        )
+        == 0
+    )
+    assert "export class GreetingClient" in (output / "client.ts").read_text(
+        encoding="utf-8"
+    )
+    assert 'from "../rpc-transport"' in (output / "client.ts").read_text(
+        encoding="utf-8"
+    )

@@ -198,7 +198,27 @@ ready-to-use package into the repository that consumes the API:
 pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_client
 ```
 
-The generated package holds no hand-written code and is meant to be committed:
+TypeScript clients use the same OpenRPC input and language-neutral IR:
+
+```bash
+pyrpckit generate typescript schema/greeting.openrpc.json \
+  --output src/generated \
+  --client-name GreetingClient \
+  --transport-module ../transport
+```
+
+This writes `models.ts`, `client.ts`, and `index.ts`. The transport module stays
+outside the generated directory and exports this transport-agnostic contract:
+
+```typescript
+export interface RpcTransport {
+  request<TResult>(method: string, params?: object): Promise<TResult>;
+  notifications(): AsyncIterable<unknown>;
+  close(): Promise<void>;
+}
+```
+
+The generated Python package holds no hand-written code and is meant to be committed:
 
 - `models.py` — every schema as a Pydantic model, plus an `RpcMethod` enum
 - `namespaces/<name>.py` — one class per method prefix, one typed `async def` per method
@@ -215,8 +235,9 @@ async with GreetingClient(transport) as client:
 
 Only the schemas the client actually reaches are emitted — request and response
 envelopes stay out of the generated models. The transport is not generated: the
-client is constructed with anything satisfying the `pyrpckit.client.RpcTransport`
-protocol, so it works over a WebSocket, HTTP, or a queue.
+Python clients accept anything satisfying `pyrpckit.client.RpcTransport`, while
+TypeScript clients import the equivalent `RpcTransport` interface from
+`--transport-module`. Both therefore work over a WebSocket, HTTP, or a queue.
 
 Run the generator with `--check` in CI to fail the build when the committed
 client no longer matches the server schema:
@@ -224,6 +245,9 @@ client no longer matches the server schema:
 ```bash
 pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_client --check
 ```
+
+Use `typescript` instead of `python` in the same command to check generated
+TypeScript files.
 
 ## Development
 

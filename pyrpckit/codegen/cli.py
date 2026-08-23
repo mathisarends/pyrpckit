@@ -3,27 +3,41 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from pyrpckit.codegen import generate_python_client
+from pyrpckit.codegen import generate_python_client, generate_typescript_client
 from pyrpckit.codegen.python import PythonClientOptions
+from pyrpckit.codegen.typescript import TypeScriptClientOptions
 
-LANGUAGES = ("python",)
+LANGUAGES = ("python", "typescript")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
     document = json.loads(arguments.schema.read_text(encoding="utf-8"))
-    options = PythonClientOptions(
-        package=arguments.package or arguments.output.name,
-        client_name=arguments.client_name,
-        source=arguments.schema.name,
-    )
-    changed = generate_python_client(
-        document,
-        arguments.output,
-        options,
-        check=arguments.check,
-    )
+    if arguments.language == "python":
+        options = PythonClientOptions(
+            package=arguments.package or arguments.output.name,
+            client_name=arguments.client_name,
+            source=arguments.schema.name,
+        )
+        changed = generate_python_client(
+            document,
+            arguments.output,
+            options,
+            check=arguments.check,
+        )
+    else:
+        options = TypeScriptClientOptions(
+            client_name=arguments.client_name,
+            transport_module=arguments.transport_module,
+            source=arguments.schema.name,
+        )
+        changed = generate_typescript_client(
+            document,
+            arguments.output,
+            options,
+            check=arguments.check,
+        )
     if arguments.check:
         return _report_check(changed)
     for path in changed:
@@ -60,6 +74,11 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument(
         "--package",
         help="Import root of the generated package (default: the output directory).",
+    )
+    generate.add_argument(
+        "--transport-module",
+        default="../transport",
+        help=('TypeScript module exporting RpcTransport (default: "../transport").'),
     )
     generate.add_argument(
         "--client-name",
