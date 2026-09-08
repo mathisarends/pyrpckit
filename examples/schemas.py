@@ -15,21 +15,22 @@ class SearchResult(BaseModel):
     items: list[str]
 
 
-class SearchRpc(rpc.RpcHandler):
-    @rpc.method("search.run")
+router = rpc.RpcRouter(prefix="search", tags=("search",))
+
+
+class SearchRpc:
+    @router.method("run")
     async def search(self, params: SearchParams) -> SearchResult:
         return SearchResult(items=[])
 
 
-PROTOCOL = rpc.RpcProtocol(
-    rpc.feature("search", handlers=(SearchRpc,)),
-    version=3,
-)
+APP = rpc.RpcApp(version=3)
+APP.include_router(router)
 
 
 def main() -> None:
     openrpc = render_openrpc(
-        PROTOCOL,
+        APP.protocol,
         title="Search API",
         servers=({"name": "local", "url": "ws://localhost:8000/rpc"},),
     )

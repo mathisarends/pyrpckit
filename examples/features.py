@@ -15,27 +15,31 @@ class ProfileResult(BaseModel):
     name: str
 
 
-class SystemRpc(rpc.RpcHandler):
-    @rpc.method("system.status")
+system = rpc.RpcRouter(prefix="system", tags=("system",))
+account = rpc.RpcRouter(prefix="account", tags=("account",))
+
+
+class SystemRpc:
+    @system.method("status")
     async def status(self, params: EmptyParams) -> StatusResult:
         return StatusResult(status="ready")
 
 
-class AccountRpc(rpc.RpcHandler):
-    @rpc.method("account.profile", summary="Return the current profile.")
+class AccountRpc:
+    @account.method("profile", summary="Return the current profile.")
     async def profile(self, params: EmptyParams) -> ProfileResult:
         return ProfileResult(name="Mathis")
 
 
-SYSTEM = rpc.feature("system", handlers=(SystemRpc,))
-ACCOUNT = rpc.feature("account", handlers=(AccountRpc,))
-PROTOCOL = rpc.RpcProtocol(SYSTEM, ACCOUNT, version=2)
+APP = rpc.RpcApp(version=2)
+APP.include_router(system)
+APP.include_router(account)
 
 
 def main() -> None:
-    print(f"Protocol version: {PROTOCOL.version}")
-    for feature in PROTOCOL.features:
-        print(f"{feature.name}: {[method.name for method in feature.methods]}")
+    print(f"Protocol version: {APP.protocol.version}")
+    for method in APP.protocol.methods:
+        print(f"{method.tags[0]}: {method.name}")
 
 
 if __name__ == "__main__":

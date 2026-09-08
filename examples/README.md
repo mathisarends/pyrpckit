@@ -7,14 +7,14 @@ client, or application structure. Each file is standalone and executable.
   and prints the response.
 - [`no_params.py`](no_params.py) declares methods that take no params and answer
   with nothing, and shows how they reach the OpenRPC contract.
-- [`features.py`](features.py) groups multiple handlers into named features and
-  inspects the resulting versioned protocol.
+- [`features.py`](features.py) composes multiple tagged routers into one
+  versioned app.
 - [`errors.py`](errors.py) declares an application error as part of a method's
   contract and returns it as a JSON-RPC failure.
 - [`error_mapping.py`](error_mapping.py) translates an exception from foreign code
   with an `error_mapper`.
-- [`notifications.py`](notifications.py) declares a typed union of events and
-  serializes a server-initiated notification.
+- [`notifications.py`](notifications.py) declares a typed union of events on a
+  router and serializes a server-initiated notification.
 - [`schemas.py`](schemas.py) renders JSON Schema and OpenRPC documents from the
   same protocol definition.
 - [`typescript_codegen.py`](typescript_codegen.py) renders OpenRPC and generates

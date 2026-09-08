@@ -19,8 +19,11 @@ class DivisionByZero(rpc.RpcError):
     message = "Division by zero"
 
 
-class CalculatorRpc(rpc.RpcHandler):
-    @rpc.method("calculator.divide", errors=(DivisionByZero,))
+router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
+
+
+class CalculatorRpc:
+    @router.method("divide", errors=(DivisionByZero,))
     async def divide(self, params: DivideParams) -> Quotient:
         if params.divisor == 0:
             raise DivisionByZero()
@@ -28,7 +31,9 @@ class CalculatorRpc(rpc.RpcHandler):
 
 
 async def main() -> None:
-    server = rpc.RpcServer(CalculatorRpc())
+    app = rpc.RpcApp()
+    app.include_router(router)
+    server = app.bind(CalculatorRpc())
     response = await server.handle(
         {
             "jsonrpc": "2.0",

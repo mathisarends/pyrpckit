@@ -3,23 +3,16 @@
 Decorator-driven, transport-agnostic [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
 protocols for Python.
 
-Declare your API once on plain handler classes with Pydantic models. `pyrpckit`
-derives the protocol from those declarations, validates and dispatches incoming
-requests against it, and renders the same definition as an OpenRPC contract so
-clients can be generated from it.
+Declare methods on local routers, compose them into one `RpcApp`, and bind normal
+Python objects when the application starts. `pyrpckit` validates and dispatches
+incoming requests against that declaration and renders the same protocol as an
+OpenRPC contract for client generation.
 
-## Declaring handlers
+## Declaring routes
 
 ```python
-from enum import StrEnum
-
 import pyrpckit as rpc
 from pydantic import BaseModel
-
-
-class AutomationRpcMethod(StrEnum):
-    LIST = "automation.list"
-    GET = "automation.get"
 
 
 class GetAutomationParams(BaseModel):
@@ -36,31 +29,35 @@ class AutomationNotFound(rpc.RpcError):
     message = "Automation not found"
 
 
-class AutomationRpcMethods(rpc.RpcHandler):
+router = rpc.RpcRouter(prefix="automation", tags=("automation",))
+
+
+class AutomationRpcMethods:
     def __init__(self, service: AutomationService) -> None:
         self._service = service
 
-    @rpc.method(AutomationRpcMethod.GET, errors=(AutomationNotFound,))
+    @router.method("get", errors=(AutomationNotFound,))
     async def get_automation(self, params: GetAutomationParams) -> AutomationResponse:
         """Get an automation."""
         job = await self._service.get(params.automation_id)
         return AutomationResponse(id=job.id, name=job.name)
 ```
 
-Handler classes inherit from `RpcHandler`. A decorated method accepts `self` and at
-most one Pydantic params model, and must annotate its return type with a Pydantic
-model or `None`. Violations are reported as a `ProtocolDefinitionError` when the
-protocol is assembled — never at request time.
+The prefix supplies the JSON-RPC namespace once, while tags group methods in the
+OpenRPC document. Handler classes need no base class. A decorated method accepts
+`self` and at most one Pydantic params model, and must annotate its return type
+with a Pydantic model or `None`. Invalid declarations raise
+`ProtocolDefinitionError` when the app builds its protocol.
 
 A method that needs nothing from the caller simply leaves the params out, and one
 that answers with nothing returns `None` — no placeholder models:
 
 ```python
-@rpc.method(AutomationRpcMethod.LIST)
+@router.method("list")
 async def list_automations(self) -> AutomationListResponse: ...
 
 
-@rpc.method(AutomationRpcMethod.CANCEL_ALL)
+@router.method("cancel_all")
 async def cancel_all(self) -> None: ...
 ```
 
@@ -71,24 +68,30 @@ client exposes it as `await client.automation.cancel_all()`.
 The `summary` is optional: without one, the first line of the docstring is used,
 and a method with neither simply carries no summary into the generated contract.
 
-## Assembling the protocol
-
-Group handlers into features, then combine the features into one protocol. The
-feature name tags its methods in the generated contract:
+Free functions use the same decorator and need no runtime binding:
 
 ```python
-AUTOMATION = rpc.feature("automation", handlers=(AutomationRpcMethods,))
+utility_router = rpc.RpcRouter()
 
-protocol = rpc.RpcProtocol(AUTOMATION, version=1)
+
+@utility_router.method("ping")
+async def ping() -> None:
+    pass
 ```
 
-Features are worth it once the API has more than one area to group. For a small
-protocol, or for a quick round-trip test, assemble one straight from the handler
-classes:
+## Composing the app
+
+Include routers once to create the complete API definition:
 
 ```python
-protocol = rpc.RpcProtocol.of(AutomationRpcMethods, version=1)
+app = rpc.RpcApp(version=1)
+app.include_router(router)
+app.include_router(utility_router)
 ```
+
+An include takes a snapshot. An optional include prefix is prepended to the
+router prefix with a dot, and include tags are appended with ordered
+deduplication. Accessing `app.protocol` validates and freezes the composition.
 
 ## Serving requests
 
@@ -96,16 +99,30 @@ protocol = rpc.RpcProtocol.of(AutomationRpcMethods, version=1)
 transport — WebSocket, HTTP, stdio, a message queue:
 
 ```python
-server = rpc.RpcServer(AutomationRpcMethods(service))
+server = app.bind(AutomationRpcMethods(service))
 
 response = await server.handle(await socket.receive_json())
 if response is not None:
     await socket.send_json(response.model_dump(mode="json"))
 ```
 
-The protocol is derived from the handlers you pass, so nothing is registered
-twice. Pass `protocol=` to serve one you assembled yourself; the server then
-checks the two against each other.
+`app.bind(...)` verifies that every declared instance method has exactly one
+matching handler and rejects decorated methods from routers the app does not
+contain. Free functions are already bound and require no argument.
+
+The same router can be mounted under multiple prefixes. One instance normally
+serves every mount; bind mounts explicitly when they need different state:
+
+```python
+mounted_app = rpc.RpcApp()
+primary = mounted_app.include_router(router, prefix="primary")
+secondary = mounted_app.include_router(router, prefix="secondary")
+
+server = mounted_app.bind(
+    primary.bind(AutomationRpcMethods(primary_service)),
+    secondary.bind(AutomationRpcMethods(secondary_service)),
+)
+```
 
 Unknown methods, malformed envelopes, and invalid params become the matching
 JSON-RPC failures.
@@ -130,20 +147,18 @@ def to_rpc_error(error: Exception) -> rpc.RpcError | None:
     return None
 
 
-server = rpc.RpcServer(AutomationRpcMethods(service), error_mapper=to_rpc_error)
+server = app.bind(AutomationRpcMethods(service), error_mapper=to_rpc_error)
 ```
 
 Anything neither declared nor mapped becomes an internal error, so handler
 internals never leak to clients.
 
-`RpcDispatcher` is available if you would rather build responses yourself: it
-exposes `parse_request` and `execute` and raises the errors above.
+## Server-initiated events
 
-## Server-initiated notifications
-
-Notifications carry a payload that is either a decorated event model or a union of
-them. Each event pins a `type` field to a literal, so clients can narrow the
-union — and that literal is the event name:
+Events carry a payload that is either a decorated event model or a union of them.
+Each event pins a `type` field to a literal, so clients can narrow the union — and
+that literal is the event name. On the JSON-RPC wire, an event is a notification
+without an `id`:
 
 ```python
 @rpc.event
@@ -154,29 +169,48 @@ class AutomationStarted(BaseModel):
 
 type AutomationEvent = AutomationStarted | AutomationFinished
 
-AUTOMATION = rpc.feature(
-    "automation",
-    handlers=(AutomationRpcMethods,),
-    notifications=(
-        rpc.notification(
-            "automation.event",
-            AutomationEvent,
-            summary="Publish an automation lifecycle event.",
-        ),
-    ),
+events = rpc.RpcRouter(prefix="automation", tags=("automation",))
+events.event(
+    "event",
+    AutomationEvent,
+    summary="Publish an automation lifecycle event.",
 )
+app.include_router(events)
 ```
 
 Send one with the `RpcNotification` envelope.
 
 ## Generating the contract
 
-The contract is a build-time artefact, so it is rendered from the protocol and
-committed — no running server is involved. Name the protocol as
-`module:attribute`, the way uvicorn names an app:
+The contract is a build-time artefact, so no running server is involved. For a
+deployment-aware contract, pair the app with typed OpenRPC server metadata:
+
+```python
+CONTRACT = rpc.OpenRpcContract(
+    app=app,
+    title="Automation",
+    servers=(
+        rpc.OpenRpcServer(
+            name="production",
+            url="wss://{host}/automation/rpc",
+            variables={
+                "host": rpc.ServerVariable(default="api.example.com"),
+            },
+            extensions={
+                "x-rpckit-transport": {
+                    "type": "websocket",
+                    "messageEncoding": "json",
+                }
+            },
+        ),
+    ),
+)
+```
+
+Name the contract as `module:attribute`, the way uvicorn names an app:
 
 ```bash
-pyrpckit schema automation.api:PROTOCOL   --output schema/automation.openrpc.json   --title Automation   --server local=ws://127.0.0.1:8000/rpc
+pyrpckit schema automation.api:CONTRACT --output schema/automation.openrpc.json
 ```
 
 Pass `--check` in CI to fail the build when the committed contract no longer
@@ -188,14 +222,14 @@ The document is available as a plain function too:
 from pyrpckit.schema import render_openrpc
 
 render_openrpc(
-    protocol,
+    app.protocol,
     title="Automation",
     servers=({"name": "local", "url": "ws://127.0.0.1:8000/rpc"},),
 )
 ```
 
 The OpenRPC document describes every method with its parameters, result,
-summaries, declared errors, and originating feature. Its JSON Schema components
+summaries, declared errors, and router tags. Its JSON Schema components
 also describe the request and notification envelopes used by client generation.
 
 ## Generating a client

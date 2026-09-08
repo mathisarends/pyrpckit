@@ -13,8 +13,11 @@ class UpstreamUnavailable(Exception):
     pass
 
 
-class ReportsRpc(rpc.RpcHandler):
-    @rpc.method("reports.refresh")
+router = rpc.RpcRouter(prefix="reports", tags=("reports",))
+
+
+class ReportsRpc:
+    @router.method("refresh")
     async def refresh(self, params: EmptyParams) -> None:
         raise UpstreamUnavailable("warehouse timed out")
 
@@ -26,7 +29,9 @@ def map_foreign_error(error: Exception) -> rpc.RpcError | None:
 
 
 async def main() -> None:
-    server = rpc.RpcServer(ReportsRpc(), error_mapper=map_foreign_error)
+    app = rpc.RpcApp()
+    app.include_router(router)
+    server = app.bind(ReportsRpc(), error_mapper=map_foreign_error)
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "reports.refresh"}
     )

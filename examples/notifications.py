@@ -20,17 +20,14 @@ class JobFinished(BaseModel):
 
 type JobEvent = JobStarted | JobFinished
 
-JOBS = rpc.feature(
-    "jobs",
-    notifications=(
-        rpc.notification(
-            "jobs.changed",
-            JobEvent,
-            summary="Publish job lifecycle changes.",
-        ),
-    ),
+router = rpc.RpcRouter(prefix="jobs", tags=("jobs",))
+router.event(
+    "changed",
+    JobEvent,
+    summary="Publish job lifecycle changes.",
 )
-PROTOCOL = rpc.RpcProtocol(JOBS)
+APP = rpc.RpcApp()
+APP.include_router(router)
 
 
 def main() -> None:
@@ -39,7 +36,7 @@ def main() -> None:
         params=JobStarted(job_id="job-42"),
     )
     print(message.model_dump_json(indent=2))
-    print(f"Known events: {[event.name for event in PROTOCOL.events]}")
+    print(f"Known events: {[event.name for event in APP.protocol.events]}")
 
 
 if __name__ == "__main__":

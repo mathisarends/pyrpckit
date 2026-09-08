@@ -1,17 +1,10 @@
 import asyncio
 import json
-from enum import StrEnum
 
 from pydantic import BaseModel
 
 import pyrpckit as rpc
 from pyrpckit.schema import render_openrpc
-
-
-class NavigationMethod(StrEnum):
-    NAVIGATE = "browser.nav.navigate"
-    BACK = "browser.nav.back"
-    STATE = "browser.nav.state"
 
 
 class NavigateParams(BaseModel):
@@ -23,20 +16,23 @@ class NavigationState(BaseModel):
     can_go_back: bool
 
 
-class NavigationRpc(rpc.RpcHandler):
+router = rpc.RpcRouter(prefix="browser.nav", tags=("browser",))
+
+
+class NavigationRpc:
     def __init__(self) -> None:
         self._history = ["about:blank"]
 
-    @rpc.method(NavigationMethod.NAVIGATE)
+    @router.method("navigate")
     async def navigate(self, params: NavigateParams) -> None:
         self._history.append(params.url)
 
-    @rpc.method(NavigationMethod.BACK)
+    @router.method("back")
     async def back(self) -> None:
         if len(self._history) > 1:
             self._history.pop()
 
-    @rpc.method(NavigationMethod.STATE)
+    @router.method("state")
     async def state(self) -> NavigationState:
         return NavigationState(
             url=self._history[-1],
@@ -45,15 +41,17 @@ class NavigationRpc(rpc.RpcHandler):
 
 
 async def main() -> None:
-    server = rpc.RpcServer(NavigationRpc())
+    app = rpc.RpcApp()
+    app.include_router(router)
+    server = app.bind(NavigationRpc())
 
     for request_id, (name, params) in enumerate(
         (
-            (NavigationMethod.NAVIGATE, {"url": "https://example.com"}),
-            (NavigationMethod.STATE, None),
-            (NavigationMethod.BACK, None),
-            (NavigationMethod.STATE, None),
-            (NavigationMethod.BACK, {"steps": 2}),
+            ("browser.nav.navigate", {"url": "https://example.com"}),
+            ("browser.nav.state", None),
+            ("browser.nav.back", None),
+            ("browser.nav.state", None),
+            ("browser.nav.back", {"steps": 2}),
         ),
         start=1,
     ):
