@@ -1,12 +1,6 @@
 import asyncio
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
-
-
-class EmptyParams(BaseModel):
-    pass
 
 
 class UpstreamUnavailable(Exception):
@@ -18,7 +12,7 @@ router = rpc.RpcRouter(prefix="reports", tags=("reports",))
 
 class ReportsRpc:
     @router.method("refresh")
-    async def refresh(self, params: EmptyParams) -> None:
+    async def refresh(self) -> None:
         raise UpstreamUnavailable("warehouse timed out")
 
 

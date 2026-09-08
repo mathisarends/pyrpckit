@@ -1,7 +1,9 @@
 import re
-from typing import Any
+from collections.abc import Iterable
+from types import UnionType
+from typing import Any, get_args, get_origin
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import (
@@ -20,11 +22,13 @@ EMPTY_PARAMS_SCHEMA: dict[str, Any] = {
 def components(protocol: RpcProtocol) -> dict[str, Any]:
     """Build the JSON Schema components referenced by the OpenRPC document."""
     annotations = _annotations(protocol)
+    _assert_unique_wire_names(annotations.values())
     _, root = TypeAdapter.json_schemas(
         (
-            (name, "validation", TypeAdapter(annotation))
+            (name, "serialization", TypeAdapter(annotation))
             for name, annotation in annotations.items()
-        )
+        ),
+        by_alias=True,
     )
     definitions = root.get("$defs", {})
     for method in protocol.methods:
@@ -83,7 +87,9 @@ def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
         params = EMPTY_PARAMS_SCHEMA
     else:
         params = _ref(type_name(method.params))
-        if method.params.model_json_schema().get("required"):
+        if method.params.model_json_schema(by_alias=True, mode="serialization").get(
+            "required"
+        ):
             required.append("params")
     schema: dict[str, Any] = {
         "additionalProperties": False,
@@ -131,3 +137,35 @@ def _notification_schema(
 
 def _ref(name: str) -> dict[str, str]:
     return {"$ref": f"#/$defs/{name}"}
+
+
+def _assert_unique_wire_names(annotations: Iterable[Any]) -> None:
+    seen_models: set[type[BaseModel]] = set()
+
+    def visit(annotation: Any) -> None:
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            if annotation in seen_models:
+                return
+            seen_models.add(annotation)
+            wire_fields: dict[str, str] = {}
+            for python_name, model_field in annotation.model_fields.items():
+                wire_name = (
+                    model_field.serialization_alias or model_field.alias or python_name
+                )
+                previous = wire_fields.get(wire_name)
+                if previous is not None:
+                    raise ProtocolDefinitionError(
+                        f"RPC model {annotation.__name__} maps both "
+                        f"{previous!r} and {python_name!r} to wire field "
+                        f"{wire_name!r}"
+                    )
+                wire_fields[wire_name] = python_name
+                visit(model_field.annotation)
+            return
+        origin = get_origin(annotation)
+        if origin is not None or isinstance(annotation, UnionType):
+            for argument in get_args(annotation):
+                visit(argument)
+
+    for annotation in annotations:
+        visit(annotation)

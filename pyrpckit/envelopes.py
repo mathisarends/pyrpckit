@@ -12,7 +12,7 @@ type RpcRequestId = str | int | None
 class RpcSchema(BaseModel):
     """Base model for protocol payloads: immutable and strict about extra keys."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
 
 
 class RpcRequestEnvelope(RpcSchema):

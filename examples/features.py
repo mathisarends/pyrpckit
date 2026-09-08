@@ -1,17 +1,11 @@
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 
 
-class EmptyParams(BaseModel):
-    pass
-
-
-class StatusResult(BaseModel):
+class StatusResult(rpc.RpcModel):
     status: str
 
 
-class ProfileResult(BaseModel):
+class ProfileResult(rpc.RpcModel):
     name: str
 
 
@@ -21,13 +15,13 @@ account = rpc.RpcRouter(prefix="account", tags=("account",))
 
 class SystemRpc:
     @system.method("status")
-    async def status(self, params: EmptyParams) -> StatusResult:
+    async def status(self) -> StatusResult:
         return StatusResult(status="ready")
 
 
 class AccountRpc:
     @account.method("profile", summary="Return the current profile.")
-    async def profile(self, params: EmptyParams) -> ProfileResult:
+    async def profile(self) -> ProfileResult:
         return ProfileResult(name="Mathis")
 
 

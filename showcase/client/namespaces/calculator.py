@@ -14,14 +14,16 @@ class CalculatorNamespaceClient:
         *,
         left: float,
         right: float,
+        decimal_places: int | None = None,
     ) -> CalculationResult:
         params = BinaryOperationParams(
             left=left,
             right=right,
+            decimal_places=decimal_places,
         )
         result = await self._transport.request(
             RpcMethod.CALCULATOR_ADD,
-            params.model_dump(mode="json", exclude_none=True),
+            params.model_dump(mode="json", by_alias=True, exclude_none=True),
         )
         return CalculationResult.model_validate(result)
 
@@ -30,13 +32,15 @@ class CalculatorNamespaceClient:
         *,
         left: float,
         right: float,
+        decimal_places: int | None = None,
     ) -> CalculationResult:
         params = BinaryOperationParams(
             left=left,
             right=right,
+            decimal_places=decimal_places,
         )
         result = await self._transport.request(
             RpcMethod.CALCULATOR_DIVIDE,
-            params.model_dump(mode="json", exclude_none=True),
+            params.model_dump(mode="json", by_alias=True, exclude_none=True),
         )
         return CalculationResult.model_validate(result)

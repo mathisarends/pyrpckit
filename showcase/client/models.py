@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 
 class RpcMethod(StrEnum):
@@ -12,12 +13,24 @@ class RpcMethod(StrEnum):
     CALCULATOR_DIVIDE = "calculator.divide"
 
 
-class BinaryOperationParams(BaseModel):
+class RpcModel(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        validate_by_alias=True,
+        validate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+
+class BinaryOperationParams(RpcModel):
+    model_config = ConfigDict(extra="forbid")
     left: float
     right: float
+    decimal_places: int | None = Field(None, alias="decimalPlaces")
 
 
-class CalculationResult(BaseModel):
+class CalculationResult(RpcModel):
+    model_config = ConfigDict(extra="forbid")
     value: float
 
 

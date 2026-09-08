@@ -23,6 +23,7 @@ from pyrpckit.codegen.ir import (
     PrimitiveType,
     TypeExpr,
     UnionType,
+    UnsupportedSchemaError,
     named_types,
 )
 
@@ -83,19 +84,23 @@ class PythonClientOptions:
 def render_models(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     blocks = [_enum_block(ir.method_enum)]
-    if any(model.closed for model in ir.models):
+    if ir.models:
         imports.add("pydantic", "BaseModel", "ConfigDict")
+        imports.add("pydantic.alias_generators", "to_camel")
         blocks.append(
             f"class {options.base_model_name}(BaseModel):\n"
-            '    model_config = ConfigDict(extra="forbid")'
+            "    model_config = ConfigDict(\n"
+            "        alias_generator=to_camel,\n"
+            "        validate_by_alias=True,\n"
+            "        validate_by_name=True,\n"
+            "        serialize_by_alias=True,\n"
+            "    )"
         )
     blocks.extend(
         _declaration_block(declaration, options, imports)
         for declaration in ir.declarations
     )
     rebuilds = [f"{model.name}.model_rebuild()" for model in ir.models]
-    if any(not model.closed for model in ir.models):
-        imports.add("pydantic", "BaseModel")
     if ir.method_enum.members:
         imports.add("enum", "StrEnum")
     body = "\n\n\n".join(blocks)
@@ -182,6 +187,7 @@ def render_package_init(ir: ClientIr, options: PythonClientOptions) -> str:
 
 def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     """Render the generated package as a mapping of relative path to content."""
+    _assert_unique_python_names(ir)
     files = {
         "__init__.py": render_package_init(ir, options),
         "models.py": render_models(ir, options),
@@ -239,7 +245,10 @@ def _operation_body(
     lines = _params_lines(operation)
     call = [f"            {ir.method_enum.name}.{operation.method_member},"]
     if operation.params_model is not None:
-        call.append('            params.model_dump(mode="json", exclude_none=True),')
+        call.append(
+            '            params.model_dump(mode="json", by_alias=True, '
+            "exclude_none=True),"
+        )
     call.append("        )")
     if _is_null(operation.result):
         return [*lines, "        await self._transport.request(", *call]
@@ -315,8 +324,11 @@ def _model_block(
     options: PythonClientOptions,
     imports: _Imports,
 ) -> str:
-    base = options.base_model_name if declaration.closed else "BaseModel"
+    base = options.base_model_name
     lines = [f"class {declaration.name}({base}):"]
+    if declaration.closed:
+        imports.add("pydantic", "ConfigDict")
+        lines.append('    model_config = ConfigDict(extra="forbid")')
     lines.extend(
         _field_line(model_field, imports) for model_field in declaration.fields
     )
@@ -327,16 +339,26 @@ def _model_block(
 
 def _field_line(model_field: FieldDecl, imports: _Imports) -> str:
     annotation = _annotation(model_field.type, imports)
+    python_name = _identifier(model_field.name)
     if isinstance(model_field.type, EnumLiteralType):
         default = f"{model_field.type.enum}.{model_field.type.member}"
     elif model_field.has_default:
         default = _literal(model_field.default)
     elif model_field.required:
-        return f"    {_identifier(model_field.name)}: {annotation}"
+        if python_name == model_field.name:
+            return f"    {python_name}: {annotation}"
+        imports.add("pydantic", "Field")
+        return (
+            f"    {python_name}: {annotation} = "
+            f"Field(alias={_literal(model_field.name)})"
+        )
     else:
         annotation = _union([annotation, "None"])
         default = "None"
-    return f"    {_identifier(model_field.name)}: {annotation} = {default}"
+    if python_name != model_field.name:
+        imports.add("pydantic", "Field")
+        default = f"Field({default}, alias={_literal(model_field.name)})"
+    return f"    {python_name}: {annotation} = {default}"
 
 
 def _alias_block(declaration: AliasDecl, imports: _Imports) -> str:
@@ -414,6 +436,8 @@ def _parameter_annotation(
     annotation = _annotation(expression, imports)
     if required:
         return annotation
+    if _allows_none(expression):
+        return f"{annotation} = None"
     return f"{_union([annotation, 'None'])} = None"
 
 
@@ -465,6 +489,13 @@ def _is_null(expression: TypeExpr) -> bool:
     )
 
 
+def _allows_none(expression: TypeExpr) -> bool:
+    return _is_null(expression) or (
+        isinstance(expression, UnionType)
+        and any(_allows_none(member) for member in expression.members)
+    )
+
+
 def _union(annotations: list[str]) -> str:
     return " | ".join(dict.fromkeys(annotations))
 
@@ -480,7 +511,9 @@ def _docstring(summary: str) -> str:
 
 
 def _identifier(value: str) -> str:
-    identifier = re.sub(r"\W", "_", value)
+    identifier = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", value)
+    identifier = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", identifier)
+    identifier = re.sub(r"\W", "_", identifier).lower()
     if identifier[:1].isdigit() or keyword.iskeyword(identifier):
         identifier = f"{identifier}_"
     return identifier
@@ -488,6 +521,32 @@ def _identifier(value: str) -> str:
 
 def _pascal_case(value: str) -> str:
     return "".join(part.capitalize() for part in re.split(r"[._\- ]", value) if part)
+
+
+def _assert_unique_python_names(ir: ClientIr) -> None:
+    for model in ir.models:
+        _assert_unique_identifiers(
+            model.name,
+            (model_field.name for model_field in model.fields),
+        )
+    for operation in ir.operations:
+        _assert_unique_identifiers(
+            f"method {operation.rpc_name}",
+            (parameter.name for parameter in operation.params),
+        )
+
+
+def _assert_unique_identifiers(owner: str, names: Iterable[str]) -> None:
+    identifiers: dict[str, str] = {}
+    for name in names:
+        identifier = _identifier(name)
+        previous = identifiers.get(identifier)
+        if previous is not None:
+            raise UnsupportedSchemaError(
+                f"{owner} maps both {previous!r} and {name!r} to Python "
+                f"identifier {identifier!r}"
+            )
+        identifiers[identifier] = name
 
 
 _STANDARD_LIBRARY = frozenset(

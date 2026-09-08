@@ -1,15 +1,13 @@
 import asyncio
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 
 
-class GreetParams(BaseModel):
+class GreetParams(rpc.RpcModel):
     name: str
 
 
-class Greeting(BaseModel):
+class Greeting(rpc.RpcModel):
     text: str
 
 

@@ -15,7 +15,7 @@ export type CreateTaskParams = {
 };
 
 export type SetTaskStatusParams = {
-  task_id: string;
+  taskId: string;
   status: TaskStatus;
 };
 

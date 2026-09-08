@@ -39,7 +39,7 @@ Then call the protocol directly:
 ```bash
 curl http://127.0.0.1:8000/rpc \
   -H "content-type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"calculator.add","params":{"left":20,"right":22}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"calculator.add","params":{"left":20,"right":22,"decimalPlaces":2}}'
 ```
 
 ## 3. Generate the client
@@ -61,7 +61,7 @@ The useful part of the generated surface is intentionally small:
 
 ```python
 async with CalculatorClient(transport) as client:
-    result = await client.calculator.divide(left=84, right=2)
+    result = await client.calculator.divide(left=84, right=2, decimal_places=2)
     print(result.value)  # 42.0
 ```
 

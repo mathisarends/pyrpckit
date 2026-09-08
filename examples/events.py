@@ -1,18 +1,16 @@
 from typing import Literal
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 
 
 @rpc.event
-class JobStarted(BaseModel):
+class JobStarted(rpc.RpcModel):
     type: Literal["job.started"] = "job.started"
     job_id: str
 
 
 @rpc.event
-class JobFinished(BaseModel):
+class JobFinished(rpc.RpcModel):
     type: Literal["job.finished"] = "job.finished"
     job_id: str
     succeeded: bool

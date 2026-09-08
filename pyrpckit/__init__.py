@@ -13,6 +13,7 @@ from .errors import (
     RpcParseError,
     error_message,
 )
+from .models import RpcModel
 from .protocol import (
     RpcFeatureDefinition,
     RpcNotificationDefinition,
@@ -41,6 +42,7 @@ __all__ = [
     "RpcInvalidRequestError",
     "RpcMethodNotFoundError",
     "RpcMountBinding",
+    "RpcModel",
     "RpcNotification",
     "RpcNotificationDefinition",
     "RpcParseError",

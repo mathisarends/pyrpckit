@@ -36,6 +36,22 @@
             "title": "Right",
             "type": "number"
           }
+        },
+        {
+          "name": "decimalPlaces",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Decimalplaces"
+          }
         }
       ],
       "result": {
@@ -75,6 +91,22 @@
             "title": "Right",
             "type": "number"
           }
+        },
+        {
+          "name": "decimalPlaces",
+          "required": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Decimalplaces"
+          }
         }
       ],
       "result": {
@@ -100,6 +132,7 @@
   "components": {
     "schemas": {
       "BinaryOperationParams": {
+        "additionalProperties": false,
         "properties": {
           "left": {
             "title": "Left",
@@ -108,6 +141,18 @@
           "right": {
             "title": "Right",
             "type": "number"
+          },
+          "decimalPlaces": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Decimalplaces"
           }
         },
         "required": [
@@ -118,6 +163,7 @@
         "type": "object"
       },
       "CalculationResult": {
+        "additionalProperties": false,
         "properties": {
           "value": {
             "title": "Value",

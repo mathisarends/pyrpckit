@@ -94,3 +94,16 @@ def test_writing_is_idempotent_and_check_does_not_write(
         output / "client.ts",
     )
     assert (output / "client.ts").read_text(encoding="utf-8") == "stale\n"
+
+
+def test_camel_case_wire_fields_stay_camel_case_in_typescript(
+    document: dict[str, Any],
+) -> None:
+    camel_document = deepcopy(document)
+    params = camel_document["components"]["schemas"]["SayParams"]
+    params["properties"]["projectId"] = params["properties"].pop("name")
+    params["required"] = ["projectId"]
+
+    models = render_typescript_client(camel_document, options())["models.ts"]
+
+    assert "projectId: string;" in models

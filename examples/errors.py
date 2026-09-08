@@ -1,16 +1,14 @@
 import asyncio
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 
 
-class DivideParams(BaseModel):
+class DivideParams(rpc.RpcModel):
     dividend: float
     divisor: float
 
 
-class Quotient(BaseModel):
+class Quotient(rpc.RpcModel):
     value: float
 
 

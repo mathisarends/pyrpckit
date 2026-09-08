@@ -1,10 +1,11 @@
-from pydantic import BaseModel
+from pyrpckit import RpcModel
 
 
-class BinaryOperationParams(BaseModel):
+class BinaryOperationParams(RpcModel):
     left: float
     right: float
+    decimal_places: int | None = None
 
 
-class CalculationResult(BaseModel):
+class CalculationResult(RpcModel):
     value: float

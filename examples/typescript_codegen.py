@@ -2,8 +2,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 from pyrpckit.codegen import generate_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
@@ -15,33 +13,33 @@ class TaskStatus(StrEnum):
     DONE = "done"
 
 
-class Task(BaseModel):
+class Task(rpc.RpcModel):
     id: str
     title: str
     status: TaskStatus
 
 
-class TaskList(BaseModel):
+class TaskList(rpc.RpcModel):
     tasks: list[Task]
 
 
-class CreateTaskParams(BaseModel):
+class CreateTaskParams(rpc.RpcModel):
     title: str
 
 
-class SetTaskStatusParams(BaseModel):
+class SetTaskStatusParams(rpc.RpcModel):
     task_id: str
     status: TaskStatus
 
 
 @rpc.event
-class TaskCreated(BaseModel):
+class TaskCreated(rpc.RpcModel):
     type: Literal["task.created"] = "task.created"
     task: Task
 
 
 @rpc.event
-class TaskStatusChanged(BaseModel):
+class TaskStatusChanged(rpc.RpcModel):
     type: Literal["task.status_changed"] = "task.status_changed"
     task: Task
 

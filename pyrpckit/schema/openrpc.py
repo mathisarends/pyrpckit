@@ -101,7 +101,9 @@ def _result_schema(
     name = type_name(method.result)
     if name in components:
         return _ref(name)
-    return _rewrite_refs(TypeAdapter(method.result).json_schema())
+    return _rewrite_refs(
+        TypeAdapter(method.result).json_schema(by_alias=True, mode="serialization")
+    )
 
 
 def _ref(name: str) -> dict[str, str]:

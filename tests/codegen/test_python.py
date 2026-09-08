@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -147,3 +148,22 @@ def test_a_method_without_params_takes_no_arguments(
 
     assert greeted.startswith("self) -> GreetedResult:")
     assert "params" not in greeted.split("    async def", 1)[0]
+
+
+def test_camel_case_wire_fields_become_snake_case_python_names(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    camel_document = deepcopy(document)
+    params = camel_document["components"]["schemas"]["SayParams"]
+    params["properties"]["projectId"] = params["properties"].pop("name")
+    params["required"] = ["projectId"]
+    say = camel_document["methods"][0]
+    say["params"][0]["name"] = "projectId"
+    models = render_python_client(camel_document, options)["models.py"]
+    namespace = render_python_client(camel_document, options)["namespaces/greeting.py"]
+
+    assert 'project_id: str = Field(alias="projectId")' in models
+    assert "        project_id: str," in namespace
+    assert "            project_id=project_id," in namespace
+    assert 'model_dump(mode="json", by_alias=True, exclude_none=True)' in namespace

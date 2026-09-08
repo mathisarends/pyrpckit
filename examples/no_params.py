@@ -1,17 +1,18 @@
 import asyncio
 import json
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 from pyrpckit.schema import render_openrpc
 
 
-class NavigateParams(BaseModel):
+class NavigateParams(rpc.RpcModel):
+    project_id: str
     url: str
+    ignore_cache: bool = False
 
 
-class NavigationState(BaseModel):
+class NavigationState(rpc.RpcModel):
+    project_id: str
     url: str
     can_go_back: bool
 
@@ -21,10 +22,12 @@ router = rpc.RpcRouter(prefix="browser.nav", tags=("browser",))
 
 class NavigationRpc:
     def __init__(self) -> None:
+        self._project_id = "default"
         self._history = ["about:blank"]
 
     @router.method("navigate")
     async def navigate(self, params: NavigateParams) -> None:
+        self._project_id = params.project_id
         self._history.append(params.url)
 
     @router.method("back")
@@ -35,6 +38,7 @@ class NavigationRpc:
     @router.method("state")
     async def state(self) -> NavigationState:
         return NavigationState(
+            project_id=self._project_id,
             url=self._history[-1],
             can_go_back=len(self._history) > 1,
         )
@@ -47,7 +51,14 @@ async def main() -> None:
 
     for request_id, (name, params) in enumerate(
         (
-            ("browser.nav.navigate", {"url": "https://example.com"}),
+            (
+                "browser.nav.navigate",
+                {
+                    "projectId": "demo-project",
+                    "url": "https://example.com",
+                    "ignoreCache": True,
+                },
+            ),
             ("browser.nav.state", None),
             ("browser.nav.back", None),
             ("browser.nav.state", None),

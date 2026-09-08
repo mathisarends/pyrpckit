@@ -1,18 +1,18 @@
 import json
 
-from pydantic import BaseModel
-
 import pyrpckit as rpc
 from pyrpckit.schema import render_openrpc
 
 
-class SearchParams(BaseModel):
+class SearchParams(rpc.RpcModel):
+    project_id: str
     query: str
-    limit: int = 10
+    max_results: int = 10
 
 
-class SearchResult(BaseModel):
+class SearchResult(rpc.RpcModel):
     items: list[str]
+    next_page_token: str | None = None
 
 
 router = rpc.RpcRouter(prefix="search", tags=("search",))
