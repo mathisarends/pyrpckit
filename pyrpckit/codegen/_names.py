@@ -66,6 +66,20 @@ def api_view(
         raise UnsupportedSchemaError(
             f"api_names contains paths that do not exist in the contract: {rendered}"
         )
+    visible_sources: dict[tuple[str, ...], tuple[str, ...]] = {}
+    for visible, source, _ in projected:
+        source_offset = len(source) - len(visible)
+        for length in range(1, len(visible) + 1):
+            visible_prefix = visible[:length]
+            source_prefix = source[: source_offset + length]
+            previous = visible_sources.get(visible_prefix)
+            if previous is not None and previous != source_prefix:
+                raise UnsupportedSchemaError(
+                    f"API paths {'.'.join(previous)!r} and "
+                    f"{'.'.join(source_prefix)!r} both map to "
+                    f"{'.'.join(visible_prefix)!r}"
+                )
+            visible_sources[visible_prefix] = source_prefix
     return ApiView(tuple(root_operations), _view_tree(projected))
 
 

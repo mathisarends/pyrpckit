@@ -50,17 +50,6 @@ def test_a_method_without_a_result_lowers_to_null(document: dict[str, Any]) -> N
     assert forget.result == PrimitiveType(Primitive.NULL)
 
 
-def test_the_method_enum_covers_every_operation(document: dict[str, Any]) -> None:
-    ir = build_ir(document)
-
-    assert [(member.name, member.value) for member in ir.method_enum.members] == [
-        ("GREETING_SAY", "greeting.say"),
-        ("GREETING_FORGET", "greeting.forget"),
-        ("GREETING_GREETED", "greeting.greeted"),
-        ("GREETING_CLEAR", "greeting.clear"),
-    ]
-
-
 def test_envelope_schemas_are_pruned(document: dict[str, Any]) -> None:
     names = {declaration.name for declaration in build_ir(document).declarations}
 

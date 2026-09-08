@@ -66,7 +66,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     """Render one generated Python leaf package."""
     view = api_view(ir, api_root=options.api_root, api_names=options.api_names)
     client_name = _client_name(ir, options)
-    _validate(ir, view.nodes, options, client_name)
+    _validate(ir, view.root_operations, view.nodes, options, client_name)
     files = {
         "__init__.py": _render_package_init(ir, options, client_name),
         "client.py": _render_client(
@@ -95,7 +95,7 @@ def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
         _declaration_block(declaration, options, imports)
         for declaration in ir.declarations
     )
-    rebuilds = [f"{model.name}.model_rebuild()" for model in ir.models]
+    rebuilds = [f"{_schema_name(model.name)}.model_rebuild()" for model in ir.models]
     body = "\n\n\n".join(blocks)
     if rebuilds:
         body = f"{body}\n\n\n" + "\n".join(rebuilds)
@@ -196,9 +196,9 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
             imports.add("typing", "ClassVar")
             imports.add(RUNTIME_MODULE, "RpcRemoteError")
             if error.data is not None:
-                imports.add(f"{options.package}.models", *named_types(error.data))
+                imports.add(f"{options.package}.models", *_model_names(error.data))
             lines = [
-                f"class {error.name}Error(RpcRemoteError):",
+                f"class {_schema_name(error.name)}Error(RpcRemoteError):",
                 f"    code: ClassVar[int] = {error.code}",
             ]
             if error.data is not None:
@@ -251,8 +251,8 @@ def _render_client(
         message_type = _collapse(UnionType(tuple(event.message for event in ir.events)))
         imports.add(
             f"{options.package}.models",
-            *named_types(event_type),
-            *named_types(message_type),
+            *_model_names(event_type),
+            *_model_names(message_type),
         )
         constants.append(
             "_EVENT_MESSAGE_ADAPTER = TypeAdapter("
@@ -331,11 +331,11 @@ def _operation_lines(
     models = f"{options.package}.models"
     imports.add(f"{options.package}.metadata", route.method_member)
     if route.params_model is not None:
-        imports.add(models, route.params_model)
+        imports.add(models, _schema_name(route.params_model))
     for parameter in route.params:
-        imports.add(models, *named_types(parameter.type))
+        imports.add(models, *_model_names(parameter.type))
     result = _annotation(route.result, imports)
-    imports.add(models, *named_types(route.result))
+    imports.add(models, *_model_names(route.result))
     name = _identifier(route.operation_name)
     if route.params:
         lines = [f"    async def {name}(", "        self,", "        *,"]
@@ -369,7 +369,8 @@ def _operation_body(route: RouteDecl) -> list[str]:
                         f"            values[{_literal(parameter.name)}] = {name}",
                     ]
                 )
-        lines.append(f"        params = {route.params_model}.model_validate(values)")
+        model_name = _schema_name(route.params_model)
+        lines.append(f"        params = {model_name}.model_validate(values)")
     lines.append("        return await self._rpc.request(")
     lines.append(f"            {route.method_member},")
     if route.params_model is not None:
@@ -390,7 +391,7 @@ def _result_adapter(
     options: PythonClientOptions,
 ) -> str:
     imports.add("pydantic", "TypeAdapter")
-    imports.add(f"{options.package}.models", *named_types(route.result))
+    imports.add(f"{options.package}.models", *_model_names(route.result))
     annotation = _annotation(route.result, imports)
     return f"_{route.method_member}_RESULT_ADAPTER = TypeAdapter({annotation})"
 
@@ -405,12 +406,15 @@ def _declaration_block(
         return _enum_block(declaration)
     if isinstance(declaration, ModelDecl):
         return _model_block(declaration, options, imports)
-    return f"type {declaration.name} = {_annotation(declaration.target, imports)}"
+    return (
+        f"type {_schema_name(declaration.name)} = "
+        f"{_annotation(declaration.target, imports)}"
+    )
 
 
 def _enum_block(declaration: EnumDecl) -> str:
     base = "IntEnum" if declaration.integral else "StrEnum"
-    lines = [f"class {declaration.name}({base}):"]
+    lines = [f"class {_schema_name(declaration.name)}({base}):"]
     lines.extend(
         f"    {member.name} = {_literal(member.value)}"
         for member in declaration.members
@@ -425,7 +429,7 @@ def _model_block(
     options: PythonClientOptions,
     imports: _Imports,
 ) -> str:
-    lines = [f"class {declaration.name}({options.base_model_name}):"]
+    lines = [f"class {_schema_name(declaration.name)}({options.base_model_name}):"]
     if declaration.closed:
         imports.add("pydantic", "ConfigDict")
         lines.append('    model_config = ConfigDict(extra="forbid")')
@@ -441,7 +445,7 @@ def _field_line(field: FieldDecl, imports: _Imports) -> str:
     annotation = _annotation(field.type, imports)
     name = _identifier(field.name)
     if isinstance(field.type, EnumLiteralType):
-        default = f"{field.type.enum}.{field.type.member}"
+        default = f"{_schema_name(field.type.enum)}.{field.type.member}"
     elif field.has_default:
         default = _literal(field.default)
     elif field.required:
@@ -463,13 +467,13 @@ def _annotation(expression: TypeExpr, imports: _Imports) -> str:
     if isinstance(expression, PrimitiveType):
         return _primitive_annotation(expression.primitive, imports)
     if isinstance(expression, NamedType):
-        return expression.name
+        return _schema_name(expression.name)
     if isinstance(expression, LiteralType):
         imports.add("typing", "Literal")
         return f"Literal[{_literal(expression.value)}]"
     if isinstance(expression, EnumLiteralType):
         imports.add("typing", "Literal")
-        return f"Literal[{expression.enum}.{expression.member}]"
+        return f"Literal[{_schema_name(expression.enum)}.{expression.member}]"
     if isinstance(expression, ListType):
         return f"list[{_annotation(expression.item, imports)}]"
     if isinstance(expression, MapType):
@@ -515,6 +519,7 @@ def _parameter_annotation(parameter: Any, imports: _Imports) -> str:
 
 def _validate(
     ir: ClientIr,
+    root_operations: tuple[RouteDecl, ...],
     nodes: tuple[ApiViewNode, ...],
     options: PythonClientOptions,
     client_name: str,
@@ -528,6 +533,13 @@ def _validate(
             for declaration in ir.declarations
         ),
     )
+    for declaration in ir.declarations:
+        generated_name = _schema_name(declaration.name)
+        if generated_name in _RUNTIME_NAMES:
+            raise UnsupportedSchemaError(
+                f"Schema {declaration.name!r} collides with runtime import "
+                f"{generated_name!r}"
+            )
     for model in ir.models:
         assert_unique_names(
             f"model {model.name}",
@@ -541,6 +553,17 @@ def _validate(
                 for parameter in route.params
             ),
         )
+    client_members = [
+        ("<client.close>", "close"),
+        *((node.source_path[-1], _identifier(node.segment)) for node in nodes),
+        *(
+            (route.rpc_name, _identifier(route.operation_name))
+            for route in root_operations
+        ),
+    ]
+    if ir.events:
+        client_members.append(("<client.events>", "events"))
+    assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     assert_unique_names(
         "servers",
@@ -591,6 +614,21 @@ def _identifier(value: str) -> str:
     if keyword.iskeyword(identifier):
         identifier = f"{identifier}_"
     return identifier
+
+
+def _schema_name(value: str) -> str:
+    name = pascal_case(value)
+    if not name:
+        raise UnsupportedSchemaError(
+            f"Cannot derive a Python class name from {value!r}"
+        )
+    if name[0].isdigit():
+        name = f"_{name}"
+    return name
+
+
+def _model_names(expression: TypeExpr) -> set[str]:
+    return {_schema_name(name) for name in named_types(expression)}
 
 
 def _constant(value: str) -> str:
@@ -708,3 +746,17 @@ def _import_group(module: str) -> int:
     if root in {"pydantic", "pyrpckit"}:
         return 1
     return 2
+
+
+_RUNTIME_NAMES = frozenset(
+    {
+        "AsyncIterator",
+        "RpcClientCore",
+        "RpcRemoteError",
+        "RpcTransport",
+        "Self",
+        "TypeAdapter",
+        "UNSET",
+        "UnsetType",
+    }
+)

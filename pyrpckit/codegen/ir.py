@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -16,8 +16,6 @@ type TypeExpr = (
     | UnionType
 )
 type Declaration = EnumDecl | ModelDecl | AliasDecl
-
-METHOD_ENUM_NAME = "RpcMethod"
 
 
 class UnsupportedSchemaError(Exception):
@@ -137,9 +135,6 @@ class RouteDecl:
         return self.operation_name
 
 
-OperationDecl = RouteDecl
-
-
 @dataclass(frozen=True, slots=True)
 class ErrorDecl:
     code: int
@@ -175,20 +170,11 @@ class ApiNode:
 
 
 @dataclass(frozen=True, slots=True)
-class NamespaceDecl:
-    name: str
-    operations: tuple[RouteDecl, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class EventDecl:
     rpc_name: str
     payload: TypeExpr
     message: TypeExpr
     summary: str = ""
-
-
-NotificationDecl = EventDecl
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,24 +184,9 @@ class ClientIr:
     protocol_version: int | None = None
     servers: tuple[ServerDecl, ...] = ()
     declarations: tuple[Declaration, ...] = ()
-    method_enum: EnumDecl = field(
-        default_factory=lambda: EnumDecl(METHOD_ENUM_NAME, ())
-    )
     root_operations: tuple[RouteDecl, ...] = ()
     api: tuple[ApiNode, ...] = ()
     events: tuple[EventDecl, ...] = ()
-
-    @property
-    def namespaces(self) -> tuple[NamespaceDecl, ...]:
-        return tuple(
-            NamespaceDecl(".".join(node.path), node.operations)
-            for node in _walk_api(self.api)
-            if node.operations
-        )
-
-    @property
-    def notifications(self) -> tuple[EventDecl, ...]:
-        return self.events
 
     @property
     def models(self) -> tuple[ModelDecl, ...]:
@@ -254,13 +225,6 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         declarations=_reachable(
             declarations,
             _roots(routes, events),
-        ),
-        method_enum=EnumDecl(
-            METHOD_ENUM_NAME,
-            tuple(
-                EnumMember(_member_name(method["name"]), method["name"])
-                for method in methods
-            ),
         ),
         root_operations=root_operations,
         api=api,

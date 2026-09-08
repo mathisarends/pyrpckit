@@ -47,7 +47,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     """Render one generated TypeScript leaf package."""
     view = api_view(ir, api_root=options.api_root, api_names=options.api_names)
     client_name = _client_name(ir, options)
-    _validate(ir, view.nodes, client_name)
+    _validate(ir, view.root_operations, view.nodes, client_name)
     renderer = _Renderer(ir, view.root_operations, view.nodes, options, client_name)
     files = {
         "_core.ts": renderer.core(),
@@ -185,7 +185,7 @@ class _Renderer:
                 imports.append(_type_import(models, "./models"))
         event_type = _event_type(self.ir)
         if event_type:
-            imports.append(_type_import(named_types(event_type), "./models"))
+            imports.append(_type_import(_model_names(event_type), "./models"))
         for node in self.nodes:
             imports.append(
                 f'import {{ {_api_class(node.path)} }} from "./{_api_module(node)}";'
@@ -307,7 +307,7 @@ class _Renderer:
             name
             for error in named.values()
             if error.data is not None
-            for name in named_types(error.data)
+            for name in _model_names(error.data)
         }
         imports = ['import { RpcRemoteError } from "./_core";']
         if model_names:
@@ -315,7 +315,7 @@ class _Renderer:
         blocks: list[str] = []
         for name, error in named.items():
             lines = [
-                f"export class {name}Error extends RpcRemoteError {{",
+                f"export class {_schema_name(name)}Error extends RpcRemoteError {{",
                 f"  static readonly code = {error.code};",
             ]
             if error.data is not None:
@@ -341,7 +341,7 @@ class _Renderer:
             lines.append(f'export {{ {helpers} }} from "./endpoints";')
         event_type = _event_type(self.ir)
         if event_type is not None:
-            lines.append(_type_export(named_types(event_type), "./models"))
+            lines.append(_type_export(_model_names(event_type), "./models"))
         return self.module("\n".join(lines))
 
     def _operation(self, route: RouteDecl, *, root: bool) -> list[str]:
@@ -381,7 +381,10 @@ class _Renderer:
         if isinstance(declaration, ModelDecl):
             return self._model(declaration)
         if isinstance(declaration, AliasDecl):
-            return f"export type {declaration.name} = {self._type(declaration.target)};"
+            return (
+                f"export type {_schema_name(declaration.name)} = "
+                f"{self._type(declaration.target)};"
+            )
         raise TypeError(f"Unsupported declaration: {type(declaration).__name__}")
 
     def _enum(self, declaration: EnumDecl) -> str:
@@ -390,16 +393,20 @@ class _Renderer:
             for member in declaration.members
         )
         return (
-            f"export const {declaration.name} = {{\n{members}\n}} as const;\n\n"
-            f"export type {declaration.name} = "
-            f"(typeof {declaration.name})[keyof typeof {declaration.name}];"
+            f"export const {_schema_name(declaration.name)} = "
+            f"{{\n{members}\n}} as const;\n\n"
+            f"export type {_schema_name(declaration.name)} = "
+            f"(typeof {_schema_name(declaration.name)})"
+            f"[keyof typeof {_schema_name(declaration.name)}];"
         )
 
     def _model(self, declaration: ModelDecl) -> str:
         if not declaration.fields:
-            return f"export type {declaration.name} = Record<string, never>;"
+            return (
+                f"export type {_schema_name(declaration.name)} = Record<string, never>;"
+            )
         fields = "\n".join(self._field(field) for field in declaration.fields)
-        return f"export type {declaration.name} = {{\n{fields}\n}};"
+        return f"export type {_schema_name(declaration.name)} = {{\n{fields}\n}};"
 
     def _field(self, field: FieldDecl) -> str:
         optional = not field.required and not _is_discriminator(field.name, field.type)
@@ -410,11 +417,11 @@ class _Renderer:
         if isinstance(expression, PrimitiveType):
             return _PRIMITIVES[expression.primitive]
         if isinstance(expression, NamedType):
-            return expression.name
+            return _schema_name(expression.name)
         if isinstance(expression, LiteralType):
             return json.dumps(expression.value)
         if isinstance(expression, EnumLiteralType):
-            return f"typeof {expression.enum}.{expression.member}"
+            return f"typeof {_schema_name(expression.enum)}.{expression.member}"
         if isinstance(expression, ListType):
             item = self._type(expression.item)
             if isinstance(expression.item, UnionType):
@@ -431,6 +438,7 @@ class _Renderer:
 
 def _validate(
     ir: ClientIr,
+    root_operations: tuple[RouteDecl, ...],
     nodes: tuple[ApiViewNode, ...],
     client_name: str,
 ) -> None:
@@ -438,16 +446,49 @@ def _validate(
         raise UnsupportedSchemaError(
             f"client_name must be a valid TypeScript identifier: {client_name!r}"
         )
+    assert_unique_names(
+        "schemas",
+        (
+            (declaration.name, _schema_name(declaration.name))
+            for declaration in ir.declarations
+        ),
+    )
+    for declaration in ir.declarations:
+        generated_name = _schema_name(declaration.name)
+        if generated_name in _RUNTIME_NAMES:
+            raise UnsupportedSchemaError(
+                f"Schema {declaration.name!r} collides with runtime import "
+                f"{generated_name!r}"
+            )
     for model in ir.models:
         assert_unique_names(
             f"model {model.name}",
             ((field.name, _identifier(field.name)) for field in model.fields),
         )
+    client_members = [
+        ("<client.close>", "close"),
+        *((node.source_path[-1], _identifier(node.segment)) for node in nodes),
+        *(
+            (route.rpc_name, _identifier(route.operation_name))
+            for route in root_operations
+        ),
+    ]
+    if ir.events:
+        client_members.append(("<client.events>", "events"))
+    assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     assert_unique_names(
         "servers",
         ((server.name, _identifier(server.name)) for server in ir.servers),
     )
+    for server in ir.servers:
+        assert_unique_names(
+            f"server {server.name}",
+            (
+                (variable.name, _identifier(variable.name))
+                for variable in server.variables
+            ),
+        )
 
 
 def _validate_nodes(nodes: tuple[ApiViewNode, ...]) -> None:
@@ -480,6 +521,21 @@ def _identifier(value: str) -> str:
     return identifier
 
 
+def _schema_name(value: str) -> str:
+    name = pascal_case(value)
+    if not name:
+        raise UnsupportedSchemaError(
+            f"Cannot derive a TypeScript class name from {value!r}"
+        )
+    if name[0].isdigit():
+        name = f"_{name}"
+    return name
+
+
+def _model_names(expression: TypeExpr) -> set[str]:
+    return {_schema_name(name) for name in named_types(expression)}
+
+
 def _property(value: str) -> str:
     return value if _VALID_IDENTIFIER.fullmatch(value) else json.dumps(value)
 
@@ -510,8 +566,8 @@ def _route_model_names(routes: Iterable[RouteDecl]) -> set[str]:
     names: set[str] = set()
     for route in routes:
         if route.params and route.params_model is not None:
-            names.add(route.params_model)
-        names.update(named_types(route.result))
+            names.add(_schema_name(route.params_model))
+        names.update(_model_names(route.result))
     return names
 
 
@@ -619,4 +675,8 @@ _RESERVED_WORDS = frozenset(
         "with",
         "yield",
     }
+)
+
+_RUNTIME_NAMES = frozenset(
+    {"RpcClientCore", "RpcRemoteError", "RpcRouteInfo", "RpcTransport"}
 )
