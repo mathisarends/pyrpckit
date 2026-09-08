@@ -12,6 +12,7 @@ memory, and regenerates the files in `generated/`:
 - `generated/models.ts` contains the reachable wire types.
 - `generated/api/` contains the typed route hierarchy as `Api` classes.
 - `generated/metadata.ts` keeps exact wire names and route metadata.
+- `generated/core.ts` contains the transport runtime shared by the API files.
 - `generated/client.ts` contains the root client and event stream.
 - `generated/index.ts` exposes the small public generated API.
 - `transport.ts` is the small hand-written contract implemented by an HTTP,

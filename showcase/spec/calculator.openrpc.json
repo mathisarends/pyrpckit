@@ -124,7 +124,8 @@
       "errors": [
         {
           "code": -32001,
-          "message": "Cannot divide by zero"
+          "message": "Cannot divide by zero",
+          "x-rpckit-name": "DivisionByZero"
         }
       ]
     }

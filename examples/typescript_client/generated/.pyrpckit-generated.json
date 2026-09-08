@@ -1,0 +1,19 @@
+{
+  "generator": "pyrpckit",
+  "generatorVersion": "0.2.0",
+  "layoutVersion": 2,
+  "language": "typescript",
+  "contractSha256": "92b9032635276573198e569cfef63df2add94144018879a31cf4d95b862d469d",
+  "files": [
+    ".pyrpckit-generated.json",
+    "api/index.ts",
+    "api/tasks/index.ts",
+    "api/tasks/status.ts",
+    "client.ts",
+    "core.ts",
+    "errors.ts",
+    "index.ts",
+    "metadata.ts",
+    "models.ts"
+  ]
+}

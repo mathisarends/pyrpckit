@@ -6,7 +6,7 @@ export async function useTaskApi(transport: RpcTransport): Promise<void> {
 
   const created = await client.tasks.create({ title: "Read generated client" });
   await client.tasks.status.set({
-    task_id: created.id,
+    taskId: created.id,
     status: TaskStatus.DONE,
   });
 

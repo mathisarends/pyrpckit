@@ -1,0 +1,18 @@
+{
+  "generator": "pyrpckit",
+  "generatorVersion": "0.2.0",
+  "layoutVersion": 2,
+  "language": "python",
+  "contractSha256": "6391a4bc4d701d758f10836cce69b357f4d687be85d527a654ab3fae1a1ba0cb",
+  "files": [
+    ".pyrpckit-generated.json",
+    "__init__.py",
+    "api/__init__.py",
+    "api/calculator.py",
+    "client.py",
+    "endpoints.py",
+    "errors.py",
+    "metadata.py",
+    "models.py"
+  ]
+}
