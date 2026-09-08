@@ -13,7 +13,7 @@ from pyrpckit.schema._components import (
 
 OPENRPC_VERSION = "1.4.1"
 
-type Server = Mapping[str, str]
+type Server = Mapping[str, Any]
 
 
 def render_openrpc(

@@ -26,6 +26,7 @@ import.
 ## Conventions
 
 - Library code lives in `pyrpckit/`; the public API is re-exported from `pyrpckit/__init__.py`.
+- Use relative imports for all public re-exports in `pyrpckit/__init__.py`.
 - No module-level docstrings. Document a class or function only where the name is not enough.
 - The library stays transport-agnostic: no HTTP, WebSocket, or framework dependencies.
 - Generators read the OpenRPC document, never the `RpcProtocol` object, so a new target

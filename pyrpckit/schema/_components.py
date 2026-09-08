@@ -26,7 +26,7 @@ def components(protocol: RpcProtocol) -> dict[str, Any]:
             for name, annotation in annotations.items()
         )
     )
-    definitions = root["$defs"]
+    definitions = root.get("$defs", {})
     for method in protocol.methods:
         definitions[method.request_name] = _request_schema(method)
     for notification in protocol.notifications:

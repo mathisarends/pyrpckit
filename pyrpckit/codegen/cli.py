@@ -10,7 +10,7 @@ from pyrpckit.codegen.typescript import TypeScriptClientOptions
 from pyrpckit.codegen.writer import write_files
 from pyrpckit.schema.export import (
     ProtocolReferenceError,
-    load_protocol,
+    load_contract_source,
     render_contract,
 )
 
@@ -29,16 +29,20 @@ def _schema(arguments: argparse.Namespace) -> int:
     """Render the contract of a protocol into the repository."""
     sys.path.insert(0, str(Path.cwd()))
     try:
-        protocol = load_protocol(arguments.protocol)
+        source = load_contract_source(arguments.protocol)
+        contract = render_contract(
+            source,
+            title=arguments.title,
+            description=arguments.description,
+            servers=(
+                tuple(_server(entry) for entry in arguments.server)
+                if arguments.server
+                else None
+            ),
+        )
     except ProtocolReferenceError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    contract = render_contract(
-        protocol,
-        title=arguments.title,
-        description=arguments.description,
-        servers=tuple(_server(entry) for entry in arguments.server),
-    )
     output = arguments.output
     changed = write_files(output.parent, {output.name: contract}, check=arguments.check)
     if arguments.check:
@@ -117,19 +121,22 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
         "schema",
         help="Render the contract of a protocol.",
         description=(
-            "Render an RpcProtocol as the contract clients are generated from. "
-            "The protocol is named as module:attribute and imported from the "
-            "current directory."
+            "Render an RpcProtocol, RpcApp, or OpenRpcContract as the contract "
+            "clients are generated from. The source is named as "
+            "module:attribute and imported from the current directory."
         ),
     )
-    schema.add_argument("protocol", help="Protocol to render, as module:attribute.")
+    schema.add_argument("protocol", help="Contract source, as module:attribute.")
     schema.add_argument(
         "--output",
         type=Path,
         required=True,
         help="File the contract is written to.",
     )
-    schema.add_argument("--title", required=True, help="Title of the API.")
+    schema.add_argument(
+        "--title",
+        help="Title of the API (required unless the source is an OpenRpcContract).",
+    )
     schema.add_argument("--description", help="Description of the API.")
     schema.add_argument(
         "--server",
