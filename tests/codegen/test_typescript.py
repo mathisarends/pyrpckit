@@ -24,7 +24,7 @@ def test_the_generated_package_has_one_module_per_concern(
 
     assert set(files) == {
         ".pyrpckit-generated.json",
-        "_core.ts",
+        "core.ts",
         "api/greeting.ts",
         "api/index.ts",
         "client.ts",
@@ -100,7 +100,7 @@ def test_transport_module_can_be_configured(document: dict[str, Any]) -> None:
     files = render_typescript_client(document, configured)
 
     assert 'import type { RpcTransport } from "@example/rpc";' in files["client.ts"]
-    assert 'import type { RpcTransport } from "@example/rpc";' in files["_core.ts"]
+    assert 'import type { RpcTransport } from "@example/rpc";' in files["core.ts"]
 
 
 def test_api_root_and_names_are_shared_with_the_python_layout(

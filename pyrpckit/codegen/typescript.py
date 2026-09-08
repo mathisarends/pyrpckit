@@ -50,7 +50,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     _validate(ir, view.root_operations, view.nodes, client_name)
     renderer = _Renderer(ir, view.root_operations, view.nodes, options, client_name)
     files = {
-        "_core.ts": renderer.core(),
+        "core.ts": renderer.core(),
         "client.ts": renderer.client(),
         "errors.ts": renderer.errors(),
         "index.ts": renderer.index(),
@@ -114,7 +114,7 @@ class _Renderer:
             else str(self.ir.protocol_version)
         )
         body = (
-            'import type { RpcContractInfo, RpcRouteInfo } from "./_core";\n\n'
+            'import type { RpcContractInfo, RpcRouteInfo } from "./core";\n\n'
             "export const contract = {\n"
             f"  title: {json.dumps(self.ir.title)},\n"
             f"  version: {json.dumps(self.ir.version)},\n"
@@ -135,7 +135,7 @@ class _Renderer:
 
     def api(self, node: ApiViewNode) -> str:
         root = _root_prefix(node)
-        imports = [f'import type {{ RpcClientCore }} from "{root}_core";']
+        imports = [f'import type {{ RpcClientCore }} from "{root}core";']
         if node.operations:
             imports.append(f'import {{ routes }} from "{root}metadata";')
             model_names = _route_model_names(node.operations)
@@ -176,7 +176,7 @@ class _Renderer:
         transport_module = json.dumps(self.options.transport_module)
         imports = [
             f"import type {{ RpcTransport }} from {transport_module};",
-            'import { RpcClientCore } from "./_core";',
+            'import { RpcClientCore } from "./core";',
         ]
         if self.root_operations:
             imports.append('import { routes } from "./metadata";')
@@ -236,7 +236,7 @@ class _Renderer:
 
     def endpoints(self) -> str:
         blocks = [
-            'import { defineRpcServer, resolveRpcServer } from "./_core";',
+            'import { defineRpcServer, resolveRpcServer } from "./core";',
             "",
             "export const servers = {",
         ]
@@ -309,7 +309,7 @@ class _Renderer:
             if error.data is not None
             for name in _model_names(error.data)
         }
-        imports = ['import { RpcRemoteError } from "./_core";']
+        imports = ['import { RpcRemoteError } from "./core";']
         if model_names:
             imports.append(_type_import(model_names, "./models"))
         blocks: list[str] = []
