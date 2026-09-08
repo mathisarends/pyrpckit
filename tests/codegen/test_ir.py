@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -15,11 +16,11 @@ from pyrpckit.codegen.ir import (
 )
 
 
-def test_methods_are_grouped_into_namespaces(document: dict[str, Any]) -> None:
+def test_methods_form_a_hierarchical_api_tree(document: dict[str, Any]) -> None:
     ir = build_ir(document)
 
-    assert [namespace.name for namespace in ir.namespaces] == ["greeting"]
-    assert [operation.name for operation in ir.namespaces[0].operations] == [
+    assert [node.path for node in ir.api] == [("greeting",)]
+    assert [route.operation_name for route in ir.api[0].operations] == [
         "say",
         "forget",
         "greeted",
@@ -33,6 +34,8 @@ def test_an_operation_keeps_its_wire_name_and_models(document: dict[str, Any]) -
     say = ir.operations[0]
 
     assert say.rpc_name == "greeting.say"
+    assert say.path == ("greeting",)
+    assert say.operation_name == "say"
     assert say.method_member == "GREETING_SAY"
     assert say.params_model == "SayParams"
     assert say.result == NamedType("SayResult")
@@ -87,13 +90,91 @@ def test_models_carry_their_fields(document: dict[str, Any]) -> None:
     assert [(f.name, f.required) for f in say_params.fields] == [("name", True)]
 
 
-def test_notifications_are_lowered(document: dict[str, Any]) -> None:
+def test_events_are_lowered(document: dict[str, Any]) -> None:
     ir = build_ir(document)
 
-    assert len(ir.notifications) == 1
-    assert ir.notifications[0].rpc_name == "greeting.changed"
-    assert ir.notifications[0].message == NamedType("GreetingChangedNotification")
-    assert ir.notifications[0].payload == NamedType("GreetingEvent")
+    assert len(ir.events) == 1
+    assert ir.events[0].rpc_name == "greeting.changed"
+    assert ir.events[0].message == NamedType("GreetingChangedNotification")
+    assert ir.events[0].payload == NamedType("GreetingEvent")
+
+
+def test_nested_routes_form_nested_api_nodes(document: dict[str, Any]) -> None:
+    nested = deepcopy(document)
+    route = deepcopy(nested["methods"][0])
+    route["name"] = "browser.nav.navigate"
+    nested["methods"] = [route]
+
+    ir = build_ir(nested)
+
+    assert ir.api[0].path == ("browser",)
+    assert ir.api[0].children[0].path == ("browser", "nav")
+    assert ir.api[0].children[0].operations[0].operation_name == "navigate"
+
+
+def test_route_metadata_is_preserved(document: dict[str, Any]) -> None:
+    enriched = deepcopy(document)
+    method = enriched["methods"][0]
+    method.update(
+        {
+            "description": "A longer explanation.",
+            "deprecated": True,
+            "servers": [{"name": "secondary", "url": "wss://secondary"}],
+            "errors": [
+                {
+                    "code": -32004,
+                    "message": "Missing",
+                    "x-rpckit-name": "GreetingMissing",
+                    "x-rpckit-data-schema": {
+                        "$ref": "#/components/schemas/MissingData"
+                    },
+                }
+            ],
+        }
+    )
+    enriched["components"]["schemas"]["MissingData"] = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "required": ["name"],
+    }
+
+    route = build_ir(enriched).operations[0]
+
+    assert route.description == "A longer explanation."
+    assert route.deprecated is True
+    assert route.tags == ("greeting",)
+    assert route.server_names == ("secondary",)
+    assert route.errors[0].name == "GreetingMissing"
+    assert route.errors[0].data == NamedType("MissingData")
+
+
+def test_contract_servers_are_lowered(document: dict[str, Any]) -> None:
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "greeting-api",
+            "url": "wss://{host}/{tenantId}",
+            "summary": "Production gateway",
+            "variables": {
+                "host": {"default": "api.example.com"},
+                "tenantId": {
+                    "default": "demo",
+                    "enum": ["demo", "production"],
+                },
+            },
+            "x-rpckit-transport": "websocket",
+        }
+    ]
+
+    ir = build_ir(deployed)
+
+    assert ir.protocol_version == 1
+    assert ir.servers[0].name == "greeting-api"
+    assert ir.servers[0].transport == "websocket"
+    assert [variable.name for variable in ir.servers[0].variables] == [
+        "host",
+        "tenantId",
+    ]
 
 
 def test_a_foreign_openrpc_document_is_rejected(document: dict[str, Any]) -> None:

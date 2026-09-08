@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -109,44 +112,110 @@ class ParamDecl:
     name: str
     type: TypeExpr
     required: bool
+    default: Any = None
+    has_default: bool = False
 
 
 @dataclass(frozen=True, slots=True)
-class OperationDecl:
+class RouteDecl:
     rpc_name: str
-    name: str
+    operation_name: str
+    path: tuple[str, ...]
     method_member: str
     params: tuple[ParamDecl, ...]
     params_model: str | None
     result: TypeExpr
     summary: str = ""
+    description: str = ""
+    tags: tuple[str, ...] = ()
+    errors: tuple[ErrorDecl, ...] = ()
+    server_names: tuple[str, ...] = ()
+    deprecated: bool = False
+
+    @property
+    def name(self) -> str:
+        return self.operation_name
+
+
+OperationDecl = RouteDecl
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorDecl:
+    code: int
+    message: str
+    name: str | None = None
+    data: TypeExpr | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ServerVariableDecl:
+    name: str
+    default: str
+    description: str = ""
+    enum: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ServerDecl:
+    name: str
+    url: str
+    summary: str = ""
+    description: str = ""
+    variables: tuple[ServerVariableDecl, ...] = ()
+    transport: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ApiNode:
+    segment: str
+    path: tuple[str, ...]
+    operations: tuple[RouteDecl, ...] = ()
+    children: tuple[ApiNode, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class NamespaceDecl:
     name: str
-    operations: tuple[OperationDecl, ...]
+    operations: tuple[RouteDecl, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class NotificationDecl:
+class EventDecl:
     rpc_name: str
     payload: TypeExpr
     message: TypeExpr
     summary: str = ""
 
 
+NotificationDecl = EventDecl
+
+
 @dataclass(frozen=True, slots=True)
 class ClientIr:
     title: str
     version: str
+    protocol_version: int | None = None
+    servers: tuple[ServerDecl, ...] = ()
     declarations: tuple[Declaration, ...] = ()
     method_enum: EnumDecl = field(
         default_factory=lambda: EnumDecl(METHOD_ENUM_NAME, ())
     )
-    namespaces: tuple[NamespaceDecl, ...] = ()
-    root_operations: tuple[OperationDecl, ...] = ()
-    notifications: tuple[NotificationDecl, ...] = ()
+    root_operations: tuple[RouteDecl, ...] = ()
+    api: tuple[ApiNode, ...] = ()
+    events: tuple[EventDecl, ...] = ()
+
+    @property
+    def namespaces(self) -> tuple[NamespaceDecl, ...]:
+        return tuple(
+            NamespaceDecl(".".join(node.path), node.operations)
+            for node in _walk_api(self.api)
+            if node.operations
+        )
+
+    @property
+    def notifications(self) -> tuple[EventDecl, ...]:
+        return self.events
 
     @property
     def models(self) -> tuple[ModelDecl, ...]:
@@ -157,11 +226,9 @@ class ClientIr:
         )
 
     @property
-    def operations(self) -> tuple[OperationDecl, ...]:
+    def operations(self) -> tuple[RouteDecl, ...]:
         return self.root_operations + tuple(
-            operation
-            for namespace in self.namespaces
-            for operation in namespace.operations
+            operation for node in _walk_api(self.api) for operation in node.operations
         )
 
 
@@ -170,13 +237,11 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     schemas: dict[str, Any] = document.get("components", {}).get("schemas", {})
     methods: list[dict[str, Any]] = document.get("methods", [])
     discriminator_enums, discriminator_fields = _discriminators(schemas)
-    grouped = _grouped_operations(methods)
     info = document.get("info", {})
-    namespaces = tuple(
-        NamespaceDecl(name, operations) for name, operations in grouped.items() if name
-    )
-    root_operations = grouped.get("", ())
-    notifications = _notifications(document)
+    routes = tuple(_route(method) for method in methods)
+    root_operations = tuple(route for route in routes if not route.path)
+    api = _api_tree(route for route in routes if route.path)
+    events = _events(document)
     declarations = (
         *discriminator_enums,
         *_schema_declarations(schemas, discriminator_fields),
@@ -184,9 +249,11 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     return ClientIr(
         title=info.get("title", "RPC"),
         version=str(info.get("version", "0.0.0")),
+        protocol_version=document.get("x-rpc-protocol-version"),
+        servers=_servers(document),
         declarations=_reachable(
             declarations,
-            _roots(namespaces, root_operations, notifications),
+            _roots(routes, events),
         ),
         method_enum=EnumDecl(
             METHOD_ENUM_NAME,
@@ -195,9 +262,9 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
                 for method in methods
             ),
         ),
-        namespaces=namespaces,
         root_operations=root_operations,
-        notifications=notifications,
+        api=api,
+        events=events,
     )
 
 
@@ -241,13 +308,9 @@ def ref_name(schema: dict[str, Any]) -> str:
 
 
 def _roots(
-    namespaces: tuple[NamespaceDecl, ...],
-    root_operations: tuple[OperationDecl, ...],
-    notifications: tuple[NotificationDecl, ...],
+    operations: tuple[RouteDecl, ...],
+    events: tuple[EventDecl, ...],
 ) -> set[str]:
-    operations = root_operations + tuple(
-        operation for namespace in namespaces for operation in namespace.operations
-    )
     roots = {
         operation.params_model
         for operation in operations
@@ -257,9 +320,12 @@ def _roots(
         roots.update(named_types(operation.result))
         for parameter in operation.params:
             roots.update(named_types(parameter.type))
-    for notification in notifications:
-        roots.update(named_types(notification.payload))
-        roots.update(named_types(notification.message))
+        for error in operation.errors:
+            if error.data is not None:
+                roots.update(named_types(error.data))
+    for event in events:
+        roots.update(named_types(event.payload))
+        roots.update(named_types(event.message))
     return roots
 
 
@@ -394,44 +460,55 @@ def _discriminators(
     return tuple(enums), fields
 
 
-def _grouped_operations(
-    methods: list[dict[str, Any]],
-) -> dict[str, tuple[OperationDecl, ...]]:
-    grouped: dict[str, list[OperationDecl]] = {}
-    for method in methods:
-        namespace, _, operation = method["name"].rpartition(".")
-        grouped.setdefault(namespace, []).append(_operation(method, operation))
-    return {name: tuple(operations) for name, operations in grouped.items()}
-
-
-def _operation(method: dict[str, Any], name: str) -> OperationDecl:
+def _route(method: dict[str, Any]) -> RouteDecl:
     if "x-rpc-request-schema" not in method:
         raise UnsupportedSchemaError(
             f"Method {method['name']} carries no x-rpc-request-schema; "
             "the document was not rendered by pyrpckit"
         )
+    *path, operation_name = method["name"].split(".")
     params_schema = method.get("x-rpc-params-schema")
-    return OperationDecl(
+    return RouteDecl(
         rpc_name=method["name"],
-        name=name,
+        operation_name=operation_name,
+        path=tuple(path),
         method_member=_member_name(method["name"]),
-        params=tuple(
-            ParamDecl(
-                parameter["name"],
-                type_expression(parameter["schema"]),
-                required=bool(parameter.get("required")),
-            )
-            for parameter in method.get("params", ())
-        ),
+        params=tuple(_parameter(parameter) for parameter in method.get("params", ())),
         params_model=None if params_schema is None else ref_name(params_schema),
         result=type_expression(method["result"]["schema"]),
         summary=method.get("summary", ""),
+        description=method.get("description", ""),
+        tags=tuple(tag["name"] for tag in method.get("tags", ())),
+        errors=tuple(_error(error) for error in method.get("errors", ())),
+        server_names=tuple(server["name"] for server in method.get("servers", ())),
+        deprecated=bool(method.get("deprecated", False)),
     )
 
 
-def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
+def _parameter(parameter: dict[str, Any]) -> ParamDecl:
+    schema = parameter["schema"]
+    return ParamDecl(
+        parameter["name"],
+        type_expression(schema),
+        required=bool(parameter.get("required")),
+        default=schema.get("default"),
+        has_default="default" in schema,
+    )
+
+
+def _error(error: dict[str, Any]) -> ErrorDecl:
+    data_schema = error.get("x-rpckit-data-schema")
+    return ErrorDecl(
+        code=error["code"],
+        message=error["message"],
+        name=error.get("x-rpckit-name"),
+        data=None if data_schema is None else type_expression(data_schema),
+    )
+
+
+def _events(document: dict[str, Any]) -> tuple[EventDecl, ...]:
     return tuple(
-        NotificationDecl(
+        EventDecl(
             rpc_name=notification["name"],
             payload=type_expression(notification["payload"]),
             message=type_expression(notification["message"]),
@@ -439,6 +516,58 @@ def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
         )
         for notification in document.get("x-rpc-notifications", ())
     )
+
+
+def _servers(document: dict[str, Any]) -> tuple[ServerDecl, ...]:
+    return tuple(
+        ServerDecl(
+            name=server["name"],
+            url=server["url"],
+            summary=server.get("summary", ""),
+            description=server.get("description", ""),
+            variables=tuple(
+                ServerVariableDecl(
+                    name=name,
+                    default=variable["default"],
+                    description=variable.get("description", ""),
+                    enum=tuple(variable.get("enum", ())),
+                )
+                for name, variable in server.get("variables", {}).items()
+            ),
+            transport=server.get("x-rpckit-transport"),
+        )
+        for server in document.get("servers", ())
+    )
+
+
+def _api_tree(routes: Iterable[RouteDecl]) -> tuple[ApiNode, ...]:
+    tree: dict[str, Any] = {}
+    for route in routes:
+        cursor = tree
+        for segment in route.path:
+            cursor = cursor.setdefault(segment, {"$operations": []})
+        cursor["$operations"].append(route)
+    return tuple(_api_node(segment, node, ()) for segment, node in tree.items())
+
+
+def _api_node(segment: str, value: dict[str, Any], parent: tuple[str, ...]) -> ApiNode:
+    path = (*parent, segment)
+    return ApiNode(
+        segment=segment,
+        path=path,
+        operations=tuple(value.get("$operations", ())),
+        children=tuple(
+            _api_node(child_segment, child, path)
+            for child_segment, child in value.items()
+            if child_segment != "$operations"
+        ),
+    )
+
+
+def _walk_api(nodes: tuple[ApiNode, ...]) -> Iterable[ApiNode]:
+    for node in nodes:
+        yield node
+        yield from _walk_api(node.children)
 
 
 def _member_name(value: str | int) -> str:
