@@ -37,6 +37,7 @@ to either project and does not claim protocol compatibility with them.
 - [Why pyrpckit?](#why-pyrpckit)
 - [What you can build](#what-you-can-build)
 - [How it fits together](#how-it-fits-together)
+- [Installation](#installation)
 - [A bidirectional gateway in one protocol](#a-bidirectional-gateway-in-one-protocol)
 - [Declaring routes](#declaring-routes)
 - [Composing the app](#composing-the-app)
@@ -99,10 +100,26 @@ This separation matters for gateways: protocol code stays stable while the
 connection strategy—WebSocket, queue, local process, or otherwise—can change per
 deployment.
 
+## Installation
+
+`pyrpckit` requires Python 3.12 or newer. Add it to a project with
+[`uv`](https://docs.astral.sh/uv/):
+
 ```bash
 uv add pyrpckit
-# or: pip install pyrpckit
 ```
+
+This adds `pyrpckit` to the project's `pyproject.toml`, updates the lockfile,
+and installs it into the project's environment.
+
+With `pip`:
+
+```bash
+python -m pip install pyrpckit
+```
+
+The runtime dependency on Pydantic is installed automatically. No web framework
+or transport dependency is included.
 
 ## A bidirectional gateway in one protocol
 
