@@ -1,9 +1,9 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from pydantic import ValidationError
 
 from pyrpckit.decorators import RpcHandler
-from pyrpckit.dispatch import RpcDispatcher
+from pyrpckit.dispatch import BoundRpcMethod, RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
     RpcError,
@@ -39,6 +39,20 @@ class RpcServer:
         )
         self._dispatcher = RpcDispatcher(self._protocol, handlers)
         self._error_mapper = error_mapper
+
+    @classmethod
+    def _from_bound_methods(
+        cls,
+        protocol: RpcProtocol,
+        methods: Mapping[str, BoundRpcMethod],
+        *,
+        error_mapper: RpcErrorMapper | None = None,
+    ) -> "RpcServer":
+        server = cls.__new__(cls)
+        server._protocol = protocol
+        server._dispatcher = RpcDispatcher(protocol, bound_methods=methods)
+        server._error_mapper = error_mapper
+        return server
 
     @property
     def protocol(self) -> RpcProtocol:

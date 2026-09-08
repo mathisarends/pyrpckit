@@ -149,14 +149,14 @@ def _feature_definition(
     notifications: tuple[RpcNotificationDefinition, ...],
 ) -> RpcFeatureDefinition:
     methods = tuple(
-        _method_definition(decorated, name)
+        _method_definition(decorated, name, handler)
         for handler in handlers
         for decorated in _handler_methods(handler)
     )
     events = tuple(
         event
         for notification in notifications
-        for event in _event_definitions(notification.payload)
+        for event in event_definitions(notification.payload)
     )
     return RpcFeatureDefinition(
         name=name,
@@ -183,6 +183,7 @@ def _handler_methods(
 def _method_definition(
     decorated: DecoratedRpcMethod,
     feature_name: str | None,
+    owner: type[RpcHandler],
 ) -> RpcMethodDefinition:
     function = decorated.function
     metadata = decorated.metadata
@@ -199,7 +200,7 @@ def _method_definition(
         feature=feature_name,
         tags=() if feature_name is None else (feature_name,),
         function=function,
-        owner=None,
+        owner=owner,
     )
 
 
@@ -267,7 +268,7 @@ def _result_model(function: Any) -> Any:
     return result
 
 
-def _event_definitions(annotation: Any) -> tuple[RpcEventDefinition, ...]:
+def event_definitions(annotation: Any) -> tuple[RpcEventDefinition, ...]:
     definitions: list[RpcEventDefinition] = []
     for message in _event_message_types(annotation):
         metadata = event_metadata(message)

@@ -62,8 +62,8 @@ class RpcRouter:
         prefix: str = "",
         tags: Iterable[str] = (),
     ) -> None:
-        self._prefix = _prefix(prefix)
-        self._tags = _tags(tags)
+        self._prefix = normalize_prefix(prefix)
+        self._tags = normalize_tags(tags)
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
@@ -93,7 +93,6 @@ class RpcRouter:
     ) -> Callable[[FunctionType], _RouterMethod]:
         """Declare a free function or instance method as an RPC method."""
         full_name = join_rpc_name(self._prefix, _name(name))
-        self._reserve(full_name)
 
         def decorate(function: FunctionType) -> _RouterMethod:
             if not isinstance(function, FunctionType):
@@ -110,6 +109,7 @@ class RpcRouter:
                 tags=self._tags,
                 binding=_BindingReference(),
             )
+            self._reserve(full_name)
             self._routes.append(route)
             return _RouterMethod(route)
 
@@ -153,7 +153,7 @@ def join_rpc_name(*parts: str) -> str:
     return ".".join(part for part in parts if part)
 
 
-def _prefix(value: object) -> str:
+def normalize_prefix(value: object) -> str:
     prefix = str(value)
     if prefix:
         _validate_dotted_name(prefix, kind="prefix")
@@ -171,7 +171,7 @@ def _validate_dotted_name(value: str, *, kind: str) -> None:
         raise ProtocolDefinitionError(f"Invalid RPC {kind}: {value!r}")
 
 
-def _tags(values: Iterable[str]) -> tuple[str, ...]:
+def normalize_tags(values: Iterable[str]) -> tuple[str, ...]:
     unique: dict[str, None] = {}
     for value in values:
         tag = str(value)

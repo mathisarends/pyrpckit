@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,10 +25,14 @@ class RpcDispatcher:
     def __init__(
         self,
         protocol: RpcProtocol,
-        handlers: Iterable[RpcHandler],
+        handlers: Iterable[RpcHandler] = (),
+        *,
+        bound_methods: Mapping[str, BoundRpcMethod] | None = None,
     ) -> None:
         self._protocol = protocol
-        self._bound = _bound_methods(handlers)
+        self._bound = (
+            _bound_methods(handlers) if bound_methods is None else dict(bound_methods)
+        )
         _assert_complete(protocol, self._bound)
 
     def parse_request(self, raw_request: object) -> RpcInvocation:

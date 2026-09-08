@@ -1,3 +1,4 @@
+from pyrpckit.app import RpcApp, RpcMountBinding, RpcRouterMount
 from pyrpckit.decorators import RpcHandler, event, method
 from pyrpckit.envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
@@ -25,6 +26,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "ProtocolDefinitionError",
+    "RpcApp",
     "RpcError",
     "RpcErrorCode",
     "RpcErrorMapper",
@@ -35,12 +37,14 @@ __all__ = [
     "RpcInvalidParamsError",
     "RpcInvalidRequestError",
     "RpcMethodNotFoundError",
+    "RpcMountBinding",
     "RpcNotification",
     "RpcNotificationDefinition",
     "RpcParseError",
     "RpcProtocol",
     "RpcRequestId",
     "RpcRouter",
+    "RpcRouterMount",
     "RpcServer",
     "RpcSuccess",
     "__version__",
