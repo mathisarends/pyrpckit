@@ -84,6 +84,16 @@ def test_route_metadata_preserves_the_wire_contract(
     assert "error_codes=(-32001,)" in metadata
 
 
+def test_stably_named_remote_errors_get_their_own_module(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    errors = render_python_client(document, options)["errors.py"]
+
+    assert "class UnknownGreetingError(RpcRemoteError):" in errors
+    assert "code: ClassVar[int] = -32001" in errors
+
+
 def test_client_name_defaults_to_the_contract_title(document: dict[str, Any]) -> None:
     options = PythonClientOptions(package=PACKAGE)
 

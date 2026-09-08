@@ -85,6 +85,15 @@ def test_route_metadata_keeps_tags_errors_and_wire_names(
     assert "deprecated: false" in metadata
 
 
+def test_stably_named_remote_errors_get_their_own_module(
+    document: dict[str, Any],
+) -> None:
+    errors = render_typescript_client(document, options())["errors.ts"]
+
+    assert "class UnknownGreetingError extends RpcRemoteError" in errors
+    assert "static readonly code = -32001" in errors
+
+
 def test_transport_module_can_be_configured(document: dict[str, Any]) -> None:
     configured = TypeScriptClientOptions(transport_module="@example/rpc")
 

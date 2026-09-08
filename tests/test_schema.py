@@ -78,7 +78,13 @@ def test_openrpc_documents_the_declared_errors(protocol: RpcProtocol) -> None:
     )
 
     assert "errors" not in say
-    assert forget["errors"] == [{"code": -32001, "message": "Unknown greeting"}]
+    assert forget["errors"] == [
+        {
+            "code": -32001,
+            "message": "Unknown greeting",
+            "x-rpckit-name": "UnknownGreeting",
+        }
+    ]
 
 
 def test_openrpc_tags_each_method_with_its_feature(protocol: RpcProtocol) -> None:

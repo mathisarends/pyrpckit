@@ -74,7 +74,11 @@ def _method(
         document["x-rpc-params-schema"] = _ref(type_name(method.params))
     if method.errors:
         document["errors"] = [
-            {"code": int(error.code), "message": error.message}
+            {
+                "code": int(error.code),
+                "message": error.message,
+                "x-rpckit-name": error.__name__.removesuffix("Error"),
+            }
             for error in method.errors
         ]
     return document
