@@ -1,6 +1,6 @@
 import json
 
-from pyrpckit import RpcProtocol
+from pyrpckit.protocol import RpcProtocol
 from pyrpckit.schema import render_openrpc
 
 from .conftest import GreetingNotificationMethod, GreetingRpcMethod

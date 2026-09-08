@@ -8,14 +8,14 @@ from pyrpckit.schema.openrpc import Server, render_openrpc
 
 
 class ProtocolReferenceError(Exception):
-    """Raised when a ``module:attribute`` reference names no protocol."""
+    """Raised when a ``module:attribute`` reference names no RPC app."""
 
 
-type ContractSource = RpcProtocol | RpcApp | OpenRpcContract
+type ContractSource = RpcApp | OpenRpcContract
 
 
 def load_contract_source(reference: str) -> ContractSource:
-    """Import a protocol, app, or contract named by ``module:attribute``."""
+    """Import an app or contract named by ``module:attribute``."""
     module_name, separator, attribute_name = reference.partition(":")
     if not separator or not module_name or not attribute_name:
         raise ProtocolReferenceError(
@@ -31,22 +31,18 @@ def load_contract_source(reference: str) -> ContractSource:
         raise ProtocolReferenceError(
             f"{module_name} has no attribute {attribute_name}"
         ) from error
-    if not isinstance(source, RpcProtocol | RpcApp | OpenRpcContract):
+    if not isinstance(source, RpcApp | OpenRpcContract):
         raise ProtocolReferenceError(
-            f"{reference} is a {type(source).__name__}, not an RpcProtocol, "
-            "RpcApp, or OpenRpcContract"
+            f"{reference} is a {type(source).__name__}, not an RpcApp or "
+            "OpenRpcContract"
         )
     return source
 
 
 def load_protocol(reference: str) -> RpcProtocol:
-    """Import a protocol source and return its underlying ``RpcProtocol``."""
+    """Import an app or contract and return its internal protocol."""
     source = load_contract_source(reference)
-    if isinstance(source, RpcProtocol):
-        return source
-    if isinstance(source, RpcApp):
-        return source.protocol
-    return source.app.protocol
+    return source.protocol if isinstance(source, RpcApp) else source.app.protocol
 
 
 def render_contract(
@@ -69,11 +65,9 @@ def render_contract(
             else servers
         )
     else:
-        protocol = source.protocol if isinstance(source, RpcApp) else source
+        protocol = source.protocol
         if title is None:
-            raise ProtocolReferenceError(
-                "A title is required when rendering an RpcProtocol or RpcApp"
-            )
+            raise ProtocolReferenceError("A title is required when rendering an RpcApp")
         resolved_title = title
         resolved_description = (
             "Typed JSON-RPC API." if description is None else description

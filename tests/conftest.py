@@ -5,7 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
-from pyrpckit import RpcProtocol
+from pyrpckit.protocol import RpcProtocol
 
 
 class GreetingRpcMethod(StrEnum):
@@ -55,52 +55,49 @@ class UnknownGreetingError(rpc.RpcError):
     message = "Unknown greeting"
 
 
-class GreetingRpcMethods(rpc.RpcHandler):
+GREETING_ROUTER = rpc.RpcRouter(prefix="greeting", tags=("greeting",))
+
+
+class GreetingRpcMethods:
     def __init__(self) -> None:
         self.greeted: list[str] = []
 
-    @rpc.method(GreetingRpcMethod.SAY, summary="Greet someone by name.")
+    @GREETING_ROUTER.method("say", summary="Greet someone by name.")
     async def say(self, params: SayParams) -> SayResult:
         self.greeted.append(params.name)
         return SayResult(text=f"Hello, {params.name}!")
 
-    @rpc.method(GreetingRpcMethod.FORGET, errors=(UnknownGreetingError,))
+    @GREETING_ROUTER.method("forget", errors=(UnknownGreetingError,))
     async def forget(self, params: ForgetParams) -> None:
         """Forget a greeted name."""
         if params.name not in self.greeted:
             raise UnknownGreetingError(f"Unknown greeting: {params.name}")
         self.greeted.remove(params.name)
 
-    @rpc.method(GreetingRpcMethod.GREETED)
+    @GREETING_ROUTER.method("greeted")
     async def greeted_names(self) -> GreetedResult:
         """List everyone greeted so far."""
         return GreetedResult(names=list(self.greeted))
 
-    @rpc.method(GreetingRpcMethod.CLEAR)
+    @GREETING_ROUTER.method("clear")
     async def clear(self) -> None:
         """Forget everyone."""
         self.greeted.clear()
 
 
-GREETING_FEATURE = rpc.feature(
-    "greeting",
-    handlers=(GreetingRpcMethods,),
-    notifications=(
-        rpc.notification(
-            GreetingNotificationMethod.CHANGED,
-            GreetingEvent,
-            summary="Publish a greeting change.",
-        ),
-    ),
+GREETING_ROUTER.event(
+    "changed",
+    GreetingEvent,
+    summary="Publish a greeting change.",
 )
-
-
-GREETING_PROTOCOL = RpcProtocol(GREETING_FEATURE)
+GREETING_APP = rpc.RpcApp()
+GREETING_APP.include_router(GREETING_ROUTER)
+GREETING_PROTOCOL = GREETING_APP.protocol
 
 
 @pytest.fixture
 def protocol() -> RpcProtocol:
-    return RpcProtocol(GREETING_FEATURE)
+    return GREETING_PROTOCOL
 
 
 @pytest.fixture

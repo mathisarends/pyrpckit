@@ -11,9 +11,9 @@ from pyrpckit.schema.export import (
     render_contract,
 )
 
-from .conftest import GREETING_PROTOCOL
+from .conftest import GREETING_APP, GREETING_PROTOCOL
 
-REFERENCE = "tests.conftest:GREETING_PROTOCOL"
+REFERENCE = "tests.conftest:GREETING_APP"
 
 
 def _schema(output: Path, *arguments: str) -> int:
@@ -34,7 +34,7 @@ def test_a_reference_resolves_to_the_protocol() -> None:
         ":GREETING_PROTOCOL",
         "tests.conftest:",
         "tests.nowhere:GREETING_PROTOCOL",
-        "tests.conftest:GREETING_FEATURE",
+        "tests.conftest:GREETING_PROTOCOL",
     ],
 )
 def test_an_unusable_reference_is_reported(reference: str) -> None:
@@ -43,7 +43,7 @@ def test_an_unusable_reference_is_reported(reference: str) -> None:
 
 
 def test_the_contract_is_rendered_as_indented_json() -> None:
-    contract = render_contract(GREETING_PROTOCOL, title="Greeting API")
+    contract = render_contract(GREETING_APP, title="Greeting API")
 
     assert contract.endswith("\n")
     assert json.loads(contract) == render_openrpc(

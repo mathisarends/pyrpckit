@@ -1,22 +1,19 @@
-import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
 from pyrpckit import (
-    ProtocolDefinitionError,
     RpcError,
     RpcErrorCode,
     RpcFailure,
-    RpcProtocol,
     RpcServer,
     RpcSuccess,
 )
 
-from .conftest import GreetingRpcMethod, GreetingRpcMethods, SayParams
+from .conftest import GREETING_APP, GreetingRpcMethod, GreetingRpcMethods, SayParams
 
 
 def _server(handler: GreetingRpcMethods) -> RpcServer:
-    return RpcServer(handler)
+    return GREETING_APP.bind(handler)
 
 
 async def test_a_request_is_answered_with_its_result(
@@ -35,26 +32,6 @@ async def test_a_request_is_answered_with_its_result(
     assert response.id == 7
     assert response.result is not None
     assert response.result.text == "Hello, M!"
-
-
-async def test_the_protocol_is_derived_from_the_handlers(
-    handler: GreetingRpcMethods,
-) -> None:
-    server = _server(handler)
-
-    assert [method.name for method in server.protocol.methods] == [
-        GreetingRpcMethod.SAY,
-        GreetingRpcMethod.FORGET,
-        GreetingRpcMethod.GREETED,
-        GreetingRpcMethod.CLEAR,
-    ]
-
-
-async def test_an_explicit_protocol_is_checked_against_the_handlers(
-    protocol: RpcProtocol,
-) -> None:
-    with pytest.raises(ProtocolDefinitionError, match="missing="):
-        RpcServer(protocol=protocol)
 
 
 async def test_a_notification_is_served_without_a_response(
@@ -115,7 +92,7 @@ async def test_a_declared_error_goes_on_the_wire_as_declared(
 
 
 async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
-    server = RpcServer(BrokenRpcMethods(), error_mapper=_broken_error)
+    server = BROKEN_APP.bind(BrokenRpcMethods(), error_mapper=_broken_error)
 
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
@@ -127,7 +104,7 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
 
 
 async def test_unmapped_handler_failures_stay_internal() -> None:
-    server = RpcServer(BrokenRpcMethods())
+    server = BROKEN_APP.bind(BrokenRpcMethods())
 
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
@@ -171,12 +148,16 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     class NestedParams(BaseModel):
         params: str
 
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.broken")
+    router = rpc.RpcRouter(prefix="greeting")
+
+    class Handler:
+        @router.method("broken")
         async def broken(self, params: SayParams) -> None:
             NestedParams.model_validate({"params": 1})
 
-    response = await RpcServer(Handler()).handle(
+    app = rpc.RpcApp()
+    app.include_router(router)
+    response = await app.bind(Handler()).handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -197,10 +178,17 @@ class BrokenParams(BaseModel):
     pass
 
 
-class BrokenRpcMethods(rpc.RpcHandler):
-    @rpc.method("greeting.break")
+BROKEN_ROUTER = rpc.RpcRouter(prefix="greeting")
+
+
+class BrokenRpcMethods:
+    @BROKEN_ROUTER.method("break")
     async def fail(self, params: BrokenParams) -> None:
         raise BreakageError("boom")
+
+
+BROKEN_APP = rpc.RpcApp()
+BROKEN_APP.include_router(BROKEN_ROUTER)
 
 
 def _broken_error(error: Exception) -> RpcError | None:

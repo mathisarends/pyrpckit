@@ -902,23 +902,19 @@ Handler-Klasse, die Python-Methode und deren RPC-Wire-Namen. Das ist insbesonder
 nach dem Wegfall der Marker-Basisklasse erforderlich, damit Konfigurationsfehler
 ohne Kenntnis der internen Binding-Logik behoben werden können.
 
-### 6. Rückwärtskompatibilität
+### 6. Vor-v1-Bereinigung
 
-Die bestehende API kann zunächst vollständig erhalten bleiben:
+Da noch keine Version 1 veröffentlicht ist, wird nur die Router- und App-API
+angeboten. `RpcHandler`, der globale `@method`-Decorator, `feature(...)`,
+`notification(...)`, `RpcProtocol.of(...)` und die direkte Konstruktion von
+`RpcServer` entfallen. `RpcProtocol` bleibt ein internes, unveränderliches
+Ergebnis von `RpcApp.protocol`; Contract-Quellen sind ausschließlich `RpcApp`
+und `OpenRpcContract`. Der `@event`-Decorator bleibt Teil der neuen API, weil er
+die diskriminierten Payload-Typen beschreibt.
 
-- `@rpckit.method(...)`
-
-- `RpcHandler`
-
-- `feature(...)`
-
-- `RpcProtocol(...)`
-
-- `RpcServer(*handlers, protocol=...)`
-
-Intern sollten beide Oberflächen früh in dieselbe `RpcRoute`- beziehungsweise
-`RpcMethodDefinition`-Darstellung überführt werden. Erst nach der Migration aller
-repository-internen Consumer kann über Deprecations entschieden werden.
+Alle repository-internen Beispiele und Tests werden im selben Schritt auf
+`RpcRouter`, `RpcApp` und `app.bind(...)` umgestellt. Es gibt keine
+Kompatibilitätsschicht und keine Legacy-Dokumentation.
 
 ## Umsetzungsschritte
 
@@ -972,7 +968,7 @@ repository-internen Consumer kann über Deprecations entschieden werden.
 2. `ServerVariable`, `OpenRpcServer` und `OpenRpcContract` als typisierte
    Beschreibungsobjekte ergänzen. Extension-Keys müssen mit `x-` beginnen.
 
-3. Den CLI-Loader `RpcProtocol`, `RpcApp` und vorzugsweise den vollständigen
+3. Den CLI-Loader ausschließlich `RpcApp` und den vollständigen
    `OpenRpcContract` akzeptieren lassen.
 
 4. Templatisierte Server-URLs gegen ihre deklarierten Variablen validieren und
@@ -1027,17 +1023,20 @@ repository-internen Consumer kann über Deprecations entschieden werden.
 
 1. `libs/rpckit/README.md` mit dem Router-first Quickstart beginnen lassen.
 
-2. Die bisherige API in einen Abschnitt „Legacy composition“ verschieben.
+2. Die bisherige API vollständig aus Exporten, Beispielen und Tests entfernen.
 
 3. Beispiele auf Router und App migrieren.
 
-4. Erst nach einer vollständigen repository-internen Migration entscheiden, ob
-   die alte API deprecated oder dauerhaft als Low-Level-API behalten wird.
+4. Sicherstellen, dass die entfernten Vor-v1-Symbole nicht mehr aus dem Paket
+   exportiert werden.
 
 ## Akzeptanzkriterien
 
 - Eine Methode wird genau einmal dekoriert und nicht zusätzlich als Klasse in
   einer Schema-Liste registriert.
+
+- Die Vor-v1-Kompositions-API wird nicht exportiert und besitzt keine
+  Kompatibilitätsschicht.
 
 - Der Browser-Tunnel besitzt genau ein importierbares API-Objekt.
 

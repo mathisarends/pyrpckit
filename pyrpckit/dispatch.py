@@ -1,10 +1,9 @@
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from pyrpckit.decorators import RpcHandler, decorated_methods
 from pyrpckit.envelopes import RpcRequestEnvelope
 from pyrpckit.errors import ProtocolDefinitionError, RpcInvalidParamsError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
@@ -25,14 +24,10 @@ class RpcDispatcher:
     def __init__(
         self,
         protocol: RpcProtocol,
-        handlers: Iterable[RpcHandler] = (),
-        *,
-        bound_methods: Mapping[str, BoundRpcMethod] | None = None,
+        bound_methods: Mapping[str, BoundRpcMethod],
     ) -> None:
         self._protocol = protocol
-        self._bound = (
-            _bound_methods(handlers) if bound_methods is None else dict(bound_methods)
-        )
+        self._bound = dict(bound_methods)
         _assert_complete(protocol, self._bound)
 
     def parse_request(self, raw_request: object) -> RpcInvocation:
@@ -91,17 +86,6 @@ def _unexpected_params_error(
             for name in names
         ],
     )
-
-
-def _bound_methods(handlers: Iterable[RpcHandler]) -> dict[str, BoundRpcMethod]:
-    bound: dict[str, BoundRpcMethod] = {}
-    for owner in handlers:
-        for decorated in decorated_methods(type(owner)):
-            name = decorated.metadata.name
-            if name in bound:
-                raise ProtocolDefinitionError(f"Duplicate RPC handler: {name}")
-            bound[name] = decorated.function.__get__(owner)
-    return bound
 
 
 def _assert_complete(protocol: RpcProtocol, bound: dict[str, BoundRpcMethod]) -> None:

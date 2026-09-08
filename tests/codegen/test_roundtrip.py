@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import RpcProtocol, RpcServer
+from pyrpckit import RpcServer
 from pyrpckit.client import RpcRemoteError
-from tests.conftest import GREETING_FEATURE, GreetingRpcMethods
+from tests.conftest import GREETING_APP, GreetingRpcMethods
 
 
 class LoopbackTransport:
@@ -58,7 +58,7 @@ def handler() -> GreetingRpcMethods:
 
 @pytest.fixture
 def transport(handler: GreetingRpcMethods) -> LoopbackTransport:
-    server = RpcServer(handler, protocol=RpcProtocol(GREETING_FEATURE))
+    server = GREETING_APP.bind(handler)
     return LoopbackTransport(server)
 
 

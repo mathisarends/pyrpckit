@@ -30,7 +30,7 @@ def _schema(arguments: argparse.Namespace) -> int:
     """Render the contract of a protocol into the repository."""
     sys.path.insert(0, str(Path.cwd()))
     try:
-        source = load_contract_source(arguments.protocol)
+        source = load_contract_source(arguments.source)
         contract = render_contract(
             source,
             title=arguments.title,
@@ -203,12 +203,14 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
         "schema",
         help="Render the contract of a protocol.",
         description=(
-            "Render an RpcProtocol, RpcApp, or OpenRpcContract as the contract "
+            "Render an RpcApp or OpenRpcContract as the contract "
             "clients are generated from. The source is named as "
             "module:attribute and imported from the current directory."
         ),
     )
-    schema.add_argument("protocol", help="Contract source, as module:attribute.")
+    schema.add_argument(
+        "source", help="RpcApp or OpenRpcContract, as module:attribute."
+    )
     schema.add_argument(
         "--output",
         type=Path,

@@ -2,7 +2,6 @@ from collections.abc import Callable, Mapping
 
 from pydantic import ValidationError
 
-from pyrpckit.decorators import RpcHandler
 from pyrpckit.dispatch import BoundRpcMethod, RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
@@ -17,28 +16,15 @@ type RpcErrorMapper = Callable[[Exception], RpcError | None]
 
 
 class RpcServer:
-    """Serves a protocol over any transport that can carry decoded JSON.
-
-    The protocol is derived from the handler instances unless one is passed
-    explicitly, in which case the two are checked against each other.
+    """Serve an ``RpcApp`` binding over any decoded-JSON transport.
 
     Handlers report failures by raising an ``RpcError`` subclass, which is put on
     the wire as declared. Foreign exceptions are translated by ``error_mapper``;
-    anything it does not recognise becomes an internal error, so handler
-    internals never leak.
+    anything it does not recognise becomes an internal error.
     """
 
-    def __init__(
-        self,
-        *handlers: RpcHandler,
-        protocol: RpcProtocol | None = None,
-        error_mapper: RpcErrorMapper | None = None,
-    ) -> None:
-        self._protocol = (
-            protocol if protocol is not None else _derived_protocol(handlers)
-        )
-        self._dispatcher = RpcDispatcher(self._protocol, handlers)
-        self._error_mapper = error_mapper
+    def __init__(self) -> None:
+        raise TypeError("RpcServer instances are created by RpcApp.bind()")
 
     @classmethod
     def _from_bound_methods(
@@ -87,10 +73,6 @@ class RpcServer:
         if isinstance(error, ValidationError):
             return _validation_error(error)
         return RpcInternalError()
-
-
-def _derived_protocol(handlers: tuple[RpcHandler, ...]) -> RpcProtocol:
-    return RpcProtocol.of(*(type(handler) for handler in handlers))
 
 
 def _validation_error(error: ValidationError) -> RpcError:

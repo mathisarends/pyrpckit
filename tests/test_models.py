@@ -14,14 +14,21 @@ class NavigateResult(rpc.RpcModel):
     active_project_id: str
 
 
-class Navigation(rpc.RpcHandler):
+NAVIGATION_ROUTER = rpc.RpcRouter(prefix="browser.nav")
+
+
+class Navigation:
     def __init__(self) -> None:
         self.params: NavigateParams | None = None
 
-    @rpc.method("browser.nav.navigate")
+    @NAVIGATION_ROUTER.method("navigate")
     async def navigate(self, params: NavigateParams) -> NavigateResult:
         self.params = params
         return NavigateResult(active_project_id=params.project_id)
+
+
+NAVIGATION_APP = rpc.RpcApp()
+NAVIGATION_APP.include_router(NAVIGATION_ROUTER)
 
 
 def test_rpc_models_use_snake_case_in_python_and_camel_case_on_the_wire() -> None:
@@ -36,7 +43,7 @@ def test_rpc_models_use_snake_case_in_python_and_camel_case_on_the_wire() -> Non
 
 
 def test_openrpc_uses_the_canonical_wire_field_names() -> None:
-    document = render_openrpc(rpc.RpcProtocol.of(Navigation), title="Navigation")
+    document = render_openrpc(NAVIGATION_APP.protocol, title="Navigation")
     method = document["methods"][0]
 
     assert method["params"] == [
@@ -58,7 +65,7 @@ def test_openrpc_uses_the_canonical_wire_field_names() -> None:
 
 async def test_server_accepts_camel_case_and_serializes_results_with_aliases() -> None:
     handler = Navigation()
-    response = await rpc.RpcServer(handler).handle(
+    response = await NAVIGATION_APP.bind(handler).handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -77,12 +84,13 @@ def test_contract_rejects_colliding_wire_field_names() -> None:
         foo_bar: str
         fooBar: str
 
-    class CollidingHandler(rpc.RpcHandler):
-        @rpc.method("collision.test")
+    router = rpc.RpcRouter(prefix="collision")
+
+    class CollidingHandler:
+        @router.method("test")
         async def test(self, params: CollidingParams) -> None: ...
 
+    app = rpc.RpcApp()
+    app.include_router(router)
     with pytest.raises(rpc.ProtocolDefinitionError, match="wire field 'fooBar'"):
-        render_openrpc(
-            rpc.RpcProtocol.of(CollidingHandler),
-            title="Collision",
-        )
+        render_openrpc(app.protocol, title="Collision")

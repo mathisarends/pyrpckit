@@ -1,6 +1,6 @@
 from .app import RpcApp, RpcMountBinding, RpcRouterMount
 from .contract import OpenRpcContract, OpenRpcServer, ServerVariable
-from .decorators import RpcHandler, event, method
+from .decorators import event
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
     ProtocolDefinitionError,
@@ -14,13 +14,6 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
-from .protocol import (
-    RpcFeatureDefinition,
-    RpcNotificationDefinition,
-    RpcProtocol,
-    feature,
-    notification,
-)
 from .router import RpcRouter
 from .server import RpcErrorMapper, RpcServer
 
@@ -35,8 +28,6 @@ __all__ = [
     "RpcErrorCode",
     "RpcErrorMapper",
     "RpcFailure",
-    "RpcFeatureDefinition",
-    "RpcHandler",
     "RpcInternalError",
     "RpcInvalidParamsError",
     "RpcInvalidRequestError",
@@ -44,9 +35,7 @@ __all__ = [
     "RpcMountBinding",
     "RpcModel",
     "RpcNotification",
-    "RpcNotificationDefinition",
     "RpcParseError",
-    "RpcProtocol",
     "RpcRequestId",
     "RpcRouter",
     "RpcRouterMount",
@@ -56,7 +45,4 @@ __all__ = [
     "__version__",
     "error_message",
     "event",
-    "feature",
-    "method",
-    "notification",
 ]

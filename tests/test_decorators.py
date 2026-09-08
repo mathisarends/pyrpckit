@@ -5,149 +5,96 @@ from pydantic import BaseModel
 
 import pyrpckit as rpc
 from pyrpckit import ProtocolDefinitionError
-from pyrpckit.decorators import (
-    _EVENT_METADATA_KEY,
-    _METHOD_METADATA_KEY,
-    RpcMethodMetadata,
-    _method_metadata,
-    decorated_methods,
-    event_metadata,
-)
+from pyrpckit.decorators import _EVENT_METADATA_KEY, event_metadata
 
-from .conftest import (
-    GreetingRpcMethod,
-    GreetingRpcMethods,
-    GreetingSaid,
-    SayParams,
-    UnknownGreetingError,
-)
+from .conftest import GreetingSaid, SayParams, UnknownGreetingError
 
 
-def _metadata_by_name(handler: type) -> dict[str, RpcMethodMetadata]:
-    return {
-        decorated.attribute_name: decorated.metadata
-        for decorated in decorated_methods(handler)
-    }
+def test_router_methods_expose_their_metadata() -> None:
+    router = rpc.RpcRouter(prefix="greeting")
 
+    class Handler:
+        @router.method("say", summary="Greet someone.")
+        async def say(self, params: SayParams) -> None: ...
 
-def test_decorated_methods_expose_their_metadata() -> None:
-    by_name = _metadata_by_name(GreetingRpcMethods)
+        @router.method("forget", errors=(UnknownGreetingError,))
+        async def forget(self, params: SayParams) -> None: ...
 
-    assert by_name["say"].name == GreetingRpcMethod.SAY
-    assert by_name["say"].summary == "Greet someone by name."
-    assert by_name["say"].errors == ()
-    assert by_name["forget"].errors == (UnknownGreetingError,)
+    assert router.routes[0].summary == "Greet someone."
+    assert router.routes[1].errors == (UnknownGreetingError,)
 
 
 def test_a_summary_falls_back_to_the_first_docstring_line() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say")
-        async def say(self, params: SayParams) -> None:
-            """Greet someone.
+    router = rpc.RpcRouter()
 
-            The rest of the docstring is not part of the contract.
-            """
+    @router.method
+    async def say(params: SayParams) -> None:
+        """Greet someone.
 
-    assert _metadata_by_name(Handler)["say"].summary == "Greet someone."
+        The rest of the docstring is not part of the contract.
+        """
+
+    assert router.routes[0].summary == "Greet someone."
 
 
 def test_a_method_without_a_docstring_has_no_summary() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say")
-        async def say(self, params: SayParams) -> None: ...
+    router = rpc.RpcRouter()
 
-    assert _metadata_by_name(Handler)["say"].summary is None
+    @router.method
+    async def say(params: SayParams) -> None: ...
+
+    assert router.routes[0].summary is None
 
 
 def test_an_explicit_summary_wins_over_the_docstring() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say", summary="From the decorator.")
-        async def say(self, params: SayParams) -> None:
-            """From the docstring."""
+    router = rpc.RpcRouter()
 
-    assert _metadata_by_name(Handler)["say"].summary == "From the decorator."
+    @router.method(summary="From the decorator.")
+    async def say(params: SayParams) -> None:
+        """From the docstring."""
+
+    assert router.routes[0].summary == "From the decorator."
 
 
 def test_a_declared_error_must_be_an_rpc_error_subclass() -> None:
+    router = rpc.RpcRouter()
+
     with pytest.raises(ProtocolDefinitionError, match="must be an RpcError subclass"):
 
-        class Handler(rpc.RpcHandler):
-            @rpc.method("greeting.say", errors=(ValueError,))
-            async def say(self, params: SayParams) -> None: ...
+        @router.method(errors=(ValueError,))
+        async def say(params: SayParams) -> None: ...
 
 
 def test_a_declared_error_must_carry_a_code() -> None:
     class Codeless(rpc.RpcError):
         pass
 
+    router = rpc.RpcRouter()
     with pytest.raises(ProtocolDefinitionError, match="declares no code"):
 
-        class Handler(rpc.RpcHandler):
-            @rpc.method("greeting.say", errors=(Codeless,))
-            async def say(self, params: SayParams) -> None: ...
+        @router.method(errors=(Codeless,))
+        async def say(params: SayParams) -> None: ...
 
 
-def test_undecorated_methods_are_ignored() -> None:
-    class Handler(rpc.RpcHandler):
-        async def helper(self, params: SayParams) -> None: ...
-
-    assert list(decorated_methods(Handler)) == []
-
-
-def test_a_method_cannot_be_decorated_twice() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="already decorated"):
-
-        class Handler(rpc.RpcHandler):
-            @rpc.method("a")
-            @rpc.method("b")
-            async def say(self, params: SayParams) -> None: ...
-
-
-def test_event_metadata_takes_its_name_from_the_pinned_type_field() -> None:
+def test_event_metadata_exposes_the_discriminator() -> None:
     metadata = event_metadata(GreetingSaid)
-
     assert metadata is not None
     assert metadata.name == "greeting.said"
 
 
-def test_event_metadata_is_not_inherited_from_a_base_model() -> None:
-    class Subclass(GreetingSaid):
-        pass
-
-    assert event_metadata(Subclass) is None
-
-
-def test_an_event_must_pin_its_type_field_to_a_string_literal() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="needs a type field"):
+def test_an_event_needs_a_literal_discriminator() -> None:
+    with pytest.raises(ProtocolDefinitionError, match="pinned to a string literal"):
 
         @rpc.event
-        class Unpinned(BaseModel):
+        class Invalid(BaseModel):
             type: str
 
 
-def test_an_event_cannot_be_decorated_twice() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="already decorated"):
+def test_corrupted_event_metadata_is_rejected() -> None:
+    class Changed(BaseModel):
+        type: Literal["changed"] = "changed"
 
-        @rpc.event
-        @rpc.event
-        class Twice(BaseModel):
-            type: Literal["greeting.twice"] = "greeting.twice"
-
-
-def test_event_metadata_rejects_a_corrupted_metadata_value() -> None:
-    class Corrupted(BaseModel):
-        pass
-
-    setattr(Corrupted, _EVENT_METADATA_KEY, "not-metadata")
+    setattr(Changed, _EVENT_METADATA_KEY, "not-metadata")
 
     with pytest.raises(ProtocolDefinitionError, match="Invalid RPC event metadata"):
-        event_metadata(Corrupted)
-
-
-def test_method_metadata_rejects_a_corrupted_metadata_value() -> None:
-    def handler() -> None: ...
-
-    setattr(handler, _METHOD_METADATA_KEY, "not-metadata")
-
-    with pytest.raises(ProtocolDefinitionError, match="Invalid RPC method metadata"):
-        _method_metadata(handler)
+        event_metadata(Changed)

@@ -61,7 +61,7 @@ def _method(
     document: dict[str, Any] = {"name": method.name}
     if method.summary is not None:
         document["summary"] = method.summary
-    tags = method.tags or (() if method.feature is None else (method.feature,))
+    tags = method.tags
     if tags:
         document["tags"] = [{"name": tag} for tag in tags]
     document |= {

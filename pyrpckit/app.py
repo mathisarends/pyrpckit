@@ -2,11 +2,9 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from pyrpckit.decorators import decorated_methods
 from pyrpckit.dispatch import BoundRpcMethod
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import (
-    RpcFeatureDefinition,
     RpcMethodDefinition,
     RpcNotificationDefinition,
     RpcProtocol,
@@ -115,14 +113,12 @@ class RpcApp:
                 for notification in self._events
                 for definition in event_definitions(notification.payload)
             )
-            feature = RpcFeatureDefinition(
-                name=None,
-                handlers=(),
+            self._protocol = RpcProtocol(
                 methods=methods,
-                notifications=tuple(self._events),
+                notifications=self._events,
                 events=events,
+                version=self._version,
             )
-            self._protocol = RpcProtocol(feature, version=self._version)
         return self._protocol
 
     def bind(
@@ -263,16 +259,7 @@ def _add_handler_candidates(
         )
         for route in unknown
     ]
-    for decorated in decorated_methods(handler_type):
-        if decorated.function not in known_functions:
-            problems.append(
-                f"Unknown decorated RPC method {decorated.metadata.name}.\n"
-                f"Declared by {decorated.function.__qualname__}.\n"
-                f"Provided by {origin}: {handler_type.__name__}.\n"
-                "Include its router in the app or remove this handler "
-                "from app.bind(...)."
-            )
-    if not matched and not unknown and not tuple(decorated_methods(handler_type)):
+    if not matched and not unknown:
         problems.append(
             f"{origin}: {handler_type.__name__} matches no RPC methods.\n"
             "Pass an instance whose decorated methods belong to this app."

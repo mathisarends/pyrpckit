@@ -4,37 +4,27 @@ import pytest
 from pydantic import BaseModel
 
 import pyrpckit as rpc
-from pyrpckit import ProtocolDefinitionError, RpcProtocol
+from pyrpckit.protocol import RpcProtocol
 
 from .conftest import (
-    GREETING_FEATURE,
     ForgetParams,
     GreetedResult,
     GreetingForgotten,
     GreetingNotificationMethod,
     GreetingRpcMethod,
-    GreetingRpcMethods,
     GreetingSaid,
     SayParams,
     SayResult,
 )
 
 
-def test_the_protocol_collects_methods_from_its_features(
-    protocol: RpcProtocol,
-) -> None:
+def test_the_protocol_collects_the_apps_methods(protocol: RpcProtocol) -> None:
     assert [method.name for method in protocol.methods] == [
         GreetingRpcMethod.SAY,
         GreetingRpcMethod.FORGET,
         GreetingRpcMethod.GREETED,
         GreetingRpcMethod.CLEAR,
     ]
-
-
-def test_the_protocol_exposes_the_features_it_was_built_from(
-    protocol: RpcProtocol,
-) -> None:
-    assert protocol.features == (GREETING_FEATURE,)
 
 
 def test_a_method_definition_describes_its_wire_contract(
@@ -44,31 +34,18 @@ def test_a_method_definition_describes_its_wire_contract(
 
     assert say.handler_name == "say"
     assert say.request_name == "SayRequest"
-    assert say.params is SayParams
-    assert say.result is SayResult
-
-
-def test_a_method_carries_the_name_of_its_feature(protocol: RpcProtocol) -> None:
-    assert protocol.method(GreetingRpcMethod.SAY).feature == "greeting"
+    assert say.params is not None
+    assert issubclass(say.params, SayParams)
+    assert issubclass(say.result, SayResult)
+    assert say.tags == ("greeting",)
 
 
 def test_a_method_may_return_nothing(protocol: RpcProtocol) -> None:
     forget = protocol.method(GreetingRpcMethod.FORGET)
 
-    assert forget.params is ForgetParams
+    assert forget.params is not None
+    assert issubclass(forget.params, ForgetParams)
     assert forget.result is type(None)
-
-
-def test_a_protocol_can_be_assembled_from_handlers_alone() -> None:
-    protocol = RpcProtocol.of(GreetingRpcMethods)
-
-    assert [method.name for method in protocol.methods] == [
-        GreetingRpcMethod.SAY,
-        GreetingRpcMethod.FORGET,
-        GreetingRpcMethod.GREETED,
-        GreetingRpcMethod.CLEAR,
-    ]
-    assert protocol.method(GreetingRpcMethod.SAY).feature is None
 
 
 def test_notifications_expand_into_their_union_of_events(
@@ -88,92 +65,42 @@ def test_an_unknown_method_is_rejected(protocol: RpcProtocol) -> None:
         protocol.method("greeting.unknown")
 
 
-def test_features_may_not_declare_the_same_method_twice() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC method"):
-        RpcProtocol(GREETING_FEATURE, GREETING_FEATURE)
-
-
-def test_a_handler_without_any_decorated_method_is_rejected() -> None:
-    class Handler(rpc.RpcHandler):
-        async def helper(self, params: SayParams) -> None: ...
-
-    with pytest.raises(ProtocolDefinitionError, match="declares no @method"):
-        rpc.feature("greeting", handlers=(Handler,))
-
-
-def test_a_handler_must_be_a_class() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="must be a class"):
-        rpc.feature("greeting", handlers=(GreetingRpcMethods(),))
-
-
-def test_params_must_be_a_pydantic_model() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say")
-        async def say(self, params: str) -> None: ...
-
-    with pytest.raises(ProtocolDefinitionError, match="params must be"):
-        rpc.feature("greeting", handlers=(Handler,))
-
-
-def test_a_result_annotation_is_required() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say")
-        async def say(self, params: SayParams): ...
-
-    with pytest.raises(ProtocolDefinitionError, match="needs a return annotation"):
-        rpc.feature("greeting", handlers=(Handler,))
-
-
-def test_a_handler_takes_exactly_self_and_params() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say")
-        async def say(self, params: SayParams, extra: int) -> None: ...
-
-    with pytest.raises(ProtocolDefinitionError, match="only self and params"):
-        rpc.feature("greeting", handlers=(Handler,))
-
-
 def test_notification_payloads_must_be_decorated_events() -> None:
     class Undecorated(BaseModel):
         text: str
 
-    with pytest.raises(ProtocolDefinitionError, match="not decorated"):
-        rpc.feature(
-            "greeting",
-            notifications=(rpc.notification("greeting.changed", Undecorated),),
-        )
+    router = rpc.RpcRouter()
+    router.event("changed", Undecorated)
+    app = rpc.RpcApp()
+    app.include_router(router)
 
-
-def test_a_result_must_be_a_pydantic_model_or_none() -> None:
-    class Handler(rpc.RpcHandler):
-        @rpc.method("greeting.say")
-        async def say(self, params: SayParams) -> str: ...
-
-    with pytest.raises(ProtocolDefinitionError, match="result must be"):
-        rpc.feature("greeting", handlers=(Handler,))
+    with pytest.raises(rpc.ProtocolDefinitionError, match="not decorated"):
+        _ = app.protocol
 
 
 def test_notification_payloads_must_be_pydantic_models() -> None:
+    router = rpc.RpcRouter()
+    router.event("changed", str)
+    app = rpc.RpcApp()
+    app.include_router(router)
+
     with pytest.raises(
-        ProtocolDefinitionError, match="must contain Pydantic event models"
+        rpc.ProtocolDefinitionError,
+        match="must contain Pydantic event models",
     ):
-        rpc.feature(
-            "greeting", notifications=(rpc.notification("greeting.changed", str),)
-        )
+        _ = app.protocol
 
 
 def test_an_annotated_union_of_events_still_expands_into_events() -> None:
-    feature = rpc.feature(
-        "greeting",
-        notifications=(
-            rpc.notification(
-                "greeting.changed",
-                Annotated[GreetingSaid | GreetingForgotten, "wire payload"],
-            ),
-        ),
+    router = rpc.RpcRouter()
+    router.event(
+        "changed",
+        Annotated[GreetingSaid | GreetingForgotten, "wire payload"],
     )
+    app = rpc.RpcApp()
+    app.include_router(router)
 
-    assert [event.name for event in feature.events] == [
+    assert [event.name for event in app.protocol.events] == [
         "greeting.said",
         "greeting.forgotten",
     ]
@@ -183,10 +110,12 @@ def test_a_method_may_take_no_params(protocol: RpcProtocol) -> None:
     greeted = protocol.method(GreetingRpcMethod.GREETED)
 
     assert greeted.params is None
-    assert greeted.result is GreetedResult
+    assert issubclass(greeted.result, GreetedResult)
 
 
-def test_a_method_may_take_no_params_and_return_nothing(protocol: RpcProtocol) -> None:
+def test_a_method_may_take_no_params_and_return_nothing(
+    protocol: RpcProtocol,
+) -> None:
     clear = protocol.method(GreetingRpcMethod.CLEAR)
 
     assert clear.params is None
