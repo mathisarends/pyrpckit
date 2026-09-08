@@ -1,11 +1,4 @@
-from enum import StrEnum
-
 from pydantic import BaseModel
-
-
-class CalculatorMethod(StrEnum):
-    ADD = "calculator.add"
-    DIVIDE = "calculator.divide"
 
 
 class BinaryOperationParams(BaseModel):

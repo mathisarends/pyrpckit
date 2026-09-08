@@ -49,28 +49,29 @@ class TaskStatusChanged(BaseModel):
 type TaskEvent = TaskCreated | TaskStatusChanged
 
 
-class TaskRpc(rpc.RpcHandler):
-    @rpc.method("tasks.list")
+router = rpc.RpcRouter(prefix="tasks", tags=("tasks",))
+
+
+class TaskRpc:
+    @router.method("list")
     async def list_tasks(self) -> TaskList: ...
 
-    @rpc.method("tasks.create")
+    @router.method("create")
     async def create_task(self, params: CreateTaskParams) -> Task: ...
 
-    @rpc.method("tasks.status.set")
+    @router.method("status.set")
     async def set_status(self, params: SetTaskStatusParams) -> Task: ...
 
 
-TASKS = rpc.feature(
-    "tasks",
-    handlers=(TaskRpc,),
-    notifications=(rpc.notification("tasks.changed", TaskEvent),),
-)
+router.event("changed", TaskEvent)
+APP = rpc.RpcApp()
+APP.include_router(router)
 
 OUTPUT = Path(__file__).parent / "typescript_client" / "generated"
 
 
 def main() -> None:
-    document = render_openrpc(rpc.RpcProtocol(TASKS), title="Task API")
+    document = render_openrpc(APP.protocol, title="Task API")
     changed = generate_typescript_client(
         document,
         OUTPUT,

@@ -7,13 +7,16 @@ hiding the transport boundary.
 ## 1. Declare the API
 
 [`api/`](api/) is the source of truth. Pydantic models, declared errors, handlers,
-and protocol assembly each have a small focused module. Its `__init__.py` exposes
-the complete public contract. The implementation remains plain Python and has no
-FastAPI dependency.
+and router/app composition each have a small focused module. Its `__init__.py`
+exposes the complete public contract. The implementation remains plain Python and
+has no FastAPI dependency.
 
 ```python
-class CalculatorRpc(rpc.RpcHandler):
-    @rpc.method("calculator.add")
+router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
+
+
+class CalculatorRpc:
+    @router.method("add")
     async def add(self, params: BinaryOperationParams) -> CalculationResult:
         return CalculationResult(value=params.left + params.right)
 ```

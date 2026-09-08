@@ -1,13 +1,12 @@
 from typing import Annotated
 
-import pyrpckit as rpc
 from fastapi import Body, FastAPI, Response
 from fastapi.responses import JSONResponse
 
-from showcase.app.api import PROTOCOL, CalculatorRpc
+from showcase.app.api import CALCULATOR_RPC, CalculatorRpc
 
 app = FastAPI(title="pyrpckit FastAPI showcase")
-server = rpc.RpcServer(CalculatorRpc(), protocol=PROTOCOL)
+server = CALCULATOR_RPC.bind(CalculatorRpc())
 
 
 @app.post("/rpc")

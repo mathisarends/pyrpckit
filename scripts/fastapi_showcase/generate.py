@@ -6,14 +6,11 @@ from pathlib import Path
 from pyrpckit.codegen import PythonClientOptions, generate_python_client
 from pyrpckit.codegen.writer import write_files
 from pyrpckit.schema.export import render_contract
-from showcase.app.api import PROTOCOL
+from showcase.app.api import CALCULATOR_RPC_CONTRACT
 
 SHOWCASE = Path(__file__).parents[2] / "showcase"
 SCHEMA = SHOWCASE / "spec" / "calculator.openrpc.json"
 CLIENT = SHOWCASE / "client"
-TITLE = "Calculator API"
-DESCRIPTION = "A small pyrpckit API served through FastAPI."
-SERVERS = ({"name": "local", "url": "http://127.0.0.1:8000/rpc"},)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -23,12 +20,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)
 
-    contract = render_contract(
-        PROTOCOL,
-        title=TITLE,
-        description=DESCRIPTION,
-        servers=SERVERS,
-    )
+    contract = render_contract(CALCULATOR_RPC_CONTRACT)
     paths = write_files(
         SCHEMA.parent,
         {SCHEMA.name: contract},

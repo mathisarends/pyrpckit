@@ -8,8 +8,7 @@ from pyrpckit.client import RpcRemoteError
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.schema.export import render_contract
-from scripts.fastapi_showcase.generate import DESCRIPTION, SERVERS, TITLE
-from showcase.app.api import PROTOCOL
+from showcase.app.api import CALCULATOR_RPC_CONTRACT
 from showcase.app.server import app
 from showcase.client import CalculatorClient
 from showcase.client.transport import HttpJsonRpcTransport
@@ -50,14 +49,7 @@ def test_the_committed_contract_matches_the_declared_api() -> None:
         (SHOWCASE / "spec" / "calculator.openrpc.json").read_text(encoding="utf-8")
     )
 
-    assert committed == json.loads(
-        render_contract(
-            PROTOCOL,
-            title=TITLE,
-            description=DESCRIPTION,
-            servers=SERVERS,
-        )
-    )
+    assert committed == json.loads(render_contract(CALCULATOR_RPC_CONTRACT))
     assert [method["name"] for method in committed["methods"]] == [
         "calculator.add",
         "calculator.divide",
