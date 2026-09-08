@@ -14,13 +14,13 @@ account = rpc.RpcRouter(prefix="account", tags=("account",))
 
 
 class SystemRpc:
-    @system.method("status")
+    @system.method
     async def status(self) -> StatusResult:
         return StatusResult(status="ready")
 
 
 class AccountRpc:
-    @account.method("profile", summary="Return the current profile.")
+    @account.method(summary="Return the current profile.")
     async def profile(self) -> ProfileResult:
         return ProfileResult(name="Mathis")
 

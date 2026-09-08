@@ -9,7 +9,7 @@ from pyrpckit.envelopes import RpcRequestEnvelope
 from pyrpckit.errors import ProtocolDefinitionError, RpcInvalidParamsError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
 
-type BoundRpcMethod = Callable[..., Awaitable[BaseModel | None]]
+type BoundRpcMethod = Callable[..., Awaitable[Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +50,12 @@ class RpcDispatcher:
             params=_validated_params(method, request.params),
         )
 
-    async def execute(self, invocation: RpcInvocation) -> BaseModel | None:
+    async def execute(self, invocation: RpcInvocation) -> Any:
         bound = self._bound[invocation.method.name]
         if invocation.params is None:
             return await bound()
+        if invocation.method.params_style == "kwargs":
+            return await bound(**invocation.params.model_dump(by_alias=False))
         return await bound(invocation.params)
 
 

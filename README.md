@@ -216,14 +216,16 @@ There is no second set of handwritten socket payload types to keep in sync.
 ## Declaring routes
 
 ```python
+from pydantic import BaseModel
+
 import pyrpckit as rpc
 
 
-class GetAutomationParams(rpc.RpcModel):
+class GetAutomationParams(BaseModel):
     automation_id: str
 
 
-class AutomationResponse(rpc.RpcModel):
+class AutomationResponse(BaseModel):
     id: str
     name: str
 
@@ -240,35 +242,54 @@ class AutomationRpcMethods:
     def __init__(self, service: AutomationService) -> None:
         self._service = service
 
-    @router.method("get", errors=(AutomationNotFound,))
-    async def get_automation(self, params: GetAutomationParams) -> AutomationResponse:
+    @router.method(errors=(AutomationNotFound,))
+    async def get(self, params: GetAutomationParams) -> AutomationResponse:
         """Get an automation."""
         job = await self._service.get(params.automation_id)
         return AutomationResponse(id=job.id, name=job.name)
 ```
 
 The prefix supplies the JSON-RPC namespace once, while tags group methods in the
-OpenRPC document. Handler classes need no base class. A decorated method accepts
-`self` and at most one Pydantic params model, and must annotate its return type
-with a Pydantic model or `None`. Invalid declarations raise
-`ProtocolDefinitionError` when the app builds its protocol.
+OpenRPC document. Handler classes need no base class. The bare `@router.method`
+form uses the Python function name, so this method is exposed as `automation.get`.
 
-`RpcModel` keeps identifiers idiomatic on both sides of the boundary: fields are
-`snake_case` in Python and `camelCase` in OpenRPC and JSON. It accepts either form
-when validating Python data, always serializes the canonical wire form, and
-rejects unknown fields. For example, `automation_id` is documented and sent as
-`automationId`. Model names remain `PascalCase`; RPC method names remain the
-explicit strings declared on the router.
+Request and response classes may be ordinary Pydantic models. The router adapts
+them at the protocol boundary without modifying the classes: Python keeps
+`snake_case`, while OpenRPC and JSON use `camelCase`, explicit Pydantic aliases win,
+and unknown input fields are rejected. `RpcModel` remains available when the same
+convention is also useful outside a decorated handler.
+
+Small methods may declare named parameters directly. Keyword-only arguments become
+JSON-RPC parameters, and any supported annotated result type becomes the result
+schema:
+
+```python
+@router.method
+async def search(*, query: str, max_results: int = 10) -> list[str]:
+    return await service.search(query, limit=max_results)
+```
+
+Use the callable form when the method has options. An explicit first argument is an
+optional wire-name override, not required boilerplate:
+
+```python
+@router.method(errors=(AutomationNotFound,))
+async def get(...) -> AutomationResponse: ...
+
+
+@router.method("get", errors=(AutomationNotFound,))
+async def fetch_automation(...) -> AutomationResponse: ...
+```
 
 A method that needs nothing from the caller simply leaves the params out, and one
 that answers with nothing returns `None` — no placeholder models:
 
 ```python
-@router.method("list")
-async def list_automations(self) -> AutomationListResponse: ...
+@router.method
+async def list(self) -> AutomationListResponse: ...
 
 
-@router.method("cancel_all")
+@router.method
 async def cancel_all(self) -> None: ...
 ```
 
@@ -285,7 +306,7 @@ Free functions use the same decorator and need no runtime binding:
 utility_router = rpc.RpcRouter()
 
 
-@utility_router.method("ping")
+@utility_router.method
 async def ping() -> None:
     pass
 ```

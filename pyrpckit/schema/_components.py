@@ -1,7 +1,7 @@
 import re
 from collections.abc import Iterable
 from types import UnionType
-from typing import Any, get_args, get_origin
+from typing import Any, TypeAliasType, get_args, get_origin
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -65,12 +65,22 @@ def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
     for method in protocol.methods:
         if method.params is not None:
             _add(annotations, method.params)
-        _add(annotations, method.result)
+        _add_result_types(annotations, method.result)
     for notification in protocol.notifications:
         _add(annotations, notification.payload)
     for event in protocol.events:
         _add(annotations, event.payload)
     return annotations
+
+
+def _add_result_types(annotations: dict[str, Any], annotation: Any) -> None:
+    if isinstance(annotation, TypeAliasType) or (
+        isinstance(annotation, type) and issubclass(annotation, BaseModel)
+    ):
+        _add(annotations, annotation)
+        return
+    for argument in get_args(annotation):
+        _add_result_types(annotations, argument)
 
 
 def _add(annotations: dict[str, Any], annotation: Any) -> None:

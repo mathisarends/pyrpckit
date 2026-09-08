@@ -1,13 +1,15 @@
 import asyncio
 
+from pydantic import BaseModel
+
 import pyrpckit as rpc
 
 
-class GreetParams(rpc.RpcModel):
+class GreetParams(BaseModel):
     name: str
 
 
-class Greeting(rpc.RpcModel):
+class Greeting(BaseModel):
     text: str
 
 
@@ -15,7 +17,7 @@ router = rpc.RpcRouter(prefix="greeting", tags=("greeting",))
 
 
 class GreetingRpc:
-    @router.method("say")
+    @router.method
     async def say(self, params: GreetParams) -> Greeting:
         return Greeting(text=f"Hello, {params.name}!")
 

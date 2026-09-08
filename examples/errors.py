@@ -21,7 +21,7 @@ router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:
-    @router.method("divide", errors=(DivisionByZero,))
+    @router.method(errors=(DivisionByZero,))
     async def divide(self, params: DivideParams) -> Quotient:
         if params.divisor == 0:
             raise DivisionByZero()

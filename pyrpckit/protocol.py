@@ -5,6 +5,7 @@ from types import FunctionType, UnionType
 from typing import (
     Annotated,
     Any,
+    Literal,
     Self,
     TypeAliasType,
     get_args,
@@ -12,8 +13,9 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
+from pyrpckit._wire import wire_annotation
 from pyrpckit.decorators import (
     DecoratedRpcMethod,
     RpcHandler,
@@ -21,6 +23,7 @@ from pyrpckit.decorators import (
     event_metadata,
 )
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
+from pyrpckit.models import RpcModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +39,7 @@ class RpcMethodDefinition:
     tags: tuple[str, ...] = ()
     function: FunctionType | None = None
     owner: type[object] | None = None
+    params_style: Literal["model", "kwargs"] = "model"
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,18 +219,79 @@ def method_definition(
     tags: tuple[str, ...],
     request_name: str | None = None,
 ) -> RpcMethodDefinition:
+    request_name = request_name or f"{_pascal_case(handler_name)}Request"
+    params, params_style = _router_params_model(
+        function,
+        instance_method=owner is not None,
+        model_name=f"{_pascal_case(name.replace('.', '_'))}Params",
+    )
     return RpcMethodDefinition(
         name=name,
         handler_name=handler_name,
-        request_name=request_name or f"{_pascal_case(handler_name)}Request",
-        params=_params_model(function, instance_method=owner is not None),
-        result=_result_model(function),
+        request_name=request_name,
+        params=params,
+        result=wire_annotation(_result_annotation(function)),
         summary=summary,
         errors=errors,
         tags=tags,
         function=function,
         owner=owner,
+        params_style=params_style,
     )
+
+
+def _router_params_model(
+    function: Any,
+    *,
+    instance_method: bool,
+    model_name: str,
+) -> tuple[type[BaseModel] | None, Literal["model", "kwargs"]]:
+    parameters = tuple(inspect.signature(function).parameters.values())
+    if instance_method:
+        if not parameters or parameters[0].name != "self":
+            raise ProtocolDefinitionError(
+                f"RPC handler {function.__qualname__} must start with self"
+            )
+        parameters = parameters[1:]
+
+    if not parameters:
+        return None, "model"
+
+    hints = get_type_hints(function, include_extras=True)
+    if len(parameters) == 1:
+        parameter = parameters[0]
+        annotation = hints.get(parameter.name)
+        if parameter.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ) and _is_model(annotation):
+            return wire_annotation(annotation), "model"
+
+    unsupported = [
+        parameter.name
+        for parameter in parameters
+        if parameter.kind is not inspect.Parameter.KEYWORD_ONLY
+    ]
+    if unsupported:
+        names = ", ".join(unsupported)
+        raise ProtocolDefinitionError(
+            f"RPC handler {function.__qualname__} must use one positional Pydantic "
+            f"params model or keyword-only fields; unsupported: {names}"
+        )
+
+    fields: dict[str, tuple[Any, Any]] = {}
+    for parameter in parameters:
+        annotation = hints.get(parameter.name)
+        if annotation is None:
+            raise ProtocolDefinitionError(
+                f"RPC handler {function.__qualname__} parameter "
+                f"{parameter.name!r} needs an annotation"
+            )
+        default = (
+            ... if parameter.default is inspect.Parameter.empty else parameter.default
+        )
+        fields[parameter.name] = (wire_annotation(annotation), default)
+    return create_model(model_name, __base__=RpcModel, **fields), "kwargs"
 
 
 def _params_model(
@@ -255,15 +320,20 @@ def _params_model(
 
 def _result_model(function: Any) -> Any:
     """The result model of a handler, or ``NoneType`` when it returns nothing."""
-    result = get_type_hints(function).get("return")
-    if result is None:
-        raise ProtocolDefinitionError(
-            f"RPC handler {function.__qualname__} needs a return annotation"
-        )
+    result = _result_annotation(function)
     if result is not type(None) and not _is_model(result):
         raise ProtocolDefinitionError(
             f"RPC handler {function.__qualname__} result must be "
             "a Pydantic model or None"
+        )
+    return result
+
+
+def _result_annotation(function: Any) -> Any:
+    result = get_type_hints(function, include_extras=True).get("return")
+    if result is None:
+        raise ProtocolDefinitionError(
+            f"RPC handler {function.__qualname__} needs a return annotation"
         )
     return result
 

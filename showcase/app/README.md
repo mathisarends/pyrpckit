@@ -16,7 +16,7 @@ router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:
-    @router.method("add")
+    @router.method
     async def add(self, params: BinaryOperationParams) -> CalculationResult:
         return CalculationResult(value=params.left + params.right)
 ```

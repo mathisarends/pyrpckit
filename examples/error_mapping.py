@@ -11,7 +11,7 @@ router = rpc.RpcRouter(prefix="reports", tags=("reports",))
 
 
 class ReportsRpc:
-    @router.method("refresh")
+    @router.method
     async def refresh(self) -> None:
         raise UpstreamUnavailable("warehouse timed out")
 

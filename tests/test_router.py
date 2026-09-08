@@ -10,11 +10,40 @@ class Params(BaseModel):
     value: str
 
 
+def test_method_name_is_inferred_with_and_without_options() -> None:
+    router = rpc.RpcRouter(prefix="search")
+
+    @router.method
+    async def run(params: Params) -> None: ...
+
+    @router.method(summary="Preview.")
+    async def preview(params: Params) -> None: ...
+
+    @router.method()
+    async def inspect(params: Params) -> None: ...
+
+    assert [route.name for route in router.routes] == [
+        "search.run",
+        "search.preview",
+        "search.inspect",
+    ]
+    assert router.routes[1].summary == "Preview."
+
+
+def test_explicit_method_name_overrides_the_function_name() -> None:
+    router = rpc.RpcRouter(prefix="search")
+
+    @router.method("run")
+    async def execute_search(params: Params) -> None: ...
+
+    assert router.routes[0].name == "search.run"
+
+
 def test_router_collects_class_methods_with_prefix_tags_and_metadata() -> None:
     router = rpc.RpcRouter(prefix="browser.nav", tags=("browser", "control"))
 
     class NavigationMethods:
-        @router.method("navigate", summary="Navigate.")
+        @router.method(summary="Navigate.")
         async def navigate(self, params: Params) -> None: ...
 
     route = router.routes[0]
@@ -28,7 +57,7 @@ def test_router_collects_class_methods_with_prefix_tags_and_metadata() -> None:
 async def test_a_decorated_free_function_remains_callable() -> None:
     router = rpc.RpcRouter()
 
-    @router.method("ping")
+    @router.method
     async def ping() -> None:
         return None
 

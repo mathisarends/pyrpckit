@@ -2,7 +2,7 @@ import functools
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from types import FunctionType
-from typing import Any
+from typing import Any, overload
 
 from pyrpckit.decorators import _docstring_summary
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
@@ -84,28 +84,44 @@ class RpcRouter:
     def events(self) -> tuple[RpcNotificationDefinition, ...]:
         return tuple(self._events)
 
+    @overload
+    def method(self, function: FunctionType, /) -> _RouterMethod: ...
+
+    @overload
     def method(
         self,
-        name: str,
+        name: str | None = None,
         *,
         summary: str | None = None,
         errors: Iterable[type[RpcError]] = (),
-    ) -> Callable[[FunctionType], _RouterMethod]:
-        """Declare a free function or instance method as an RPC method."""
-        full_name = join_rpc_name(self._prefix, _name(name))
+    ) -> Callable[[FunctionType], _RouterMethod]: ...
+
+    def method(
+        self,
+        name: str | FunctionType | None = None,
+        *,
+        summary: str | None = None,
+        errors: Iterable[type[RpcError]] = (),
+    ) -> Callable[[FunctionType], _RouterMethod] | _RouterMethod:
+        """Declare an RPC method, inferring its wire name when omitted."""
+        function = name if isinstance(name, FunctionType) else None
+        explicit_name = None if function is not None or name is None else _name(name)
+        declared_errors = tuple(declared_error(error) for error in errors)
 
         def decorate(function: FunctionType) -> _RouterMethod:
             if not isinstance(function, FunctionType):
                 raise ProtocolDefinitionError(
                     f"RPC method must decorate a function, got {function!r}"
                 )
+            method_name = function.__name__ if explicit_name is None else explicit_name
+            full_name = join_rpc_name(self._prefix, _name(method_name))
             route = RpcRoute(
                 name=full_name,
                 function=function,
                 summary=(
                     summary if summary is not None else _docstring_summary(function)
                 ),
-                errors=tuple(declared_error(error) for error in errors),
+                errors=declared_errors,
                 tags=self._tags,
                 binding=_BindingReference(),
             )
@@ -113,7 +129,7 @@ class RpcRouter:
             self._routes.append(route)
             return _RouterMethod(route)
 
-        return decorate
+        return decorate(function) if function is not None else decorate
 
     def event(
         self,

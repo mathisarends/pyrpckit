@@ -1,6 +1,13 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    TypeAdapter,
+    field_serializer,
+)
 
 from pyrpckit.errors import RpcErrorCode
 
@@ -35,6 +42,28 @@ class RpcSuccess(RpcSchema):
     jsonrpc: Literal["2.0"] = JSONRPC_VERSION
     id: RpcRequestId
     result: Any
+    _result_annotation: Any = PrivateAttr(default=None)
+
+    @classmethod
+    def _with_result_annotation(
+        cls,
+        request_id: RpcRequestId,
+        result: Any,
+        annotation: Any,
+    ) -> "RpcSuccess":
+        response = cls(id=request_id, result=result)
+        response._result_annotation = annotation
+        return response
+
+    @field_serializer("result")
+    def _serialize_result(self, result: Any, info: Any) -> Any:
+        if self._result_annotation is None:
+            return result
+        return TypeAdapter(self._result_annotation).dump_python(
+            result,
+            mode=info.mode,
+            by_alias=True,
+        )
 
 
 class RpcFailure(RpcSchema):

@@ -98,12 +98,15 @@ def _result_schema(
     method: RpcMethodDefinition,
     components: dict[str, Any],
 ) -> dict[str, Any]:
-    name = type_name(method.result)
-    if name in components:
+    name = getattr(method.result, "__name__", None)
+    if isinstance(name, str) and name in components:
         return _ref(name)
-    return _rewrite_refs(
-        TypeAdapter(method.result).json_schema(by_alias=True, mode="serialization")
+    schema = TypeAdapter(method.result).json_schema(
+        by_alias=True,
+        mode="serialization",
     )
+    schema.pop("$defs", None)
+    return _rewrite_refs(schema)
 
 
 def _ref(name: str) -> dict[str, str]:

@@ -67,7 +67,11 @@ class RpcServer:
             return self.failure(_request_id(raw_request), error)
         if not invocation.request.expects_response:
             return None
-        return RpcSuccess(id=invocation.request.id, result=result)
+        return RpcSuccess._with_result_annotation(
+            invocation.request.id,
+            result,
+            invocation.method.result,
+        )
 
     def failure(self, request_id: RpcRequestId, error: Exception) -> RpcFailure:
         rpc_error = self._rpc_error(error)

@@ -51,12 +51,13 @@ router = rpc.RpcRouter(prefix="tasks", tags=("tasks",))
 
 
 class TaskRpc:
-    @router.method("list")
-    async def list_tasks(self) -> TaskList: ...
+    @router.method
+    async def list(self) -> TaskList: ...
 
-    @router.method("create")
-    async def create_task(self, params: CreateTaskParams) -> Task: ...
+    @router.method
+    async def create(self, params: CreateTaskParams) -> Task: ...
 
+    # Pin a nested wire name that intentionally differs from the Python name.
     @router.method("status.set")
     async def set_status(self, params: SetTaskStatusParams) -> Task: ...
 

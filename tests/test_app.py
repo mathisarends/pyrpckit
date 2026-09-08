@@ -1,7 +1,7 @@
 from typing import Literal
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import pyrpckit as rpc
 from pyrpckit.schema import render_openrpc
@@ -15,6 +15,23 @@ class ValueResult(BaseModel):
     value: str
 
 
+class SearchParams(BaseModel):
+    project_id: str
+    max_results: int = 10
+
+
+class SearchItem(BaseModel):
+    item_id: str
+
+
+class SearchResult(BaseModel):
+    found_items: list[SearchItem]
+
+
+class AliasedParams(BaseModel):
+    project_id: str = Field(alias="projectKey")
+
+
 def _request(name: str, value: str = "value") -> dict[str, object]:
     return {
         "jsonrpc": "2.0",
@@ -22,6 +39,85 @@ def _request(name: str, value: str = "value") -> dict[str, object]:
         "method": name,
         "params": {"value": value},
     }
+
+
+async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
+    router = rpc.RpcRouter(prefix="search")
+    received: list[SearchParams] = []
+
+    @router.method
+    async def run(params: SearchParams) -> SearchResult:
+        received.append(params)
+        return SearchResult(found_items=[SearchItem(item_id=params.project_id)])
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+    response = await app.bind().handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "search.run",
+            "params": {"projectId": "p1", "maxResults": 2},
+        }
+    )
+
+    assert received[0].project_id == "p1"
+    assert isinstance(received[0], SearchParams)
+    assert response is not None
+    assert response.result == SearchResult(found_items=[SearchItem(item_id="p1")])
+    assert response.model_dump(mode="json")["result"] == {
+        "foundItems": [{"itemId": "p1"}]
+    }
+    assert "project_id" in SearchParams.model_json_schema()["properties"]
+    schemas = render_openrpc(app.protocol, title="Search")["components"]["schemas"]
+    assert set(schemas["SearchParams"]["properties"]) == {
+        "projectId",
+        "maxResults",
+    }
+
+
+async def test_keyword_only_parameters_and_arbitrary_results_form_a_contract() -> None:
+    router = rpc.RpcRouter(prefix="search")
+
+    @router.method
+    async def run(*, query: str, max_results: int = 10) -> list[str]:
+        return [query] * max_results
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+    response = await app.bind().handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "search.run",
+            "params": {"query": "hit", "maxResults": 2},
+        }
+    )
+
+    assert response is not None
+    assert response.result == ["hit", "hit"]
+    method = render_openrpc(app.protocol, title="Search")["methods"][0]
+    assert [parameter["name"] for parameter in method["params"]] == [
+        "query",
+        "maxResults",
+    ]
+    assert method["result"]["schema"] == {
+        "items": {"type": "string"},
+        "type": "array",
+    }
+
+
+def test_explicit_model_aliases_override_the_wire_name_convention() -> None:
+    router = rpc.RpcRouter()
+
+    @router.method
+    async def inspect(params: AliasedParams) -> None: ...
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+    schema = render_openrpc(app.protocol, title="Aliased")["components"]["schemas"]
+
+    assert set(schema["AliasedParams"]["properties"]) == {"projectKey"}
 
 
 def test_app_composes_prefixes_tags_and_a_router_snapshot() -> None:
@@ -230,5 +326,5 @@ def test_app_validates_free_function_signatures_when_building_protocol() -> None
     app = rpc.RpcApp()
     app.include_router(router)
 
-    with pytest.raises(rpc.ProtocolDefinitionError, match="must accept only params"):
+    with pytest.raises(rpc.ProtocolDefinitionError, match="keyword-only fields"):
         _ = app.protocol

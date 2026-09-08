@@ -25,17 +25,17 @@ class NavigationRpc:
         self._project_id = "default"
         self._history = ["about:blank"]
 
-    @router.method("navigate")
+    @router.method
     async def navigate(self, params: NavigateParams) -> None:
         self._project_id = params.project_id
         self._history.append(params.url)
 
-    @router.method("back")
+    @router.method
     async def back(self) -> None:
         if len(self._history) > 1:
             self._history.pop()
 
-    @router.method("state")
+    @router.method
     async def state(self) -> NavigationState:
         return NavigationState(
             project_id=self._project_id,

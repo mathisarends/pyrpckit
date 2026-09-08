@@ -10,11 +10,11 @@ router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:
-    @router.method("add")
+    @router.method
     async def add(self, params: BinaryOperationParams) -> CalculationResult:
         return CalculationResult(value=_rounded(params.left + params.right, params))
 
-    @router.method("divide", errors=(DivisionByZero,))
+    @router.method(errors=(DivisionByZero,))
     async def divide(self, params: BinaryOperationParams) -> CalculationResult:
         if params.right == 0:
             raise DivisionByZero()
