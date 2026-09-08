@@ -201,7 +201,13 @@ def test_generated_typescript_is_prettier_formatted(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "generated"
-    generate_typescript_client(document, output, options())
+    nested = deepcopy(document)
+    first = nested["methods"][0]
+    second = deepcopy(first)
+    first["name"] = "tasks.list"
+    second["name"] = "tasks.status.set"
+    nested["methods"] = [first, second]
+    generate_typescript_client(nested, output, options())
     prettier = shutil.which("npx.cmd") or shutil.which("npx")
     if prettier is None:
         pytest.skip("npx is not installed")

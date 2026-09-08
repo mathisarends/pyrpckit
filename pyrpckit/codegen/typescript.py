@@ -580,8 +580,9 @@ def _event_type(ir: ClientIr) -> TypeExpr | None:
 
 def _type_import(names: Iterable[str], module: str) -> str:
     values = sorted(set(names))
-    if len(values) == 1:
-        return f'import type {{ {values[0]} }} from "{module}";'
+    inline = f'import type {{ {", ".join(values)} }} from "{module}";'
+    if len(inline) <= 80:
+        return inline
     body = "\n".join(f"  {name}," for name in values)
     return f'import type {{\n{body}\n}} from "{module}";'
 
