@@ -1,25 +1,229 @@
 # pyrpckit
 
-Decorator-driven, transport-agnostic [JSON-RPC 2.0](https://www.jsonrpc.org/specification)
-protocols for Python.
+**Build typed, bidirectional gateways with the ergonomics of a Python web
+framework.**
 
-Declare methods on local routers, compose them into one `RpcApp`, and bind normal
-Python objects when the application starts. `pyrpckit` validates and dispatches
-incoming requests against that declaration and renders the same protocol as an
-OpenRPC contract for client generation.
+`pyrpckit` turns decorated Python handlers into a transport-agnostic
+[JSON-RPC 2.0](https://www.jsonrpc.org/specification) protocol, an OpenRPC
+contract, and generated Python or TypeScript clients.
+
+It is useful when an API is more than a collection of HTTP endpoints: a client
+starts work, the server streams typed updates, and the client can steer or cancel
+that work while it is running. Agent gateways are a natural example—think text
+deltas, tool calls, tool results, lifecycle changes, and user steering over one
+long-lived connection.
+
+The architecture takes inspiration from gateway protocols used by systems such
+as OpenClaw and OpenAI's
+[Codex App Server](https://developers.openai.com/codex/app-server), while the
+declaration style should feel familiar to FastAPI users. `pyrpckit` is not tied
+to either project and does not claim protocol compatibility with them.
+
+```text
+                         build time
+  decorated protocol -----------------> OpenRPC contract
+          |                                      |
+          |                              client generation
+          |                             /                 \
+       RpcServer                 typed Python       typed TypeScript
+          ^                             clients           clients
+          |                                \               /
+          +---- requests / responses ------- transport ---+
+          +---- typed server events -------- transport --->
+```
+
+## Contents
+
+- [Why pyrpckit?](#why-pyrpckit)
+- [What you can build](#what-you-can-build)
+- [How it fits together](#how-it-fits-together)
+- [A bidirectional gateway in one protocol](#a-bidirectional-gateway-in-one-protocol)
+- [Declaring routes](#declaring-routes)
+- [Composing the app](#composing-the-app)
+- [Serving requests](#serving-requests)
+- [Reporting errors](#reporting-errors)
+- [Server-initiated events](#server-initiated-events)
+- [Generating the contract](#generating-the-contract)
+- [Generating a client](#generating-a-client)
+- [Development](#development)
+
+## Why pyrpckit?
+
+OpenAPI-based HTTP clients are excellent for request/response APIs. They become
+less helpful when part of the real API lives on a WebSocket or another streaming
+transport. Event payload types often need to be exported separately, socket
+routes are written by hand, and the generated client knows nothing about the
+messages arriving from the server.
+
+`pyrpckit` describes both halves as one protocol:
+
+- **Client-to-server methods** are validated, dispatched, documented, and
+  generated as typed client methods.
+- **Server-to-client events** are declared alongside those methods and generated
+  as typed notification streams.
+- **Discriminated event unions** let clients safely narrow `text.delta`,
+  `tool.call`, `tool.result`, and other payloads.
+- **The transport is an adapter.** Use a WebSocket, HTTP, stdio, a message queue,
+  an IPC channel, or something custom.
+- **The OpenRPC document is the boundary.** Generators consume the contract, not
+  the live Python application.
+
+The result is one source of truth for validation, discovery, generated types,
+method names, results, events, and declared errors—without turning the library
+into a web framework.
+
+## What you can build
+
+| Use case | Methods flowing in | Events flowing out |
+| --- | --- | --- |
+| Agent gateway | start, steer, approve, cancel | text deltas, tool calls, tool results, completion |
+| Automation control plane | launch, pause, retry | progress, logs, state transitions |
+| Remote browser or device control | navigate, click, inspect | DOM changes, screenshots, telemetry |
+| Developer tooling | run, debug, stop | diagnostics, output, test results |
+| Realtime application backend | commands and queries | domain events and live updates |
+
+These are architectural patterns, not bundled transports or domain-specific
+implementations. `pyrpckit` supplies the typed protocol layer between them.
+
+## How it fits together
+
+The programming model has four small pieces:
+
+1. A `RpcRouter` groups methods and server-initiated events by namespace.
+2. A `RpcApp` composes routers into one validated protocol.
+3. A bound `RpcServer` validates and dispatches decoded JSON-RPC messages.
+4. An OpenRPC contract generates clients that depend only on a tiny transport
+   interface.
+
+This separation matters for gateways: protocol code stays stable while the
+connection strategy—WebSocket, queue, local process, or otherwise—can change per
+deployment.
+
+```bash
+uv add pyrpckit
+# or: pip install pyrpckit
+```
+
+## A bidirectional gateway in one protocol
+
+An agent run makes the two directions concrete. Commands enter the gateway while
+typed updates leave it:
+
+```python
+from typing import Literal
+
+import pyrpckit as rpc
+
+
+class StartRunParams(rpc.RpcModel):
+    prompt: str
+
+
+class RunRef(rpc.RpcModel):
+    run_id: str
+
+
+class SteerRunParams(rpc.RpcModel):
+    run_id: str
+    instruction: str
+
+
+@rpc.event
+class TextDelta(rpc.RpcModel):
+    type: Literal["text.delta"] = "text.delta"
+    run_id: str
+    delta: str
+
+
+@rpc.event
+class ToolCall(rpc.RpcModel):
+    type: Literal["tool.call"] = "tool.call"
+    run_id: str
+    call_id: str
+    name: str
+    arguments: dict[str, object]
+
+
+@rpc.event
+class ToolResult(rpc.RpcModel):
+    type: Literal["tool.result"] = "tool.result"
+    run_id: str
+    call_id: str
+    output: str
+
+
+type AgentEvent = TextDelta | ToolCall | ToolResult
+
+agent = rpc.RpcRouter(prefix="agent", tags=("agent",))
+
+
+class AgentMethods:
+    def __init__(self, service: AgentService) -> None:
+        self._service = service
+
+    @agent.method("run.start")
+    async def start(self, params: StartRunParams) -> RunRef:
+        run_id = await self._service.start(params.prompt)
+        return RunRef(run_id=run_id)
+
+    @agent.method("run.steer")
+    async def steer(self, params: SteerRunParams) -> None:
+        await self._service.steer(params.run_id, params.instruction)
+
+
+agent.event("event", AgentEvent, summary="Stream updates from an agent run.")
+
+app = rpc.RpcApp(version=1)
+app.include_router(agent)
+server = app.bind(AgentMethods(service))
+```
+
+The protocol now contains `agent.run.start`, `agent.run.steer`, and the
+`agent.event` notification. A generated TypeScript client makes all of them
+discoverable:
+
+```typescript
+const run = await client.agent.run.start({
+  prompt: "Investigate the deployment failure",
+});
+
+// This can be triggered while the event stream is still active.
+await client.agent.run.steer({
+  runId: run.runId,
+  instruction: "Check the logs first",
+});
+
+for await (const notification of client.notifications()) {
+  const event = notification.params;
+
+  switch (event.type) {
+    case "text.delta":
+      renderText(event.delta);
+      break;
+    case "tool.call":
+      showPendingTool(event.name, event.arguments);
+      break;
+    case "tool.result":
+      showToolResult(event.callId, event.output);
+      break;
+  }
+}
+```
+
+The event `type` literals become a discriminated union in generated clients.
+There is no second set of handwritten socket payload types to keep in sync.
 
 ## Declaring routes
 
 ```python
 import pyrpckit as rpc
-from pydantic import BaseModel
 
 
-class GetAutomationParams(BaseModel):
+class GetAutomationParams(rpc.RpcModel):
     automation_id: str
 
 
-class AutomationResponse(BaseModel):
+class AutomationResponse(rpc.RpcModel):
     id: str
     name: str
 
@@ -48,6 +252,13 @@ OpenRPC document. Handler classes need no base class. A decorated method accepts
 `self` and at most one Pydantic params model, and must annotate its return type
 with a Pydantic model or `None`. Invalid declarations raise
 `ProtocolDefinitionError` when the app builds its protocol.
+
+`RpcModel` keeps identifiers idiomatic on both sides of the boundary: fields are
+`snake_case` in Python and `camelCase` in OpenRPC and JSON. It accepts either form
+when validating Python data, always serializes the canonical wire form, and
+rejects unknown fields. For example, `automation_id` is documented and sent as
+`automationId`. Model names remain `PascalCase`; RPC method names remain the
+explicit strings declared on the router.
 
 A method that needs nothing from the caller simply leaves the params out, and one
 that answers with nothing returns `None` — no placeholder models:
@@ -162,7 +373,7 @@ without an `id`:
 
 ```python
 @rpc.event
-class AutomationStarted(BaseModel):
+class AutomationStarted(rpc.RpcModel):
     type: Literal["automation.started"] = "automation.started"
     automation_id: str
 
