@@ -55,7 +55,8 @@ uv run --group showcase python -m scripts.fastapi_showcase.generate
 
 The convenience script renders the contract with `render_contract`, then calls
 `generate_python_client`. Both are public APIs; the equivalent standalone
-commands are `pyrpckit schema ...` and `pyrpckit generate python ...`.
+commands are `pyrpckit schema ...` and
+`pyrpckit generate <schema> --language python ...`.
 
 The useful part of the generated surface is intentionally small:
 

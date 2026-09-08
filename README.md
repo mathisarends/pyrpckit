@@ -61,7 +61,7 @@ messages arriving from the server.
 - **Client-to-server methods** are validated, dispatched, documented, and
   generated as typed client methods.
 - **Server-to-client events** are declared alongside those methods and generated
-  as typed notification streams.
+  as typed event streams.
 - **Discriminated event unions** let clients safely narrow `text.delta`,
   `tool.call`, `tool.result`, and other payloads.
 - **The transport is an adapter.** Use a WebSocket, HTTP, stdio, a message queue,
@@ -118,8 +118,8 @@ With `pip`:
 python -m pip install pyrpckit
 ```
 
-The runtime dependency on Pydantic is installed automatically. No web framework
-or transport dependency is included.
+The dependencies on Pydantic and Jinja2 are installed automatically. No web
+framework or transport dependency is included.
 
 ## A bidirectional gateway in one protocol
 
@@ -210,9 +210,7 @@ await client.agent.run.steer({
   instruction: "Check the logs first",
 });
 
-for await (const notification of client.notifications()) {
-  const event = notification.params;
-
+for await (const event of client.events()) {
   switch (event.type) {
     case "text.delta":
       renderText(event.delta);
@@ -487,20 +485,27 @@ The OpenRPC document is the input to the client generator. It writes a typed,
 ready-to-use package into the repository that consumes the API:
 
 ```bash
-pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_client
+pyrpckit generate schema/greeting.openrpc.json \
+  --language python \
+  --output src/greeting_client \
+  --package greeting_client \
+  --client-name GreetingClient
 ```
 
 TypeScript clients use the same OpenRPC input and language-neutral IR:
 
 ```bash
-pyrpckit generate typescript schema/greeting.openrpc.json \
+pyrpckit generate schema/greeting.openrpc.json \
+  --language typescript \
   --output src/generated \
   --client-name GreetingClient \
   --transport-module ../transport
 ```
 
-This writes `models.ts`, `client.ts`, and `index.ts`. The transport module stays
-outside the generated directory and exports this transport-agnostic contract:
+This writes a small root client, domain-oriented files under `api/`, models,
+route metadata, declared errors, and a private client core. The transport module
+stays outside the generated directory and exports this transport-agnostic
+contract:
 
 ```typescript
 export interface RpcTransport {
@@ -512,17 +517,20 @@ export interface RpcTransport {
 
 The generated Python package holds no hand-written code and is meant to be committed:
 
-- `models.py` — every schema as a Pydantic model, plus an `RpcMethod` enum
-- `namespaces/<name>.py` — one class per method prefix, one typed `async def` per method
-- `client.py` — the facade that wires the namespaces together, plus the typed
-  notification stream
-- `__init__.py` — the package exports
+- `models.py` — reachable Pydantic models and type aliases
+- `api/<group>.py` — the route hierarchy as small `Api` classes
+- `metadata.py` — exact wire names, tags, errors, and deprecation metadata
+- `endpoints.py` — server URL templates when the contract declares servers
+- `errors.py` — stably named declared remote errors
+- `client.py` — the root facade, event stream, and transport lifecycle
+- `__init__.py` — a small curated public surface
+- `.pyrpckit-generated.json` — generated-file ownership and contract digest
 
 ```python
 async with GreetingClient(transport) as client:
     greeting = await client.greeting.say(name="Mathis")  # -> SayResult
-    async for notification in client.notifications():  # -> GreetingChangedNotification
-        print(notification.params)
+    async for event in client.events():  # -> GreetingEvent
+        print(event)
 ```
 
 Only the schemas the client actually reaches are emitted — request and response
@@ -535,11 +543,17 @@ Run the generator with `--check` in CI to fail the build when the committed
 client no longer matches the server schema:
 
 ```bash
-pyrpckit generate python schema/greeting.openrpc.json --output src/greeting_client --check
+pyrpckit generate schema/greeting.openrpc.json \
+  --language python \
+  --output src/greeting_client \
+  --check
 ```
 
-Use `typescript` instead of `python` in the same command to check generated
-TypeScript files.
+Use `--api-root browser --api-name nav=navigation` to shorten an explicit common
+wire prefix and choose domain names without changing any JSON-RPC method. For
+several contracts, put the same settings in `rpc-clients.toml` and run
+`pyrpckit generate --config rpc-clients.toml`; `--check` verifies the whole
+batch without writing.
 
 ## Development
 
