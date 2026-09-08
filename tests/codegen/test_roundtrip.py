@@ -101,7 +101,7 @@ async def test_a_server_failure_surfaces_as_a_remote_error(
     assert error.value.message == "Unknown greeting: nobody"
 
 
-async def test_notifications_are_parsed_into_their_event_union(
+async def test_notifications_are_parsed_into_event_payloads(
     generated_client: ModuleType,
     transport: LoopbackTransport,
 ) -> None:
@@ -114,11 +114,10 @@ async def test_notifications_are_parsed_into_their_event_union(
         }
     )
 
-    notification = await anext(client.notifications())
+    event = await anext(client.events())
 
-    assert notification.method == "greeting.changed"
-    assert notification.params.text == "Hello!"
-    assert type(notification.params).__name__ == "GreetingSaid"
+    assert event.text == "Hello!"
+    assert type(event).__name__ == "GreetingSaid"
 
 
 async def test_the_client_closes_its_transport(
@@ -129,6 +128,18 @@ async def test_the_client_closes_its_transport(
         await client.greeting.say(name="Mathis")
 
     assert transport.closed
+
+
+async def test_close_is_idempotent_and_can_leave_a_shared_transport_open(
+    generated_client: ModuleType,
+    transport: LoopbackTransport,
+) -> None:
+    client = generated_client.GreetingClient(transport, close_transport=False)
+
+    await client.close()
+    await client.close()
+
+    assert not transport.closed
 
 
 async def test_a_call_without_params_takes_no_arguments(

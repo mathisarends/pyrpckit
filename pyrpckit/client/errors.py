@@ -1,5 +1,7 @@
 from typing import Any
 
+from pydantic import ValidationError
+
 
 class RpcClientError(Exception):
     """Base error raised by a generated client."""
@@ -15,3 +17,10 @@ class RpcRemoteError(RpcClientError):
 
 class RpcTransportError(RpcClientError):
     """Raised when the connection cannot serve a request."""
+
+
+class RpcResponseValidationError(RpcClientError):
+    def __init__(self, method: str, error: ValidationError) -> None:
+        super().__init__(f"Invalid response for RPC method {method!r}: {error}")
+        self.method = method
+        self.validation_error = error

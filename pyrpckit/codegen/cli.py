@@ -60,6 +60,8 @@ def _generate(arguments: argparse.Namespace) -> int:
         options = PythonClientOptions(
             package=arguments.package or arguments.output.name,
             client_name=arguments.client_name,
+            api_root=arguments.api_root,
+            api_names=dict(arguments.api_name),
             source=arguments.schema.name,
         )
         changed = generate_python_client(
@@ -70,7 +72,7 @@ def _generate(arguments: argparse.Namespace) -> int:
         )
     else:
         options = TypeScriptClientOptions(
-            client_name=arguments.client_name,
+            client_name=arguments.client_name or "RpcClient",
             transport_module=arguments.transport_module,
             source=arguments.schema.name,
         )
@@ -154,8 +156,13 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
 
 def _add_generate_command(commands: argparse._SubParsersAction) -> None:
     generate = commands.add_parser("generate", help="Generate a client package.")
-    generate.add_argument("language", choices=LANGUAGES)
     generate.add_argument("schema", type=Path, help="OpenRPC document to read.")
+    generate.add_argument(
+        "--language",
+        choices=LANGUAGES,
+        required=True,
+        help="Target language for the generated client.",
+    )
     generate.add_argument(
         "--output",
         type=Path,
@@ -173,14 +180,32 @@ def _add_generate_command(commands: argparse._SubParsersAction) -> None:
     )
     generate.add_argument(
         "--client-name",
-        default="RpcClient",
-        help="Name of the generated client class (default: RpcClient).",
+        help="Name of the generated client class (default: derived from info.title).",
+    )
+    generate.add_argument(
+        "--api-root",
+        help="Explicit common wire prefix to omit from the public API tree.",
+    )
+    generate.add_argument(
+        "--api-name",
+        action="append",
+        default=[],
+        type=_name_mapping,
+        metavar="PATH=NAME",
+        help="Rename an API path or segment; repeatable.",
     )
     generate.add_argument(
         "--check",
         action="store_true",
         help="Report out-of-date files instead of writing them.",
     )
+
+
+def _name_mapping(value: str) -> tuple[str, str]:
+    path, separator, name = value.partition("=")
+    if not separator or not path or not name:
+        raise argparse.ArgumentTypeError(f"Expected path=name, got {value!r}")
+    return path, name
 
 
 if __name__ == "__main__":
