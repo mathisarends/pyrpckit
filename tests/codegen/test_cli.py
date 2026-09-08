@@ -153,3 +153,65 @@ def test_generate_writes_a_typescript_client(schema: Path, tmp_path: Path) -> No
     assert 'from "../rpc-transport"' in (output / "client.ts").read_text(
         encoding="utf-8"
     )
+
+
+def test_generate_config_builds_independent_sibling_clients(
+    schema: Path,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "rpc-clients.toml"
+    config.write_text(
+        "version = 1\n\n"
+        "[[clients]]\n"
+        'schema = "greeting.openrpc.json"\n'
+        'language = "python"\n'
+        'output = "generated/greeting_python"\n'
+        'package = "generated.greeting_python"\n'
+        'client_name = "GreetingClient"\n\n'
+        "[[clients]]\n"
+        'schema = "greeting.openrpc.json"\n'
+        'language = "typescript"\n'
+        'output = "generated/greeting-typescript"\n'
+        'client_name = "GreetingClient"\n'
+        'transport_module = "../../transport"\n',
+        encoding="utf-8",
+    )
+
+    assert main(["generate", "--config", str(config)]) == 0
+    assert (tmp_path / "generated" / "greeting_python" / "client.py").exists()
+    assert (tmp_path / "generated" / "greeting-typescript" / "client.ts").exists()
+    assert main(["generate", "--config", str(config), "--check"]) == 0
+
+
+def test_generate_passes_api_tree_options_to_both_emitters(
+    schema: Path,
+    tmp_path: Path,
+) -> None:
+    document = json.loads(schema.read_text(encoding="utf-8"))
+    document["methods"][0]["name"] = "browser.nav.navigate"
+    document["methods"] = [document["methods"][0]]
+    schema.write_text(json.dumps(document), encoding="utf-8")
+
+    for language, leaf in (
+        ("python", "navigation.py"),
+        ("typescript", "navigation.ts"),
+    ):
+        output = tmp_path / language
+        assert (
+            main(
+                [
+                    "generate",
+                    str(schema),
+                    "--language",
+                    language,
+                    "--output",
+                    str(output),
+                    "--api-root",
+                    "browser",
+                    "--api-name",
+                    "nav=navigation",
+                ]
+            )
+            == 0
+        )
+        assert (output / "api" / leaf).exists()

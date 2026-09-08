@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -55,6 +56,22 @@ def _schema(arguments: argparse.Namespace) -> int:
 
 
 def _generate(arguments: argparse.Namespace) -> int:
+    if arguments.config is not None:
+        return _generate_config(arguments.config, check=arguments.check)
+    if (
+        arguments.schema is None
+        or arguments.language is None
+        or arguments.output is None
+    ):
+        print(
+            "error: schema, --language, and --output are required without --config",
+            file=sys.stderr,
+        )
+        return 2
+    return _generate_one(arguments)
+
+
+def _generate_one(arguments: argparse.Namespace) -> int:
     document = json.loads(arguments.schema.read_text(encoding="utf-8"))
     if arguments.language == "python":
         options = PythonClientOptions(
@@ -72,8 +89,10 @@ def _generate(arguments: argparse.Namespace) -> int:
         )
     else:
         options = TypeScriptClientOptions(
-            client_name=arguments.client_name or "RpcClient",
+            client_name=arguments.client_name,
             transport_module=arguments.transport_module,
+            api_root=arguments.api_root,
+            api_names=dict(arguments.api_name),
             source=arguments.schema.name,
         )
         changed = generate_typescript_client(
@@ -89,6 +108,67 @@ def _generate(arguments: argparse.Namespace) -> int:
     if not changed:
         print("Client is up to date")
     return 0
+
+
+def _generate_config(path: Path, *, check: bool) -> int:
+    try:
+        config = tomllib.loads(path.read_text(encoding="utf-8"))
+        if config.get("version") != 1:
+            raise ValueError("version must be 1")
+        clients = config["clients"]
+        if not isinstance(clients, list) or not clients:
+            raise ValueError("clients must be a non-empty array of tables")
+    except (OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError) as error:
+        print(f"error: Invalid client config {path}: {error}", file=sys.stderr)
+        return 2
+
+    failed = False
+    for index, client in enumerate(clients, start=1):
+        try:
+            arguments = _config_arguments(path.parent, client, check=check)
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"error: Invalid clients[{index}]: {error}", file=sys.stderr)
+            failed = True
+            continue
+        failed = _generate_one(arguments) != 0 or failed
+    return 1 if failed else 0
+
+
+def _config_arguments(
+    base: Path,
+    client: object,
+    *,
+    check: bool,
+) -> argparse.Namespace:
+    if not isinstance(client, dict):
+        raise TypeError("entry must be a table")
+    language = client["language"]
+    if language not in LANGUAGES:
+        raise ValueError(f"language must be one of {LANGUAGES!r}")
+    api_names = client.get("api_names", {})
+    if not isinstance(api_names, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in api_names.items()
+    ):
+        raise TypeError("api_names must be a string-to-string table")
+    return argparse.Namespace(
+        schema=base / _config_string(client, "schema"),
+        language=language,
+        output=base / _config_string(client, "output"),
+        package=client.get("package"),
+        client_name=client.get("client_name"),
+        transport_module=client.get("transport_module", "../transport"),
+        api_root=client.get("api_root"),
+        api_name=list(api_names.items()),
+        check=check,
+    )
+
+
+def _config_string(client: dict[str, object], key: str) -> str:
+    value = client[key]
+    if not isinstance(value, str) or not value:
+        raise TypeError(f"{key} must be a non-empty string")
+    return value
 
 
 def _server(entry: str) -> dict[str, str]:
@@ -156,18 +236,23 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
 
 def _add_generate_command(commands: argparse._SubParsersAction) -> None:
     generate = commands.add_parser("generate", help="Generate a client package.")
-    generate.add_argument("schema", type=Path, help="OpenRPC document to read.")
+    generate.add_argument(
+        "schema", nargs="?", type=Path, help="OpenRPC document to read."
+    )
     generate.add_argument(
         "--language",
         choices=LANGUAGES,
-        required=True,
         help="Target language for the generated client.",
     )
     generate.add_argument(
         "--output",
         type=Path,
-        required=True,
         help="Directory of the generated package.",
+    )
+    generate.add_argument(
+        "--config",
+        type=Path,
+        help="TOML manifest describing multiple client generation jobs.",
     )
     generate.add_argument(
         "--package",
