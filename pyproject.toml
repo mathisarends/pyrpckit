@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Mathis Arends", email = "mathisarends27@gmail.com" }]
-dependencies = ["pydantic>=2.11"]
+dependencies = [
+    "jinja2>=3.1",
+    "pydantic>=2.11",
+]
 
 [project.scripts]
 pyrpckit = "pyrpckit.codegen.cli:main"

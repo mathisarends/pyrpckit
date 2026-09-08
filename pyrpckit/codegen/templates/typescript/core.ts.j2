@@ -1,0 +1,118 @@
+import type { RpcTransport } from {{ transport_module }};
+
+export type JsonValue =
+  null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export type RpcContractInfo = {
+  title: string;
+  version: string;
+  protocolVersion: number | null;
+};
+
+export type RpcRouteInfo = {
+  method: string;
+  summary: string;
+  tags: readonly string[];
+  deprecated: boolean;
+  errorCodes: readonly number[];
+  serverNames: readonly string[];
+};
+
+export type RpcServerVariable = {
+  default: string;
+  description?: string;
+  enum?: readonly string[];
+};
+
+export type RpcServerInfo = {
+  name: string;
+  url: string;
+  summary?: string;
+  description?: string;
+  variables: Readonly<Record<string, RpcServerVariable>>;
+  transport?: string;
+};
+
+export class RpcRemoteError extends Error {
+  constructor(
+    readonly code: number,
+    message: string,
+    readonly data?: unknown,
+  ) {
+    super(message);
+    this.name = "RpcRemoteError";
+  }
+}
+
+export class RpcClientCore {
+  readonly #transport: RpcTransport;
+  readonly #closeTransport: boolean;
+  #closed = false;
+
+  constructor(transport: RpcTransport, options?: { closeTransport?: boolean }) {
+    this.#transport = transport;
+    this.#closeTransport = options?.closeTransport ?? true;
+  }
+
+  request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {
+    return this.#transport.request(
+      route.method,
+      params === undefined ? undefined : withoutUndefined(params),
+    ) as Promise<Result>;
+  }
+
+  async *events<Event>(): AsyncIterable<Event> {
+    for await (const message of this.#transport.notifications()) {
+      yield (message as { params: Event }).params;
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    if (this.#closeTransport) await this.#transport.close();
+  }
+}
+
+export function defineRpcServer<const Server extends RpcServerInfo>(
+  server: Server,
+): Server {
+  return server;
+}
+
+export function resolveRpcServer(
+  server: RpcServerInfo,
+  values: Readonly<Record<string, string>> = {},
+): string {
+  const unknown = Object.keys(values).filter(
+    (name) => !(name in server.variables),
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown variables for server ${server.name}: ${unknown.join(", ")}`,
+    );
+  }
+  return Object.entries(server.variables).reduce((url, [name, variable]) => {
+    const value = values[name] ?? variable.default;
+    if (variable.enum !== undefined && !variable.enum.includes(value)) {
+      throw new Error(`Invalid value for server variable ${name}: ${value}`);
+    }
+    return url.replaceAll(`{${name}}`, value);
+  }, server.url);
+}
+
+function withoutUndefined(value: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, normalizeValue(item)]),
+  );
+}
+
+function normalizeValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeValue);
+  if (value !== null && typeof value === "object") {
+    return withoutUndefined(value);
+  }
+  return value;
+}
