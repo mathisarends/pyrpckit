@@ -1,4 +1,7 @@
+import hashlib
+import json
 from collections.abc import Mapping
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +14,9 @@ from pyrpckit.codegen.typescript import (
     render_files as render_typescript_files,
 )
 from pyrpckit.codegen.writer import write_files
+
+MANIFEST = ".pyrpckit-generated.json"
+LAYOUT_VERSION = 2
 
 __all__ = [
     "ClientIr",
@@ -31,7 +37,8 @@ def render_python_client(
     options: PythonClientOptions,
 ) -> Mapping[str, str]:
     """Render a Python client package as relative path to file content."""
-    return render_files(build_ir(document), options)
+    files = render_files(build_ir(document), options)
+    return _with_manifest(files, document, language="python")
 
 
 def generate_python_client(
@@ -50,7 +57,8 @@ def render_typescript_client(
     options: TypeScriptClientOptions,
 ) -> Mapping[str, str]:
     """Render a TypeScript client package as relative path to file content."""
-    return render_typescript_files(build_ir(document), options)
+    files = render_typescript_files(build_ir(document), options)
+    return _with_manifest(files, document, language="typescript")
 
 
 def generate_typescript_client(
@@ -66,3 +74,35 @@ def generate_typescript_client(
         render_typescript_client(document, options),
         check=check,
     )
+
+
+def _with_manifest(
+    files: Mapping[str, str],
+    document: dict[str, Any],
+    *,
+    language: str,
+) -> dict[str, str]:
+    generated = dict(files)
+    generated[MANIFEST] = (
+        json.dumps(
+            {
+                "generator": "pyrpckit",
+                "generatorVersion": version("pyrpckit"),
+                "layoutVersion": LAYOUT_VERSION,
+                "language": language,
+                "contractSha256": hashlib.sha256(
+                    json.dumps(
+                        document,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode()
+                ).hexdigest(),
+                "files": sorted((*generated, MANIFEST)),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
+    return generated
