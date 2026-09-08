@@ -18,6 +18,7 @@ from pyrpckit.protocol import (
     feature,
     notification,
 )
+from pyrpckit.router import RpcRouter
 from pyrpckit.server import RpcErrorMapper, RpcServer
 
 __version__ = "0.1.0"
@@ -39,6 +40,7 @@ __all__ = [
     "RpcParseError",
     "RpcProtocol",
     "RpcRequestId",
+    "RpcRouter",
     "RpcServer",
     "RpcSuccess",
     "__version__",

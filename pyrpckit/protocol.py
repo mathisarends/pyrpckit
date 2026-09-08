@@ -1,7 +1,7 @@
 import inspect
 from collections.abc import Iterable
 from dataclasses import dataclass
-from types import UnionType
+from types import FunctionType, UnionType
 from typing import (
     Annotated,
     Any,
@@ -33,6 +33,9 @@ class RpcMethodDefinition:
     summary: str | None = None
     errors: tuple[type[RpcError], ...] = ()
     feature: str | None = None
+    tags: tuple[str, ...] = ()
+    function: FunctionType | None = None
+    owner: type[object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +43,7 @@ class RpcNotificationDefinition:
     name: str
     payload: Any
     summary: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,19 +197,54 @@ def _method_definition(
         summary=metadata.summary,
         errors=metadata.errors,
         feature=feature_name,
+        tags=() if feature_name is None else (feature_name,),
+        function=function,
+        owner=None,
     )
 
 
-def _params_model(function: Any) -> type[BaseModel] | None:
+def method_definition(
+    *,
+    name: str,
+    function: FunctionType,
+    handler_name: str,
+    owner: type[object] | None,
+    summary: str | None,
+    errors: tuple[type[RpcError], ...],
+    tags: tuple[str, ...],
+    request_name: str | None = None,
+) -> RpcMethodDefinition:
+    return RpcMethodDefinition(
+        name=name,
+        handler_name=handler_name,
+        request_name=request_name or f"{_pascal_case(handler_name)}Request",
+        params=_params_model(function, instance_method=owner is not None),
+        result=_result_model(function),
+        summary=summary,
+        errors=errors,
+        tags=tags,
+        function=function,
+        owner=owner,
+    )
+
+
+def _params_model(
+    function: Any, *, instance_method: bool = True
+) -> type[BaseModel] | None:
     """The params model of a handler, or ``None`` when it takes no params."""
     parameters = tuple(inspect.signature(function).parameters.values())
-    if not parameters or parameters[0].name != "self" or len(parameters) > 2:
+    expected = 2 if instance_method else 1
+    if (instance_method and (not parameters or parameters[0].name != "self")) or len(
+        parameters
+    ) > expected:
         raise ProtocolDefinitionError(
-            f"RPC handler {function.__qualname__} must accept only self and params"
+            f"RPC handler {function.__qualname__} must accept only "
+            f"{'self and params' if instance_method else 'params'}"
         )
-    if len(parameters) == 1:
+    if len(parameters) == (1 if instance_method else 0):
         return None
-    params = get_type_hints(function).get(parameters[1].name)
+    params_parameter = parameters[1] if instance_method else parameters[0]
+    params = get_type_hints(function).get(params_parameter.name)
     if not _is_model(params):
         raise ProtocolDefinitionError(
             f"RPC handler {function.__qualname__} params must be a Pydantic model"

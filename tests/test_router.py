@@ -1,0 +1,80 @@
+from typing import Literal
+
+import pytest
+from pydantic import BaseModel
+
+import pyrpckit as rpc
+
+
+class Params(BaseModel):
+    value: str
+
+
+def test_router_collects_class_methods_with_prefix_tags_and_metadata() -> None:
+    router = rpc.RpcRouter(prefix="browser.nav", tags=("browser", "control"))
+
+    class NavigationMethods:
+        @router.method("navigate", summary="Navigate.")
+        async def navigate(self, params: Params) -> None: ...
+
+    route = router.routes[0]
+    assert route.name == "browser.nav.navigate"
+    assert route.tags == ("browser", "control")
+    assert route.summary == "Navigate."
+    assert route.binding.owner is NavigationMethods
+    assert route.binding.attribute_name == "navigate"
+
+
+async def test_a_decorated_free_function_remains_callable() -> None:
+    router = rpc.RpcRouter()
+
+    @router.method("ping")
+    async def ping() -> None:
+        return None
+
+    assert await ping() is None
+    assert router.routes[0].binding.owner is None
+
+
+def test_router_tags_are_ordered_and_deduplicated() -> None:
+    router = rpc.RpcRouter(tags=("browser", "control", "browser"))
+    assert router.tags == ("browser", "control")
+
+
+def test_router_rejects_duplicate_wire_names() -> None:
+    router = rpc.RpcRouter(prefix="browser")
+
+    @router.method("ping")
+    async def first() -> None: ...
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="browser.ping"):
+
+        @router.method("ping")
+        async def second() -> None: ...
+
+
+@pytest.mark.parametrize("prefix", (".browser", "browser.", "browser..nav"))
+def test_router_rejects_invalid_prefixes(prefix: str) -> None:
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Invalid RPC prefix"):
+        rpc.RpcRouter(prefix=prefix)
+
+
+@pytest.mark.parametrize("name", ("", ".ping", "ping.", "browser..ping"))
+def test_router_rejects_invalid_names(name: str) -> None:
+    router = rpc.RpcRouter()
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Invalid RPC name"):
+        router.method(name)
+
+
+def test_router_collects_events() -> None:
+    @rpc.event
+    class Changed(BaseModel):
+        type: Literal["browser.changed"] = "browser.changed"
+
+    router = rpc.RpcRouter(prefix="browser", tags=("browser",))
+    router.event("event", Changed, summary="Browser state.")
+
+    assert router.events[0].name == "browser.event"
+    assert router.events[0].payload is Changed
+    assert router.events[0].summary == "Browser state."
+    assert router.events[0].tags == ("browser",)
