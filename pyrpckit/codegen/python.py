@@ -129,7 +129,9 @@ def _render_metadata(ir: ClientIr, options: PythonClientOptions) -> str:
 
 def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add(RUNTIME_MODULE, "RpcServerInfo", "RpcServerVariable")
+    imports.add(RUNTIME_MODULE, "RpcServerInfo")
+    if any(server.variables for server in ir.servers):
+        imports.add(RUNTIME_MODULE, "RpcServerVariable")
     server_blocks: list[str] = []
     helper_blocks: list[str] = []
     for server in ir.servers:

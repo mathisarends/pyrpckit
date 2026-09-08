@@ -215,6 +215,19 @@ def test_servers_generate_resolvable_endpoint_helpers(
     assert "Servers" in files["__init__.py"]
 
 
+def test_servers_without_variables_do_not_import_variable_metadata(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    deployed = deepcopy(document)
+    deployed["servers"] = [{"name": "local", "url": "ws://localhost/rpc"}]
+
+    endpoints = render_python_client(deployed, options)["endpoints.py"]
+
+    assert "RpcServerInfo" in endpoints
+    assert "RpcServerVariable" not in endpoints
+
+
 def test_python_name_collisions_fail_with_both_wire_names(
     document: dict[str, Any],
     options: PythonClientOptions,
