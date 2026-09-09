@@ -1,23 +1,23 @@
 import asyncio
 
-import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcError, RpcFailure, RpcModel, RpcRouter
 
 
-class DivideParams(rpc.RpcModel):
+class DivideParams(RpcModel):
     dividend: float
     divisor: float
 
 
-class Quotient(rpc.RpcModel):
+class Quotient(RpcModel):
     value: float
 
 
-class DivisionByZero(rpc.RpcError):
+class DivisionByZero(RpcError):
     code = -32001
     message = "Division by zero"
 
 
-router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
+router = RpcRouter(prefix="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:
@@ -29,7 +29,7 @@ class CalculatorRpc:
 
 
 async def main() -> None:
-    app = rpc.RpcApp()
+    app = RpcApp()
     app.include_router(router)
     server = app.bind(CalculatorRpc())
     response = await server.handle(
@@ -40,7 +40,7 @@ async def main() -> None:
             "params": {"dividend": 10, "divisor": 0},
         }
     )
-    assert isinstance(response, rpc.RpcFailure)
+    assert isinstance(response, RpcFailure)
     print(response.model_dump_json(indent=2))
 
 

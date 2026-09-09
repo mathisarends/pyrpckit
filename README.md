@@ -130,30 +130,31 @@ typed updates leave it:
 from typing import Literal
 
 import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcModel, RpcRouter
 
 
-class StartRunParams(rpc.RpcModel):
+class StartRunParams(RpcModel):
     prompt: str
 
 
-class RunRef(rpc.RpcModel):
+class RunRef(RpcModel):
     run_id: str
 
 
-class SteerRunParams(rpc.RpcModel):
+class SteerRunParams(RpcModel):
     run_id: str
     instruction: str
 
 
 @rpc.event
-class TextDelta(rpc.RpcModel):
+class TextDelta(RpcModel):
     type: Literal["text.delta"] = "text.delta"
     run_id: str
     delta: str
 
 
 @rpc.event
-class ToolCall(rpc.RpcModel):
+class ToolCall(RpcModel):
     type: Literal["tool.call"] = "tool.call"
     run_id: str
     call_id: str
@@ -162,7 +163,7 @@ class ToolCall(rpc.RpcModel):
 
 
 @rpc.event
-class ToolResult(rpc.RpcModel):
+class ToolResult(RpcModel):
     type: Literal["tool.result"] = "tool.result"
     run_id: str
     call_id: str
@@ -171,7 +172,7 @@ class ToolResult(rpc.RpcModel):
 
 type AgentEvent = TextDelta | ToolCall | ToolResult
 
-agent = rpc.RpcRouter(prefix="agent", tags=("agent",))
+agent = RpcRouter(prefix="agent", tags=("agent",))
 
 
 class AgentMethods:
@@ -190,7 +191,7 @@ class AgentMethods:
 
 agent.event("event", AgentEvent, summary="Stream updates from an agent run.")
 
-app = rpc.RpcApp(version=1)
+app = RpcApp(version=1)
 app.include_router(agent)
 server = app.bind(AgentMethods(service))
 ```
@@ -226,31 +227,32 @@ for await (const event of client.events()) {
 ```
 
 The event `type` literals become a discriminated union in generated clients.
-There is no second set of handwritten socket payload types to keep in sync.
+`RpcModel` gives request, result, and event payloads one explicit protocol-level
+base class and applies the camel-case and strict-field wire conventions at their
+definition. Generated clients derive their corresponding types from the contract,
+so there is no second set of handwritten socket payload types to keep in sync.
 
 ## Declaring routes
 
 ```python
-from pydantic import BaseModel
-
-import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcError, RpcModel, RpcRouter
 
 
-class GetAutomationParams(BaseModel):
+class GetAutomationParams(RpcModel):
     automation_id: str
 
 
-class AutomationResponse(BaseModel):
+class AutomationResponse(RpcModel):
     id: str
     name: str
 
 
-class AutomationNotFound(rpc.RpcError):
+class AutomationNotFound(RpcError):
     code = -32004
     message = "Automation not found"
 
 
-router = rpc.RpcRouter(prefix="automation", tags=("automation",))
+router = RpcRouter(prefix="automation", tags=("automation",))
 
 
 class AutomationRpcMethods:
@@ -268,15 +270,14 @@ The prefix supplies the JSON-RPC namespace once, while tags group methods in the
 OpenRPC document. Handler classes need no base class. The bare `@router.method`
 form uses the Python function name, so this method is exposed as `automation.get`.
 
-Request and response classes may be ordinary Pydantic models. The router adapts
-them at the protocol boundary without modifying the classes: Python keeps
-`snake_case`, while OpenRPC and JSON use `camelCase`, explicit Pydantic aliases win,
-and unknown input fields are rejected. `RpcModel` remains available when the same
-convention is also useful outside a decorated handler.
+`RpcModel` is the canonical base for request, response, and event payloads. It
+makes the protocol boundary explicit in the type hierarchy: Python fields use
+`snake_case`, OpenRPC and JSON use `camelCase`, explicit Pydantic aliases win, and
+unknown input fields are rejected.
 
-Small methods may declare named parameters directly. Keyword-only arguments become
-JSON-RPC parameters, and any supported annotated result type becomes the result
-schema:
+For a small one-off method, keyword-only arguments remain available as a compact
+alternative. The router derives an internal params model from them, and any
+supported return annotation becomes the result schema:
 
 ```python
 @router.method
@@ -318,7 +319,7 @@ and a method with neither simply carries no summary into the generated contract.
 Free functions use the same decorator and need no runtime binding:
 
 ```python
-utility_router = rpc.RpcRouter()
+utility_router = RpcRouter()
 
 
 @utility_router.method
@@ -331,7 +332,7 @@ async def ping() -> None:
 Include routers once to create the complete API definition:
 
 ```python
-app = rpc.RpcApp(version=1)
+app = RpcApp(version=1)
 app.include_router(router)
 app.include_router(utility_router)
 ```
@@ -361,7 +362,7 @@ The same router can be mounted under multiple prefixes. One instance normally
 serves every mount; bind mounts explicitly when they need different state:
 
 ```python
-mounted_app = rpc.RpcApp()
+mounted_app = RpcApp()
 primary = mounted_app.include_router(router, prefix="primary")
 secondary = mounted_app.include_router(router, prefix="secondary")
 
@@ -388,9 +389,9 @@ Exceptions you cannot make into an `RpcError` — from a library, say — are
 translated by an optional `error_mapper`:
 
 ```python
-def to_rpc_error(error: Exception) -> rpc.RpcError | None:
+def to_rpc_error(error: Exception) -> RpcError | None:
     if isinstance(error, HttpxTimeout):
-        return rpc.RpcError("Upstream timed out", code=-32005)
+        return RpcError("Upstream timed out", code=-32005)
     return None
 
 
@@ -408,15 +409,18 @@ that literal is the event name. On the JSON-RPC wire, an event is a notification
 without an `id`:
 
 ```python
+import pyrpckit as rpc
+
+
 @rpc.event
-class AutomationStarted(rpc.RpcModel):
+class AutomationStarted(RpcModel):
     type: Literal["automation.started"] = "automation.started"
     automation_id: str
 
 
 type AutomationEvent = AutomationStarted | AutomationFinished
 
-events = rpc.RpcRouter(prefix="automation", tags=("automation",))
+events = RpcRouter(prefix="automation", tags=("automation",))
 events.event(
     "event",
     AutomationEvent,
@@ -433,15 +437,18 @@ The contract is a build-time artefact, so no running server is involved. For a
 deployment-aware contract, pair the app with typed OpenRPC server metadata:
 
 ```python
-CONTRACT = rpc.OpenRpcContract(
+from pyrpckit import OpenRpcContract, OpenRpcServer, ServerVariable
+
+
+CONTRACT = OpenRpcContract(
     app=app,
     title="Automation",
     servers=(
-        rpc.OpenRpcServer(
+        OpenRpcServer(
             name="production",
             url="wss://{host}/automation/rpc",
             variables={
-                "host": rpc.ServerVariable(default="api.example.com"),
+                "host": ServerVariable(default="api.example.com"),
             },
             extensions={
                 "x-rpckit-transport": {

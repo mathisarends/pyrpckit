@@ -1,16 +1,16 @@
-import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcModel, RpcRouter
 
 
-class StatusResult(rpc.RpcModel):
+class StatusResult(RpcModel):
     status: str
 
 
-class ProfileResult(rpc.RpcModel):
+class ProfileResult(RpcModel):
     name: str
 
 
-system = rpc.RpcRouter(prefix="system", tags=("system",))
-account = rpc.RpcRouter(prefix="account", tags=("account",))
+system = RpcRouter(prefix="system", tags=("system",))
+account = RpcRouter(prefix="account", tags=("account",))
 
 
 class SystemRpc:
@@ -25,7 +25,7 @@ class AccountRpc:
         return ProfileResult(name="Mathis")
 
 
-APP = rpc.RpcApp(version=2)
+APP = RpcApp(version=2)
 APP.include_router(system)
 APP.include_router(account)
 

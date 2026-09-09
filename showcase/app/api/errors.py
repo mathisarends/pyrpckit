@@ -1,6 +1,6 @@
-import pyrpckit as rpc
+from pyrpckit import RpcError
 
 
-class DivisionByZero(rpc.RpcError):
+class DivisionByZero(RpcError):
     code = -32001
     message = "Cannot divide by zero"

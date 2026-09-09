@@ -1,19 +1,17 @@
 import asyncio
 
-from pydantic import BaseModel
-
-import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcModel, RpcRouter
 
 
-class GreetParams(BaseModel):
+class GreetParams(RpcModel):
     name: str
 
 
-class Greeting(BaseModel):
+class Greeting(RpcModel):
     text: str
 
 
-router = rpc.RpcRouter(prefix="greeting", tags=("greeting",))
+router = RpcRouter(prefix="greeting", tags=("greeting",))
 
 
 class GreetingRpc:
@@ -23,7 +21,7 @@ class GreetingRpc:
 
 
 async def main() -> None:
-    app = rpc.RpcApp()
+    app = RpcApp()
     app.include_router(router)
     server = app.bind(GreetingRpc())
     response = await server.handle(

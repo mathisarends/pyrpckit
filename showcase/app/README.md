@@ -12,7 +12,10 @@ exposes the complete public contract. The implementation remains plain Python an
 has no FastAPI dependency.
 
 ```python
-router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
+from pyrpckit import RpcRouter
+
+
+router = RpcRouter(prefix="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:

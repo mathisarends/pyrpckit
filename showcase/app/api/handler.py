@@ -1,4 +1,4 @@
-import pyrpckit as rpc
+from pyrpckit import RpcRouter
 
 from showcase.app.api.errors import DivisionByZero
 from showcase.app.api.models import (
@@ -6,7 +6,7 @@ from showcase.app.api.models import (
     CalculationResult,
 )
 
-router = rpc.RpcRouter(prefix="calculator", tags=("calculator",))
+router = RpcRouter(prefix="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:

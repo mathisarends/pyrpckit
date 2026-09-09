@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal
 
 import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcModel, RpcRouter
 from pyrpckit.codegen import generate_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 from pyrpckit.schema import render_openrpc
@@ -13,33 +14,33 @@ class TaskStatus(StrEnum):
     DONE = "done"
 
 
-class Task(rpc.RpcModel):
+class Task(RpcModel):
     id: str
     title: str
     status: TaskStatus
 
 
-class TaskList(rpc.RpcModel):
+class TaskList(RpcModel):
     tasks: list[Task]
 
 
-class CreateTaskParams(rpc.RpcModel):
+class CreateTaskParams(RpcModel):
     title: str
 
 
-class SetTaskStatusParams(rpc.RpcModel):
+class SetTaskStatusParams(RpcModel):
     task_id: str
     status: TaskStatus
 
 
 @rpc.event
-class TaskCreated(rpc.RpcModel):
+class TaskCreated(RpcModel):
     type: Literal["task.created"] = "task.created"
     task: Task
 
 
 @rpc.event
-class TaskStatusChanged(rpc.RpcModel):
+class TaskStatusChanged(RpcModel):
     type: Literal["task.status_changed"] = "task.status_changed"
     task: Task
 
@@ -47,7 +48,7 @@ class TaskStatusChanged(rpc.RpcModel):
 type TaskEvent = TaskCreated | TaskStatusChanged
 
 
-router = rpc.RpcRouter(prefix="tasks", tags=("tasks",))
+router = RpcRouter(prefix="tasks", tags=("tasks",))
 
 
 class TaskRpc:
@@ -63,7 +64,7 @@ class TaskRpc:
 
 
 router.event("changed", TaskEvent)
-APP = rpc.RpcApp()
+APP = RpcApp()
 APP.include_router(router)
 
 OUTPUT = Path(__file__).parent / "typescript_client" / "generated"

@@ -1,23 +1,23 @@
 import asyncio
 import json
 
-import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcModel, RpcRouter
 from pyrpckit.schema import render_openrpc
 
 
-class NavigateParams(rpc.RpcModel):
+class NavigateParams(RpcModel):
     project_id: str
     url: str
     ignore_cache: bool = False
 
 
-class NavigationState(rpc.RpcModel):
+class NavigationState(RpcModel):
     project_id: str
     url: str
     can_go_back: bool
 
 
-router = rpc.RpcRouter(prefix="browser.nav", tags=("browser",))
+router = RpcRouter(prefix="browser.nav", tags=("browser",))
 
 
 class NavigationRpc:
@@ -45,7 +45,7 @@ class NavigationRpc:
 
 
 async def main() -> None:
-    app = rpc.RpcApp()
+    app = RpcApp()
     app.include_router(router)
     server = app.bind(NavigationRpc())
 

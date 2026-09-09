@@ -1,13 +1,13 @@
 import asyncio
 
-import pyrpckit as rpc
+from pyrpckit import RpcApp, RpcError, RpcFailure, RpcRouter
 
 
 class UpstreamUnavailable(Exception):
     pass
 
 
-router = rpc.RpcRouter(prefix="reports", tags=("reports",))
+router = RpcRouter(prefix="reports", tags=("reports",))
 
 
 class ReportsRpc:
@@ -16,20 +16,20 @@ class ReportsRpc:
         raise UpstreamUnavailable("warehouse timed out")
 
 
-def map_foreign_error(error: Exception) -> rpc.RpcError | None:
+def map_foreign_error(error: Exception) -> RpcError | None:
     if isinstance(error, UpstreamUnavailable):
-        return rpc.RpcError(str(error), code=-32002)
+        return RpcError(str(error), code=-32002)
     return None
 
 
 async def main() -> None:
-    app = rpc.RpcApp()
+    app = RpcApp()
     app.include_router(router)
     server = app.bind(ReportsRpc(), error_mapper=map_foreign_error)
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "reports.refresh"}
     )
-    assert isinstance(response, rpc.RpcFailure)
+    assert isinstance(response, RpcFailure)
     print(response.model_dump_json(indent=2))
 
 
