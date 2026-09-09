@@ -9,8 +9,8 @@ class ProfileResult(RpcModel):
     name: str
 
 
-system = RpcRouter(prefix="system", tags=("system",))
-account = RpcRouter(prefix="account", tags=("account",))
+system = RpcRouter(namespace="system", tags=("system",))
+account = RpcRouter(namespace="account", tags=("account",))
 
 
 class SystemRpc:

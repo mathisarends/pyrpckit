@@ -698,7 +698,7 @@ def _module(
             import_spacing = "\n\n\n"
         else:
             import_spacing = "\n\n"
-    return render_template(
+    rendered = render_template(
         "python/module.py.j2",
         source=options.source,
         future_annotations=future_annotations,
@@ -706,6 +706,7 @@ def _module(
         import_spacing=import_spacing,
         body=body.rstrip(),
     )
+    return f"{rendered.rstrip()}\n"
 
 
 def _exports(names: Iterable[str]) -> str:

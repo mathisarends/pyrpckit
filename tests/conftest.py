@@ -55,7 +55,7 @@ class UnknownGreetingError(rpc.RpcError):
     message = "Unknown greeting"
 
 
-GREETING_ROUTER = rpc.RpcRouter(prefix="greeting", tags=("greeting",))
+GREETING_ROUTER = rpc.RpcRouter(namespace="greeting", tags=("greeting",))
 
 
 class GreetingRpcMethods:

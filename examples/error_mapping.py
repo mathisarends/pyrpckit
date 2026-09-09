@@ -7,7 +7,7 @@ class UpstreamUnavailable(Exception):
     pass
 
 
-router = RpcRouter(prefix="reports", tags=("reports",))
+router = RpcRouter(namespace="reports", tags=("reports",))
 
 
 class ReportsRpc:

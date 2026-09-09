@@ -19,7 +19,7 @@ class JobFinished(RpcModel):
 
 type JobEvent = JobStarted | JobFinished
 
-router = RpcRouter(prefix="jobs", tags=("jobs",))
+router = RpcRouter(namespace="jobs", tags=("jobs",))
 router.event(
     "changed",
     JobEvent,

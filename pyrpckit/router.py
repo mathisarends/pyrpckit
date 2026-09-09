@@ -59,18 +59,18 @@ class RpcRouter:
     def __init__(
         self,
         *,
-        prefix: str = "",
+        namespace: str = "",
         tags: Iterable[str] = (),
     ) -> None:
-        self._prefix = normalize_prefix(prefix)
+        self._namespace = normalize_namespace(namespace)
         self._tags = normalize_tags(tags)
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
 
     @property
-    def prefix(self) -> str:
-        return self._prefix
+    def namespace(self) -> str:
+        return self._namespace
 
     @property
     def tags(self) -> tuple[str, ...]:
@@ -114,7 +114,7 @@ class RpcRouter:
                     f"RPC method must decorate a function, got {function!r}"
                 )
             method_name = function.__name__ if explicit_name is None else explicit_name
-            full_name = join_rpc_name(self._prefix, _name(method_name))
+            full_name = join_rpc_name(self._namespace, _name(method_name))
             route = RpcRoute(
                 name=full_name,
                 function=function,
@@ -139,7 +139,7 @@ class RpcRouter:
         summary: str | None = None,
     ) -> None:
         """Declare a server-initiated JSON-RPC notification."""
-        full_name = join_rpc_name(self._prefix, _name(name))
+        full_name = join_rpc_name(self._namespace, _name(name))
         self._reserve(full_name)
         self._events.append(
             RpcNotificationDefinition(
@@ -169,11 +169,11 @@ def join_rpc_name(*parts: str) -> str:
     return ".".join(part for part in parts if part)
 
 
-def normalize_prefix(value: object) -> str:
-    prefix = str(value)
-    if prefix:
-        _validate_dotted_name(prefix, kind="prefix")
-    return prefix
+def normalize_namespace(value: object) -> str:
+    namespace = str(value)
+    if namespace:
+        _validate_dotted_name(namespace, kind="namespace")
+    return namespace
 
 
 def _name(value: object) -> str:

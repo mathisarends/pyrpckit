@@ -148,7 +148,7 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     class NestedParams(BaseModel):
         params: str
 
-    router = rpc.RpcRouter(prefix="greeting")
+    router = rpc.RpcRouter(namespace="greeting")
 
     class Handler:
         @router.method("broken")
@@ -178,7 +178,7 @@ class BrokenParams(BaseModel):
     pass
 
 
-BROKEN_ROUTER = rpc.RpcRouter(prefix="greeting")
+BROKEN_ROUTER = rpc.RpcRouter(namespace="greeting")
 
 
 class BrokenRpcMethods:

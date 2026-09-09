@@ -172,7 +172,7 @@ class ToolResult(RpcModel):
 
 type AgentEvent = TextDelta | ToolCall | ToolResult
 
-agent = RpcRouter(prefix="agent", tags=("agent",))
+agent = RpcRouter(namespace="agent", tags=("agent",))
 
 
 class AgentMethods:
@@ -252,7 +252,7 @@ class AutomationNotFound(RpcError):
     message = "Automation not found"
 
 
-router = RpcRouter(prefix="automation", tags=("automation",))
+router = RpcRouter(namespace="automation", tags=("automation",))
 
 
 class AutomationRpcMethods:
@@ -266,9 +266,10 @@ class AutomationRpcMethods:
         return AutomationResponse(id=job.id, name=job.name)
 ```
 
-The prefix supplies the JSON-RPC namespace once, while tags group methods in the
-OpenRPC document. Handler classes need no base class. The bare `@router.method`
-form uses the Python function name, so this method is exposed as `automation.get`.
+The namespace supplies the logical JSON-RPC and generated-client hierarchy once,
+while tags are documentation metadata. Handler classes need no base class. The
+bare `@router.method` form uses the Python function name, so this method is
+exposed as `automation.get` and generated beneath `client.automation`.
 
 `RpcModel` is the canonical base for request, response, and event payloads. It
 makes the protocol boundary explicit in the type hierarchy: Python fields use
@@ -337,8 +338,8 @@ app.include_router(router)
 app.include_router(utility_router)
 ```
 
-An include takes a snapshot. An optional include prefix is prepended to the
-router prefix with a dot, and include tags are appended with ordered
+An include takes a snapshot. An optional include namespace is prepended to the
+router namespace with a dot, and include tags are appended with ordered
 deduplication. Accessing `app.protocol` validates and freezes the composition.
 
 ## Serving requests
@@ -358,13 +359,13 @@ if response is not None:
 matching handler and rejects decorated methods from routers the app does not
 contain. Free functions are already bound and require no argument.
 
-The same router can be mounted under multiple prefixes. One instance normally
+The same router can be mounted under multiple namespaces. One instance normally
 serves every mount; bind mounts explicitly when they need different state:
 
 ```python
 mounted_app = RpcApp()
-primary = mounted_app.include_router(router, prefix="primary")
-secondary = mounted_app.include_router(router, prefix="secondary")
+primary = mounted_app.include_router(router, namespace="primary")
+secondary = mounted_app.include_router(router, namespace="secondary")
 
 server = mounted_app.bind(
     primary.bind(AutomationRpcMethods(primary_service)),
@@ -420,7 +421,7 @@ class AutomationStarted(RpcModel):
 
 type AutomationEvent = AutomationStarted | AutomationFinished
 
-events = RpcRouter(prefix="automation", tags=("automation",))
+events = RpcRouter(namespace="automation", tags=("automation",))
 events.event(
     "event",
     AutomationEvent,
@@ -557,7 +558,7 @@ pyrpckit generate schema/greeting.openrpc.json \
 ```
 
 Use `--api-root browser --api-name nav=navigation` to shorten an explicit common
-wire prefix and choose domain names without changing any JSON-RPC method. For
+wire namespace and choose domain names without changing any JSON-RPC method. For
 several contracts, put the same settings in `rpc-clients.toml` and run
 `pyrpckit generate --config rpc-clients.toml`; `--check` verifies the whole
 batch without writing.

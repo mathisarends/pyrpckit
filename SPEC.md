@@ -25,7 +25,7 @@ dünne deklarative Schicht aus `RpcRouter` und `RpcApp`:
 
 - Methoden werden wie FastAPI-Routen an einem lokalen `router` deklariert.
 
-- `prefix` und `tags` ersetzen wiederholte vollständige Methodennamen und
+- `namespace` und `tags` ersetzen wiederholte vollständige Methodennamen und
   `feature(...)`.
 
 - Eine zentrale `RpcApp` inkludiert die Router und ist die einzige Quelle für
@@ -154,7 +154,7 @@ from backend.features.browser_tunnel.presentation.rpc.models import (
     ReloadParams,
 )
 
-router = rpckit.RpcRouter(prefix="browser.nav", tags=("browser",))
+router = rpckit.RpcRouter(namespace="browser.nav", tags=("browser",))
 
 
 class NavigationMethods:
@@ -186,7 +186,7 @@ Wesentliche Unterschiede zur heutigen Variante:
 
 - `router.method` entspricht mental `APIRouter.get/post/...`.
 
-- Der Namespace wird einmal als `prefix` gesetzt.
+- Der Namespace wird einmal als `namespace` gesetzt.
 
 - Der OpenRPC-Tag liegt am Router und damit beim Feature-Modul.
 
@@ -199,7 +199,7 @@ Wesentliche Unterschiede zur heutigen Variante:
 Fehler bleiben direkt an der Operation sichtbar:
 
 ```python
-router = rpckit.RpcRouter(prefix="browser.tab", tags=("browser",))
+router = rpckit.RpcRouter(namespace="browser.tab", tags=("browser",))
 
 
 class TabMethods:
@@ -217,7 +217,7 @@ nicht künstlich als Decorator modelliert, sondern explizit am Router registrier
 werden:
 
 ```python
-router = rpckit.RpcRouter(prefix="browser", tags=("browser",))
+router = rpckit.RpcRouter(namespace="browser", tags=("browser",))
 router.event(
     "event",
     BrowserEvent,
@@ -253,17 +253,17 @@ BROWSER_RPC.include_router(tabs.router)
 BROWSER_RPC.include_router(events.router)
 ```
 
-Optional kann `include_router` wie bei FastAPI einen zusätzlichen Prefix und
+Optional kann `include_router` einen zusätzlichen Namespace und
 zusätzliche Tags ergänzen:
 
 ```python
-BROWSER_RPC.include_router(admin.router, prefix="internal", tags=("admin",))
+BROWSER_RPC.include_router(admin.router, namespace="internal", tags=("admin",))
 ```
 
 Dabei gelten durchgehend dieselben Kompositionsregeln:
 
-- Der Include-Prefix wird dem Router-Prefix mit einem Punkt vorangestellt.
-  `prefix="internal"` und Router-Prefix `browser.admin` ergeben somit
+- Der Include-Namespace wird dem Router-Namespace mit einem Punkt vorangestellt.
+  `namespace="internal"` und Router-Namespace `browser.admin` ergeben somit
   `internal.browser.admin`.
 
 - Include-Tags werden nach den vorhandenen Router-Tags angehängt und unter
@@ -278,11 +278,11 @@ Dabei gelten durchgehend dieselben Kompositionsregeln:
 - `include_router` materialisiert einen Snapshot. Spätere Änderungen am
   Child-Router verändern die bereits inkludierten Routen nicht.
 
-Ein Router darf mehrfach unter unterschiedlichen Prefixen inkludiert werden:
+Ein Router darf mehrfach unter unterschiedlichen Namespaces inkludiert werden:
 
 ```python
-primary = app.include_router(navigation.router, prefix="primary")
-secondary = app.include_router(navigation.router, prefix="secondary")
+primary = app.include_router(navigation.router, namespace="primary")
+secondary = app.include_router(navigation.router, namespace="secondary")
 ```
 
 Da beide Mounts dieselben deklarierten Funktionen referenzieren, bedient eine
@@ -416,7 +416,7 @@ flowchart LR
 
 3. **Transport und Deployment** beschreiben, _wie und wo_ die Envelopes
    übertragen werden.
-Die Route gehört damit nicht in `RpcRouter(prefix="browser.nav")`: Dieser Prefix
+Die Route gehört damit nicht in `RpcRouter(namespace="browser.nav")`: Dieser Namespace
 ist ein JSON-RPC-Methodennamespace und kein URL-Pfad. Die öffentliche Route darf
 aber sehr wohl im erzeugten OpenRPC-Dokument stehen.
 
@@ -727,7 +727,7 @@ class RpcRouter:
     def __init__(
         self,
         *,
-        prefix: str = "",
+        namespace: str = "",
         tags: Iterable[str] = (),
     ) -> None: ...
     def method(
@@ -748,7 +748,7 @@ class RpcRouter:
         self,
         router: RpcRouter,
         *,
-        prefix: str = "",
+        namespace: str = "",
         tags: Iterable[str] = (),
     ) -> None: ...
 
@@ -761,7 +761,7 @@ class RpcApp:
         self,
         router: RpcRouter,
         *,
-        prefix: str = "",
+        namespace: str = "",
         tags: Iterable[str] = (),
     ) -> RpcRouterMount: ...
     def bind(
@@ -803,11 +803,11 @@ class OpenRpcContract:
     servers: tuple[OpenRpcServer, ...] = ()
 ```
 
-`prefix` wird für JSON-RPC mit Punkten normalisiert:
+`namespace` wird für JSON-RPC mit Punkten normalisiert:
 
 ```text
-prefix="browser.nav" + name="navigate" -> "browser.nav.navigate"
-prefix=""            + name="health"   -> "health"
+namespace="browser.nav" + name="navigate" -> "browser.nav.navigate"
+namespace=""            + name="health"   -> "health"
 ```
 
 Leere Segmente, führende oder folgende Punkte und doppelte Punkte sollten beim
@@ -839,7 +839,7 @@ zu schwach.
 ### 2. Router-Komposition
 
 `include_router` sollte Routen in die aufnehmende Komposition kopieren bzw.
-normalisiert materialisieren. Dabei werden Prefixe und Tags kombiniert und
+normalisiert materialisieren. Dabei werden Namespaces und Tags kombiniert und
 doppelte vollständige RPC-Namen sofort abgelehnt. Das entspricht dem nützlichen
 Teil des `APIRouter`-Modells, ohne HTTP-spezifische Optionen zu übernehmen.
 Wichtig: Nach dem Include sollte klar definiert sein, ob spätere Änderungen am
@@ -925,10 +925,10 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
 2. `RpcRouter.method` auf Basis der bestehenden Validierung aus
    `decorators.py` implementieren.
 
-3. Prefix-Normalisierung, Tags, Events und Duplikatprüfung ergänzen.
+3. Namespace-Normalisierung, Tags, Events und Duplikatprüfung ergänzen.
 
 4. Tests für Methoden innerhalb und außerhalb von Klassen, mehrere Klassen pro
-   Router, Prefix-Komposition, geordnet deduplizierte Tags, Snapshots, doppelte
+   Router, Namespace-Komposition, geordnet deduplizierte Tags, Snapshots, doppelte
    Wire-Namen und ungültige Namen hinzufügen.
 
 5. `RpcRouter` aus `rpckit.__init__` exportieren.
@@ -950,7 +950,7 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
 5. Freie Funktionen ohne Handler-Instanz ausführbar machen und ihre eindeutige
    Abgrenzung von Instanzmethoden testen.
 
-6. Mehrfaches Mounten desselben Routers unter verschiedenen Prefixen mit einer
+6. Mehrfaches Mounten desselben Routers unter verschiedenen Namespaces mit einer
    standardmäßig geteilten Handler-Instanz sowie expliziten Mount-Bindings für
    unterschiedliche Instanzen implementieren und testen.
 
@@ -1054,10 +1054,10 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
 - Freie Funktionen sind nach `app.bind()` ohne Handler-Instanz ausführbar;
   Instanzmethoden erfordern weiterhin eine passende Instanz.
 
-- Prefixe werden mit Punkten zusammengesetzt, Tags geordnet dedupliziert und
+- Namespaces werden mit Punkten zusammengesetzt, Tags geordnet dedupliziert und
   doppelte vollständige Wire-Namen abgelehnt. Ein Include ist ein Snapshot.
 
-- Derselbe Router kann unter verschiedenen Prefixen inkludiert werden. Eine
+- Derselbe Router kann unter verschiedenen Namespaces inkludiert werden. Eine
   normale Handler-Instanz bedient alle Mounts; verschiedene Instanzen erfordern
   eine explizite Zuordnung über das jeweilige `RpcRouterMount`.
 
@@ -1147,7 +1147,7 @@ für einen schema-first Contract weniger passend:
 - [pjrpc: Server API](https://pjrpc.readthedocs.io/en/v1.12.0/pjrpc/api/server.html)
 
 OpenRPC selbst schreibt keine Python-Architektur vor. Es verlangt eindeutige
-Methodennamen und unterstützt Tags zur logischen Gruppierung. Router-Prefixe und
+Methodennamen und unterstützt Tags zur logischen Gruppierung. Router-Namespaces und
 Router-Tags sind daher eine Library-DX-Schicht und vollständig mit dem Standard
 vereinbar:
 

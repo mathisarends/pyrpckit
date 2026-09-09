@@ -6,7 +6,7 @@ from showcase.app.api.models import (
     CalculationResult,
 )
 
-router = RpcRouter(prefix="calculator", tags=("calculator",))
+router = RpcRouter(namespace="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:

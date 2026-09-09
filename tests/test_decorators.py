@@ -11,7 +11,7 @@ from .conftest import GreetingSaid, SayParams, UnknownGreetingError
 
 
 def test_router_methods_expose_their_metadata() -> None:
-    router = rpc.RpcRouter(prefix="greeting")
+    router = rpc.RpcRouter(namespace="greeting")
 
     class Handler:
         @router.method("say", summary="Greet someone.")

@@ -11,7 +11,7 @@ class Params(BaseModel):
 
 
 def test_method_name_is_inferred_with_and_without_options() -> None:
-    router = rpc.RpcRouter(prefix="search")
+    router = rpc.RpcRouter(namespace="search")
 
     @router.method
     async def run(params: Params) -> None: ...
@@ -31,7 +31,7 @@ def test_method_name_is_inferred_with_and_without_options() -> None:
 
 
 def test_explicit_method_name_overrides_the_function_name() -> None:
-    router = rpc.RpcRouter(prefix="search")
+    router = rpc.RpcRouter(namespace="search")
 
     @router.method("run")
     async def execute_search(params: Params) -> None: ...
@@ -39,8 +39,8 @@ def test_explicit_method_name_overrides_the_function_name() -> None:
     assert router.routes[0].name == "search.run"
 
 
-def test_router_collects_class_methods_with_prefix_tags_and_metadata() -> None:
-    router = rpc.RpcRouter(prefix="browser.nav", tags=("browser", "control"))
+def test_router_collects_class_methods_with_namespace_tags_and_metadata() -> None:
+    router = rpc.RpcRouter(namespace="browser.nav", tags=("browser", "control"))
 
     class NavigationMethods:
         @router.method(summary="Navigate.")
@@ -66,12 +66,16 @@ async def test_a_decorated_free_function_remains_callable() -> None:
 
 
 def test_router_tags_are_ordered_and_deduplicated() -> None:
-    router = rpc.RpcRouter(tags=("browser", "control", "browser"))
+    router = rpc.RpcRouter(
+        namespace="browser",
+        tags=("browser", "control", "browser"),
+    )
+    assert router.namespace == "browser"
     assert router.tags == ("browser", "control")
 
 
 def test_router_rejects_duplicate_wire_names() -> None:
-    router = rpc.RpcRouter(prefix="browser")
+    router = rpc.RpcRouter(namespace="browser")
 
     @router.method("ping")
     async def first() -> None: ...
@@ -82,10 +86,10 @@ def test_router_rejects_duplicate_wire_names() -> None:
         async def second() -> None: ...
 
 
-@pytest.mark.parametrize("prefix", (".browser", "browser.", "browser..nav"))
-def test_router_rejects_invalid_prefixes(prefix: str) -> None:
-    with pytest.raises(rpc.ProtocolDefinitionError, match="Invalid RPC prefix"):
-        rpc.RpcRouter(prefix=prefix)
+@pytest.mark.parametrize("namespace", (".browser", "browser.", "browser..nav"))
+def test_router_rejects_invalid_namespaces(namespace: str) -> None:
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Invalid RPC namespace"):
+        rpc.RpcRouter(namespace=namespace)
 
 
 @pytest.mark.parametrize("name", ("", ".ping", "ping.", "browser..ping"))
@@ -100,7 +104,7 @@ def test_router_collects_events() -> None:
     class Changed(BaseModel):
         type: Literal["browser.changed"] = "browser.changed"
 
-    router = rpc.RpcRouter(prefix="browser", tags=("browser",))
+    router = rpc.RpcRouter(namespace="browser", tags=("browser",))
     router.event("event", Changed, summary="Browser state.")
 
     assert router.events[0].name == "browser.event"

@@ -14,7 +14,7 @@ class NavigateResult(rpc.RpcModel):
     active_project_id: str
 
 
-NAVIGATION_ROUTER = rpc.RpcRouter(prefix="browser.nav")
+NAVIGATION_ROUTER = rpc.RpcRouter(namespace="browser.nav")
 
 
 class Navigation:
@@ -84,7 +84,7 @@ def test_contract_rejects_colliding_wire_field_names() -> None:
         foo_bar: str
         fooBar: str
 
-    router = rpc.RpcRouter(prefix="collision")
+    router = rpc.RpcRouter(namespace="collision")
 
     class CollidingHandler:
         @router.method("test")

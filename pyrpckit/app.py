@@ -15,7 +15,7 @@ from pyrpckit.router import (
     RpcRoute,
     RpcRouter,
     join_rpc_name,
-    normalize_prefix,
+    normalize_namespace,
     normalize_tags,
     router_methods,
 )
@@ -60,7 +60,7 @@ class RpcApp:
         self,
         router: RpcRouter,
         *,
-        prefix: str = "",
+        namespace: str = "",
         tags: Iterable[str] = (),
     ) -> RpcRouterMount:
         """Include a snapshot of a router and return its immutable mount."""
@@ -72,12 +72,12 @@ class RpcApp:
             raise ProtocolDefinitionError(
                 f"Expected an RpcRouter, got {type(router).__name__}"
             )
-        include_prefix = normalize_prefix(prefix)
+        include_namespace = normalize_namespace(namespace)
         include_tags = normalize_tags(tags)
         routes = tuple(
             replace(
                 route,
-                name=join_rpc_name(include_prefix, route.name),
+                name=join_rpc_name(include_namespace, route.name),
                 tags=normalize_tags((*route.tags, *include_tags)),
             )
             for route in router.routes
@@ -85,7 +85,7 @@ class RpcApp:
         events = tuple(
             replace(
                 event,
-                name=join_rpc_name(include_prefix, event.name),
+                name=join_rpc_name(include_namespace, event.name),
                 tags=normalize_tags((*event.tags, *include_tags)),
             )
             for event in router.events

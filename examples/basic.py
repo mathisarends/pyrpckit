@@ -11,7 +11,7 @@ class Greeting(RpcModel):
     text: str
 
 
-router = RpcRouter(prefix="greeting", tags=("greeting",))
+router = RpcRouter(namespace="greeting", tags=("greeting",))
 
 
 class GreetingRpc:

@@ -47,6 +47,19 @@ def test_every_file_names_its_source(
     )
 
 
+def test_generated_modules_end_with_one_newline(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    files = render_python_client(document, options)
+
+    assert all(
+        content.endswith("\n") and not content.endswith("\n\n")
+        for name, content in files.items()
+        if name != ".pyrpckit-generated.json"
+    )
+
+
 def test_operations_are_typed_methods_on_api_groups(
     document: dict[str, Any],
     options: PythonClientOptions,

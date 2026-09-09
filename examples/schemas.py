@@ -15,7 +15,7 @@ class SearchResult(RpcModel):
     next_page_token: str | None = None
 
 
-router = RpcRouter(prefix="search", tags=("search",))
+router = RpcRouter(namespace="search", tags=("search",))
 
 
 class SearchRpc:

@@ -17,7 +17,7 @@ class DivisionByZero(RpcError):
     message = "Division by zero"
 
 
-router = RpcRouter(prefix="calculator", tags=("calculator",))
+router = RpcRouter(namespace="calculator", tags=("calculator",))
 
 
 class CalculatorRpc:

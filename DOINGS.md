@@ -57,10 +57,10 @@ request/result models for reusable or complex contracts.
 ## Make method names optional
 
 Use the decorated function name as the RPC method name by default. Together with a
-router prefix, the concise declaration below exposes `search.run`:
+router namespace, the concise declaration below exposes `search.run`:
 
 ```python
-router = rpc.RpcRouter(prefix="search")
+router = rpc.RpcRouter(namespace="search")
 
 
 class SearchRpc:
@@ -87,7 +87,7 @@ async def execute_search(self, params: SearchParams) -> SearchResult: ...
 
 - Support all three forms: `@router.method`, `@router.method(...)`, and
   `@router.method("wire_name", ...)`.
-- Infer the name before applying the router prefix and run the inferred name through
+- Infer the name before applying the router namespace and run the inferred name through
   the same validation and duplicate detection as an explicit name.
 
 ### Example migration note

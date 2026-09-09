@@ -48,7 +48,7 @@ class TaskStatusChanged(RpcModel):
 type TaskEvent = TaskCreated | TaskStatusChanged
 
 
-router = RpcRouter(prefix="tasks", tags=("tasks",))
+router = RpcRouter(namespace="tasks", tags=("tasks",))
 
 
 class TaskRpc:

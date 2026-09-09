@@ -17,7 +17,7 @@ class NavigationState(RpcModel):
     can_go_back: bool
 
 
-router = RpcRouter(prefix="browser.nav", tags=("browser",))
+router = RpcRouter(namespace="browser.nav", tags=("browser",))
 
 
 class NavigationRpc:

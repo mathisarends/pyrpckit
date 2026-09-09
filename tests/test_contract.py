@@ -11,7 +11,7 @@ from pyrpckit.schema.export import (
     render_contract,
 )
 
-ROUTER = rpc.RpcRouter(prefix="health", tags=("system",))
+ROUTER = rpc.RpcRouter(namespace="health", tags=("system",))
 
 
 @ROUTER.method("ping")
