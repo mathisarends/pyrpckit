@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -81,6 +82,60 @@ def test_contract_renders_typed_server_metadata() -> None:
         }
     ]
     assert document["methods"][0]["tags"] == [{"name": "system"}]
+
+
+def test_contract_assigns_router_routes_to_their_declared_server() -> None:
+    class Changed(rpc.RpcModel):
+        type: Literal["browser.changed"] = "browser.changed"
+
+    router = rpc.RpcRouter(namespace="browser", server="control")
+
+    @router.method("navigate")
+    async def navigate() -> None: ...
+
+    @router.notification("changed")
+    def changed() -> Changed: ...
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+    contract = rpc.OpenRpcContract(
+        app=app,
+        title="Browser",
+        servers=(rpc.OpenRpcServer(name="control", url="wss://example.com/control"),),
+    )
+
+    document = json.loads(render_contract(contract))
+    assert document["methods"][0]["servers"] == document["servers"]
+    assert document["x-rpc-notifications"][0]["servers"] == document["servers"]
+    assert app.protocol.methods[0].server == "control"
+    assert app.protocol.notifications[0].server == "control"
+
+
+def test_contract_rejects_an_unknown_router_server() -> None:
+    router = rpc.RpcRouter(namespace="browser", server="missing")
+
+    @router.method("navigate")
+    async def navigate() -> None: ...
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+
+    with pytest.raises(
+        rpc.ProtocolDefinitionError,
+        match="method 'browser.navigate' -> 'missing'",
+    ):
+        rpc.OpenRpcContract(app=app, title="Browser")
+
+
+def test_contract_rejects_duplicate_server_names() -> None:
+    app = rpc.RpcApp()
+    servers = (
+        rpc.OpenRpcServer(name="control", url="wss://one.example/control"),
+        rpc.OpenRpcServer(name="control", url="wss://two.example/control"),
+    )
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Duplicate.*control"):
+        rpc.OpenRpcContract(app=app, title="Browser", servers=servers)
 
 
 def test_contract_sources_resolve_to_their_protocol() -> None:

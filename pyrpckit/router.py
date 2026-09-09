@@ -33,6 +33,7 @@ class RpcRoute:
     summary: str | None
     errors: tuple[type[RpcError], ...]
     tags: tuple[str, ...]
+    server: str | None
     binding: _BindingReference
 
 
@@ -62,9 +63,11 @@ class RpcRouter:
         *,
         namespace: str = "",
         tags: Iterable[str] = (),
+        server: str | None = None,
     ) -> None:
         self._namespace = normalize_namespace(namespace)
         self._tags = normalize_tags(tags)
+        self._server = normalize_server(server)
         self._routes: list[RpcRoute] = []
         self._notifications: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
@@ -76,6 +79,10 @@ class RpcRouter:
     @property
     def tags(self) -> tuple[str, ...]:
         return self._tags
+
+    @property
+    def server(self) -> str | None:
+        return self._server
 
     @property
     def routes(self) -> tuple[RpcRoute, ...]:
@@ -124,6 +131,7 @@ class RpcRouter:
                 ),
                 errors=declared_errors,
                 tags=self._tags,
+                server=self._server,
                 binding=_BindingReference(),
             )
             self._reserve(full_name)
@@ -166,6 +174,7 @@ class RpcRouter:
                         summary if summary is not None else _docstring_summary(function)
                     ),
                     tags=self._tags,
+                    server=self._server,
                 )
             )
             return function
@@ -217,3 +226,12 @@ def normalize_tags(values: Iterable[str]) -> tuple[str, ...]:
             raise ProtocolDefinitionError("RPC tags cannot be empty")
         unique.setdefault(tag, None)
     return tuple(unique)
+
+
+def normalize_server(value: object | None) -> str | None:
+    if value is None:
+        return None
+    server = str(value)
+    if not server:
+        raise ProtocolDefinitionError("RPC router server cannot be empty")
+    return server

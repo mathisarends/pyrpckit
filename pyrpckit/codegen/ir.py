@@ -175,6 +175,7 @@ class NotificationDecl:
     payload: TypeExpr
     message: TypeExpr
     summary: str = ""
+    server_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,6 +478,9 @@ def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
             payload=type_expression(notification["payload"]),
             message=type_expression(notification["message"]),
             summary=notification.get("summary", ""),
+            server_names=tuple(
+                server["name"] for server in notification.get("servers", ())
+            ),
         )
         for notification in document.get("x-rpc-notifications", ())
     )

@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
 from pyrpckit.schema._components import (
     components,
@@ -24,6 +25,9 @@ def render_openrpc(
     servers: Iterable[Server] = (),
 ) -> dict[str, Any]:
     """Render the protocol as an OpenRPC 1.4.1 document."""
+    server_documents = tuple(dict(server) for server in servers)
+    server_lookup = _server_lookup(server_documents)
+    _validate_server_references(protocol, server_lookup)
     schemas = _rewrite_refs(components(protocol))
     return {
         "openrpc": OPENRPC_VERSION,
@@ -32,17 +36,23 @@ def render_openrpc(
             "version": f"{protocol.version}.0.0",
             "description": description,
         },
-        "servers": [dict(server) for server in servers],
-        "methods": [_method(method, schemas) for method in protocol.methods],
+        "servers": list(server_documents),
+        "methods": [
+            _method(method, schemas, server_lookup) for method in protocol.methods
+        ],
         "components": {"schemas": schemas},
         "x-rpc-protocol-version": protocol.version,
         "x-rpc-notifications": [
             described(
-                {
-                    "name": notification.name,
-                    "payload": _ref(type_name(notification.payload)),
-                    "message": _ref(notification_schema_name(notification.name)),
-                },
+                _with_server(
+                    {
+                        "name": notification.name,
+                        "payload": _ref(type_name(notification.payload)),
+                        "message": _ref(notification_schema_name(notification.name)),
+                    },
+                    notification.server,
+                    server_lookup,
+                ),
                 notification.summary,
             )
             for notification in protocol.notifications
@@ -57,6 +67,7 @@ def render_openrpc(
 def _method(
     method: RpcMethodDefinition,
     components: dict[str, Any],
+    servers: Mapping[str, dict[str, Any]],
 ) -> dict[str, Any]:
     document: dict[str, Any] = {"name": method.name}
     if method.summary is not None:
@@ -81,6 +92,56 @@ def _method(
             }
             for error in method.errors
         ]
+    if method.server is not None:
+        document["servers"] = [servers[method.server]]
+    return document
+
+
+def _server_lookup(
+    servers: Iterable[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    for server in servers:
+        name = server.get("name")
+        if not isinstance(name, str) or not name:
+            raise ProtocolDefinitionError("OpenRPC servers need a non-empty name")
+        if name in lookup:
+            raise ProtocolDefinitionError(f"Duplicate OpenRPC server name: {name}")
+        lookup[name] = server
+    return lookup
+
+
+def _validate_server_references(
+    protocol: RpcProtocol,
+    servers: Mapping[str, dict[str, Any]],
+) -> None:
+    references = [
+        ("method", method.name, method.server)
+        for method in protocol.methods
+        if method.server is not None
+    ]
+    references.extend(
+        ("notification", notification.name, notification.server)
+        for notification in protocol.notifications
+        if notification.server is not None
+    )
+    missing = [reference for reference in references if reference[2] not in servers]
+    if missing:
+        details = ", ".join(
+            f"{kind} {name!r} -> {server!r}" for kind, name, server in missing
+        )
+        raise ProtocolDefinitionError(
+            f"RPC routes reference undeclared OpenRPC servers: {details}"
+        )
+
+
+def _with_server(
+    document: dict[str, Any],
+    server: str | None,
+    servers: Mapping[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if server is not None:
+        document["servers"] = [servers[server]]
     return document
 
 

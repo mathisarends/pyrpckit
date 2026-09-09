@@ -107,6 +107,13 @@ class OpenRpcContract:
             raise ProtocolDefinitionError(
                 "OpenRpcContract.servers must contain OpenRpcServer objects"
             )
+        names = [server.name for server in servers]
+        duplicates = sorted(name for name in set(names) if names.count(name) > 1)
+        if duplicates:
+            raise ProtocolDefinitionError(
+                "Duplicate OpenRPC server names: " + ", ".join(duplicates)
+            )
+        _validate_server_references(self.app, set(names))
         object.__setattr__(self, "servers", servers)
 
 
@@ -134,3 +141,28 @@ def _validate_url_variables(url: str, variables: Mapping[str, ServerVariable]) -
             "OpenRPC server URL variables do not match their declarations: "
             f"missing={missing}, unused={unused}"
         )
+
+
+def _validate_server_references(app: RpcApp, server_names: set[str]) -> None:
+    references = [
+        ("method", method.name, method.server)
+        for method in app.protocol.methods
+        if method.server is not None
+    ]
+    references.extend(
+        ("notification", notification.name, notification.server)
+        for notification in app.protocol.notifications
+        if notification.server is not None
+    )
+    missing = [
+        reference for reference in references if reference[2] not in server_names
+    ]
+    if not missing:
+        return
+    details = ", ".join(
+        f"{kind} {name!r} -> {server!r}" for kind, name, server in missing
+    )
+    raise ProtocolDefinitionError(
+        "RPC routes reference OpenRPC servers that are not declared in "
+        f"OpenRpcContract.servers: {details}"
+    )

@@ -88,6 +88,19 @@ def test_notifications_are_lowered(document: dict[str, Any]) -> None:
     assert ir.notifications[0].payload == NamedType("GreetingUpdate")
 
 
+def test_notification_server_metadata_is_preserved(
+    document: dict[str, Any],
+) -> None:
+    deployed = deepcopy(document)
+    deployed["x-rpc-notifications"][0]["servers"] = [
+        {"name": "updates", "url": "wss://example.com/updates"}
+    ]
+
+    notification = build_ir(deployed).notifications[0]
+
+    assert notification.server_names == ("updates",)
+
+
 def test_nested_routes_form_nested_api_nodes(document: dict[str, Any]) -> None:
     nested = deepcopy(document)
     route = deepcopy(nested["methods"][0])

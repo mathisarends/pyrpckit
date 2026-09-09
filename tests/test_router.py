@@ -116,6 +116,28 @@ def test_router_collects_notifications() -> None:
     assert router.notifications[0].tags == ("browser",)
 
 
+def test_router_assigns_its_server_to_methods_and_notifications() -> None:
+    class Changed(BaseModel):
+        type: Literal["browser.changed"] = "browser.changed"
+
+    router = rpc.RpcRouter(namespace="browser", server="control")
+
+    @router.method("navigate")
+    async def navigate() -> None: ...
+
+    @router.notification("changed")
+    def changed() -> Changed: ...
+
+    assert router.server == "control"
+    assert router.routes[0].server == "control"
+    assert router.notifications[0].server == "control"
+
+
+def test_router_rejects_an_empty_server_name() -> None:
+    with pytest.raises(rpc.ProtocolDefinitionError, match="server cannot be empty"):
+        rpc.RpcRouter(server="")
+
+
 def test_a_notification_declaration_must_not_take_parameters() -> None:
     router = rpc.RpcRouter()
 

@@ -196,6 +196,7 @@ def _method_definitions(routes: list[RpcRoute]) -> tuple[RpcMethodDefinition, ..
             summary=route.summary,
             errors=route.errors,
             tags=route.tags,
+            server=route.server,
         )
         for route in routes
     ]

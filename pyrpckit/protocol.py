@@ -30,6 +30,7 @@ class RpcMethodDefinition:
     summary: str | None = None
     errors: tuple[type[RpcError], ...] = ()
     tags: tuple[str, ...] = ()
+    server: str | None = None
     function: FunctionType | None = None
     owner: type[object] | None = None
     params_style: Literal["model", "kwargs"] = "model"
@@ -41,6 +42,7 @@ class RpcNotificationDefinition:
     payload: Any
     summary: str | None = None
     tags: tuple[str, ...] = ()
+    server: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +108,7 @@ def method_definition(
     summary: str | None,
     errors: tuple[type[RpcError], ...],
     tags: tuple[str, ...],
+    server: str | None,
     request_name: str | None = None,
 ) -> RpcMethodDefinition:
     request_name = request_name or f"{_pascal_case(handler_name)}Request"
@@ -123,6 +126,7 @@ def method_definition(
         summary=summary,
         errors=errors,
         tags=tags,
+        server=server,
         function=function,
         owner=owner,
         params_style=params_style,
@@ -196,12 +200,15 @@ def notification_type_definitions(
     annotation: Any,
 ) -> tuple[RpcNotificationTypeDefinition, ...]:
     definitions: list[RpcNotificationTypeDefinition] = []
-    for message in _notification_message_types(annotation):
+    messages = _notification_message_types(annotation)
+    for message in messages:
         name = _declared_notification_type(message)
         if not isinstance(name, str):
+            if len(messages) == 1:
+                continue
             raise ProtocolDefinitionError(
                 f"RPC notification type {message.__name__} needs a type field "
-                "pinned to a string literal"
+                "pinned to a string literal when used in a union"
             )
         definitions.append(RpcNotificationTypeDefinition(name, message))
     return tuple(definitions)

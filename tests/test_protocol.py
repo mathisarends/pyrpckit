@@ -65,7 +65,7 @@ def test_an_unknown_method_is_rejected(protocol: RpcProtocol) -> None:
         protocol.method("greeting.unknown")
 
 
-def test_notification_types_need_a_literal_discriminator() -> None:
+def test_a_single_notification_payload_needs_no_literal_discriminator() -> None:
     class Undiscriminated(BaseModel):
         text: str
 
@@ -77,7 +77,26 @@ def test_notification_types_need_a_literal_discriminator() -> None:
     app = rpc.RpcApp()
     app.include_router(router)
 
-    with pytest.raises(rpc.ProtocolDefinitionError, match="pinned to a string literal"):
+    assert app.protocol.notifications[0].payload is Undiscriminated
+    assert app.protocol.notification_types == ()
+
+
+def test_notification_union_members_need_a_literal_discriminator() -> None:
+    class First(BaseModel):
+        text: str
+
+    class Second(BaseModel):
+        value: str
+
+    router = rpc.RpcRouter()
+
+    @router.notification("changed")
+    def changed() -> First | Second: ...
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="when used in a union"):
         _ = app.protocol
 
 

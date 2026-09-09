@@ -405,9 +405,10 @@ internals never leak to clients.
 ## Server-initiated notifications
 
 Notifications declare their payload through the return annotation of a normal
-function. Each model pins a `type` field to a literal, so clients can narrow the
-union. The models need no decorator; their discriminator is validated when the app
-protocol is frozen. On the JSON-RPC wire, a notification has no `id`:
+function. Members of a payload union pin a `type` field to a literal, so clients
+can narrow the union; a single payload model needs no discriminator. The models
+need no decorator, and unions are validated when the app protocol is frozen. On
+the JSON-RPC wire, a notification has no `id`:
 
 ```python
 class AutomationStarted(RpcModel):
@@ -417,7 +418,11 @@ class AutomationStarted(RpcModel):
 
 type AutomationUpdate = AutomationStarted | AutomationFinished
 
-notifications = RpcRouter(namespace="automation", tags=("automation",))
+notifications = RpcRouter(
+    namespace="automation",
+    tags=("automation",),
+    server="production",
+)
 
 
 @notifications.notification("update")
@@ -459,6 +464,23 @@ CONTRACT = OpenRpcContract(
     ),
 )
 ```
+
+`RpcRouter.server` references an `OpenRpcServer.name`; it does not name a
+transport implementation. Every method and notification on that router is
+associated with the referenced server in the OpenRPC document. Contract creation
+fails with an actionable error when the server is missing or declared more than
+once. This keeps API hierarchy, deployment endpoint, and transport metadata
+separate:
+
+```python
+control = RpcRouter(namespace="browser.control", server="control")
+screencast = RpcRouter(namespace="browser.screencast", server="screencast")
+```
+
+The generated endpoint helpers already preserve server URLs and variables.
+Generated clients currently remain transport-agnostic and accept one transport;
+the route-to-server metadata is retained so an explicit multi-endpoint client
+runtime can be added without changing the contract format.
 
 Name the contract as `module:attribute`, the way uvicorn names an app:
 

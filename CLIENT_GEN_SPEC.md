@@ -1561,7 +1561,13 @@ OpenRPC erlaubt `servers` auch auf Methodenebene. Ein einzelner Transport kann
 diese Information nicht automatisch in mehrere Verbindungen umsetzen. Deshalb
 gilt zunächst:
 
+- `RpcRouter(server="control")` ordnet alle enthaltenen Methoden und
+  Notifications dem gleichnamigen `OpenRpcServer` zu.
+
 - Methodenspezifische Server werden in `RpcRouteInfo.server_names` erhalten.
+
+- Notification-spezifische Server werden im sprachneutralen
+  `NotificationDecl.server_names` erhalten.
 
 - Der normale Client sendet weiterhin über seinen einen Transport.
 
@@ -1572,7 +1578,10 @@ gilt zunächst:
   der URL-Schemes eigenständig eine Transportimplementierung.
 
 Eine spätere `RpcTransportRouter`-Runtime kann explizit spezifiziert werden. Sie
-ist keine Voraussetzung für die erste Version.
+ist keine Voraussetzung für die erste Version. Sie kann die bereits generierten
+Endpoint-Resolver und `server_names` verwenden, um kontrolliert mehrere
+Verbindungen aufzubauen; der Generator selbst darf weiterhin keine konkrete
+WebSocket- oder HTTP-Implementierung voraussetzen.
 
 ## Generator-Konfiguration
 

@@ -527,6 +527,23 @@ kann in Tests über einen In-memory-Transport, lokal über `ws`, produktiv über
 einen eigenen, typisierten Deployment-Descriptor bekommen:
 
 ```python
+control = rpckit.RpcRouter(
+    namespace="browser.control",
+    server="browser-control",
+)
+screencast = rpckit.RpcRouter(
+    namespace="browser.screencast",
+    server="browser-screencast",
+)
+```
+
+`server` referenziert ausschließlich den logischen Namen eines
+`OpenRpcServer`. Alle Methoden und Notifications des Routers tragen diese
+Zuordnung. Namespace, Server und Transport bleiben dadurch drei unabhängige
+Dimensionen. Ein `OpenRpcContract` lehnt unbekannte oder doppelt deklarierte
+Servernamen ab.
+
+```python
 BROWSER_RPC_CONTRACT = rpckit.OpenRpcContract(
     app=BROWSER_RPC,
     title="Backend Browser Tunnel",
@@ -554,6 +571,23 @@ BROWSER_RPC_CONTRACT = rpckit.OpenRpcContract(
                     "messageEncoding": "json",
                 }
             },
+        ),
+        rpckit.OpenRpcServer(
+            name="browser-screencast",
+            url=(
+                "wss://{host}/api/v1/projects/{projectId}/browser-tunnel/"
+                "sessions/{sessionId}/screencast"
+            ),
+            variables={
+                "host": rpckit.ServerVariable(default="api.example.com"),
+                "projectId": rpckit.ServerVariable(
+                    default="00000000-0000-0000-0000-000000000000"
+                ),
+                "sessionId": rpckit.ServerVariable(
+                    default="00000000-0000-0000-0000-000000000000"
+                ),
+            },
+            extensions={"x-rpckit-transport": {"type": "websocket"}},
         ),
     ),
 )
@@ -727,6 +761,7 @@ class RpcRouter:
         *,
         namespace: str = "",
         tags: Iterable[str] = (),
+        server: str | None = None,
     ) -> None: ...
     def method(
         self,
