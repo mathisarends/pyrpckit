@@ -41,7 +41,7 @@ export type TaskStatusChanged = {
 export type TasksChangedNotification = {
   jsonrpc: "2.0";
   method: "tasks.changed";
-  params: TaskEvent;
+  params: TaskUpdate;
 };
 
-export type TaskEvent = TaskCreated | TaskStatusChanged;
+export type TaskUpdate = TaskCreated | TaskStatusChanged;

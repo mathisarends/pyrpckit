@@ -183,9 +183,9 @@ class _Renderer:
             models = _route_model_names(self.root_operations)
             if models:
                 imports.append(_type_import(models, "./models"))
-        event_type = _event_type(self.ir)
-        if event_type:
-            imports.append(_type_import(_model_names(event_type), "./models"))
+        notification_type = _notification_type(self.ir)
+        if notification_type:
+            imports.append(_type_import(_model_names(notification_type), "./models"))
         for node in self.nodes:
             imports.append(
                 f'import {{ {_api_class(node.path)} }} from "./{_api_module(node)}";'
@@ -214,12 +214,14 @@ class _Renderer:
         lines.append("  }")
         for route in self.root_operations:
             lines.extend(["", *self._operation(route, root=True)])
-        if event_type is not None:
+        if notification_type is not None:
             lines.extend(
                 [
                     "",
-                    f"  events(): AsyncIterable<{self._type(event_type)}> {{",
-                    f"    return this.#rpc.events<{self._type(event_type)}>();",
+                    "  notifications(): "
+                    f"AsyncIterable<{self._type(notification_type)}> {{",
+                    "    return this.#rpc.notifications"
+                    f"<{self._type(notification_type)}>();",
                     "  }",
                 ]
             )
@@ -339,9 +341,9 @@ class _Renderer:
                 ]
             )
             lines.append(f'export {{ {helpers} }} from "./endpoints";')
-        event_type = _event_type(self.ir)
-        if event_type is not None:
-            lines.append(_type_export(_model_names(event_type), "./models"))
+        notification_type = _notification_type(self.ir)
+        if notification_type is not None:
+            lines.append(_type_export(_model_names(notification_type), "./models"))
         return self.module("\n".join(lines))
 
     def _operation(self, route: RouteDecl, *, root: bool) -> list[str]:
@@ -473,8 +475,8 @@ def _validate(
             for route in root_operations
         ),
     ]
-    if ir.events:
-        client_members.append(("<client.events>", "events"))
+    if ir.notifications:
+        client_members.append(("<client.notifications>", "notifications"))
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     assert_unique_names(
@@ -571,10 +573,10 @@ def _route_model_names(routes: Iterable[RouteDecl]) -> set[str]:
     return names
 
 
-def _event_type(ir: ClientIr) -> TypeExpr | None:
-    if not ir.events:
+def _notification_type(ir: ClientIr) -> TypeExpr | None:
+    if not ir.notifications:
         return None
-    members = tuple(event.payload for event in ir.events)
+    members = tuple(item.payload for item in ir.notifications)
     return members[0] if len(members) == 1 else UnionType(members)
 
 

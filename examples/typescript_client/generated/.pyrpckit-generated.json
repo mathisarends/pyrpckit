@@ -3,7 +3,7 @@
   "generatorVersion": "0.2.0",
   "layoutVersion": 2,
   "language": "typescript",
-  "contractSha256": "92b9032635276573198e569cfef63df2add94144018879a31cf4d95b862d469d",
+  "contractSha256": "1d22728945952be440d83910c702f344a63e16bee4d3420d37cb40c208f61940",
   "files": [
     ".pyrpckit-generated.json",
     "api/index.ts",

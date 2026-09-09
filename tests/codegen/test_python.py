@@ -149,16 +149,19 @@ def test_unknown_api_configuration_is_rejected(
         render_python_client(document, configured)
 
 
-def test_events_expose_payloads_in_domain_language(
+def test_notifications_expose_payloads_in_domain_language(
     document: dict[str, Any],
     options: PythonClientOptions,
 ) -> None:
     client = render_python_client(document, options)["client.py"]
 
-    assert "async def events(self) -> AsyncIterator[GreetingEvent]:" in client
-    assert "notification = _EVENT_MESSAGE_ADAPTER.validate_python(message)" in client
+    assert "async def notifications(self) -> AsyncIterator[GreetingUpdate]:" in client
+    assert (
+        "notification = _NOTIFICATION_MESSAGE_ADAPTER.validate_python(message)"
+        in client
+    )
     assert "yield notification.params" in client
-    assert "def notifications(" not in client
+    assert "async def events(" not in client
 
 
 def test_optional_nullable_params_use_unset_instead_of_dropping_none(

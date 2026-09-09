@@ -34,9 +34,9 @@ Jinja2 templates provide the stable module wrappers while the emitters build
 the language-specific declarations.
 
 Generated Python methods use direct keyword arguments. Generated TypeScript
-methods use typed parameter objects. Both clients expose typed `events()` and
-idempotent lifecycle handling. TypeScript wire properties remain camelCase, as
-shown by `taskId` in the example.
+methods use typed parameter objects. Both clients expose typed `notifications()`
+and idempotent lifecycle handling. TypeScript wire properties remain camelCase,
+as shown by `taskId` in the example.
 
 ## Commits made during this implementation
 

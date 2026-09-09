@@ -27,13 +27,13 @@ def test_params_are_optional_when_the_model_has_no_required_fields(
     assert "params" in schemas["SayRequest"]["required"]
 
 
-def test_events_and_notifications_are_indexed_as_extensions(
+def test_notifications_and_their_types_are_indexed_as_extensions(
     protocol: RpcProtocol,
 ) -> None:
     document = render_openrpc(protocol, title="Greeting Protocol")
 
     assert document["x-rpc-protocol-version"] == protocol.version
-    assert [event["name"] for event in document["x-rpc-events"]] == [
+    assert [item["name"] for item in document["x-rpc-notification-types"]] == [
         "greeting.said",
         "greeting.forgotten",
     ]

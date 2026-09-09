@@ -13,7 +13,7 @@ export async function useTaskApi(transport: RpcTransport): Promise<void> {
   const { tasks } = await client.tasks.list();
   console.log(tasks);
 
-  for await (const event of client.events()) {
-    console.log(event.type, event.task);
+  for await (const notification of client.notifications()) {
+    console.log(notification.type, notification.task);
   }
 }

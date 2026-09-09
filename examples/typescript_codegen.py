@@ -2,7 +2,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-import pyrpckit as rpc
 from pyrpckit import RpcApp, RpcModel, RpcRouter
 from pyrpckit.codegen import generate_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
@@ -33,19 +32,17 @@ class SetTaskStatusParams(RpcModel):
     status: TaskStatus
 
 
-@rpc.event
 class TaskCreated(RpcModel):
     type: Literal["task.created"] = "task.created"
     task: Task
 
 
-@rpc.event
 class TaskStatusChanged(RpcModel):
     type: Literal["task.status_changed"] = "task.status_changed"
     task: Task
 
 
-type TaskEvent = TaskCreated | TaskStatusChanged
+type TaskUpdate = TaskCreated | TaskStatusChanged
 
 
 router = RpcRouter(namespace="tasks", tags=("tasks",))
@@ -63,7 +60,10 @@ class TaskRpc:
     async def set_status(self, params: SetTaskStatusParams) -> Task: ...
 
 
-router.event("changed", TaskEvent)
+@router.notification("changed")
+def task_changed() -> TaskUpdate: ...
+
+
 APP = RpcApp()
 APP.include_router(router)
 

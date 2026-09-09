@@ -4,7 +4,7 @@
 
 import type { RpcTransport } from "../transport";
 import { RpcClientCore } from "./core";
-import type { TaskEvent } from "./models";
+import type { TaskUpdate } from "./models";
 import { TasksApi } from "./api/tasks";
 
 export class TaskClient {
@@ -17,8 +17,8 @@ export class TaskClient {
     this.tasks = new TasksApi(this.#rpc);
   }
 
-  events(): AsyncIterable<TaskEvent> {
-    return this.#rpc.events<TaskEvent>();
+  notifications(): AsyncIterable<TaskUpdate> {
+    return this.#rpc.notifications<TaskUpdate>();
   }
 
   close(): Promise<void> {

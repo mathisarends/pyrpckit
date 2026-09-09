@@ -170,7 +170,7 @@ class ApiNode:
 
 
 @dataclass(frozen=True, slots=True)
-class EventDecl:
+class NotificationDecl:
     rpc_name: str
     payload: TypeExpr
     message: TypeExpr
@@ -186,7 +186,7 @@ class ClientIr:
     declarations: tuple[Declaration, ...] = ()
     root_operations: tuple[RouteDecl, ...] = ()
     api: tuple[ApiNode, ...] = ()
-    events: tuple[EventDecl, ...] = ()
+    notifications: tuple[NotificationDecl, ...] = ()
 
     @property
     def models(self) -> tuple[ModelDecl, ...]:
@@ -212,7 +212,7 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     routes = tuple(_route(method) for method in methods)
     root_operations = tuple(route for route in routes if not route.path)
     api = _api_tree(route for route in routes if route.path)
-    events = _events(document)
+    notifications = _notifications(document)
     declarations = (
         *discriminator_enums,
         *_schema_declarations(schemas, discriminator_fields),
@@ -224,11 +224,11 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         servers=_servers(document),
         declarations=_reachable(
             declarations,
-            _roots(routes, events),
+            _roots(routes, notifications),
         ),
         root_operations=root_operations,
         api=api,
-        events=events,
+        notifications=notifications,
     )
 
 
@@ -273,7 +273,7 @@ def ref_name(schema: dict[str, Any]) -> str:
 
 def _roots(
     operations: tuple[RouteDecl, ...],
-    events: tuple[EventDecl, ...],
+    notifications: tuple[NotificationDecl, ...],
 ) -> set[str]:
     roots = {
         operation.params_model
@@ -287,9 +287,9 @@ def _roots(
         for error in operation.errors:
             if error.data is not None:
                 roots.update(named_types(error.data))
-    for event in events:
-        roots.update(named_types(event.payload))
-        roots.update(named_types(event.message))
+    for notification in notifications:
+        roots.update(named_types(notification.payload))
+        roots.update(named_types(notification.message))
     return roots
 
 
@@ -470,9 +470,9 @@ def _error(error: dict[str, Any]) -> ErrorDecl:
     )
 
 
-def _events(document: dict[str, Any]) -> tuple[EventDecl, ...]:
+def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
     return tuple(
-        EventDecl(
+        NotificationDecl(
             rpc_name=notification["name"],
             payload=type_expression(notification["payload"]),
             message=type_expression(notification["message"]),

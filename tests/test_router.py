@@ -99,15 +99,36 @@ def test_router_rejects_invalid_names(name: str) -> None:
         router.method(name)
 
 
-def test_router_collects_events() -> None:
-    @rpc.event
+def test_router_collects_notifications() -> None:
     class Changed(BaseModel):
         type: Literal["browser.changed"] = "browser.changed"
 
     router = rpc.RpcRouter(namespace="browser", tags=("browser",))
-    router.event("event", Changed, summary="Browser state.")
 
-    assert router.events[0].name == "browser.event"
-    assert router.events[0].payload is Changed
-    assert router.events[0].summary == "Browser state."
-    assert router.events[0].tags == ("browser",)
+    @router.notification("changed")
+    def changed() -> Changed:
+        """Browser state."""
+
+    assert changed.__name__ == "changed"
+    assert router.notifications[0].name == "browser.changed"
+    assert router.notifications[0].payload is Changed
+    assert router.notifications[0].summary == "Browser state."
+    assert router.notifications[0].tags == ("browser",)
+
+
+def test_a_notification_declaration_must_not_take_parameters() -> None:
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="must not take parameters"):
+
+        @router.notification("changed")
+        def changed(value: str) -> str: ...
+
+
+def test_a_notification_declaration_needs_a_return_annotation() -> None:
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="return annotation"):
+
+        @router.notification("changed")
+        def changed(): ...

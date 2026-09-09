@@ -61,9 +61,9 @@ export class RpcClientCore {
     ) as Promise<Result>;
   }
 
-  async *events<Event>(): AsyncIterable<Event> {
+  async *notifications<Notification>(): AsyncIterable<Notification> {
     for await (const message of this.#transport.notifications()) {
-      yield (message as { params: Event }).params;
+      yield (message as { params: Notification }).params;
     }
   }
 

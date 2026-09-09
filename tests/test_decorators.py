@@ -1,13 +1,9 @@
-from typing import Literal
-
 import pytest
-from pydantic import BaseModel
 
 import pyrpckit as rpc
 from pyrpckit import ProtocolDefinitionError
-from pyrpckit.decorators import _EVENT_METADATA_KEY, event_metadata
 
-from .conftest import GreetingSaid, SayParams, UnknownGreetingError
+from .conftest import SayParams, UnknownGreetingError
 
 
 def test_router_methods_expose_their_metadata() -> None:
@@ -74,27 +70,3 @@ def test_a_declared_error_must_carry_a_code() -> None:
 
         @router.method(errors=(Codeless,))
         async def say(params: SayParams) -> None: ...
-
-
-def test_event_metadata_exposes_the_discriminator() -> None:
-    metadata = event_metadata(GreetingSaid)
-    assert metadata is not None
-    assert metadata.name == "greeting.said"
-
-
-def test_an_event_needs_a_literal_discriminator() -> None:
-    with pytest.raises(ProtocolDefinitionError, match="pinned to a string literal"):
-
-        @rpc.event
-        class Invalid(BaseModel):
-            type: str
-
-
-def test_corrupted_event_metadata_is_rejected() -> None:
-    class Changed(BaseModel):
-        type: Literal["changed"] = "changed"
-
-    setattr(Changed, _EVENT_METADATA_KEY, "not-metadata")
-
-    with pytest.raises(ProtocolDefinitionError, match="Invalid RPC event metadata"):
-        event_metadata(Changed)

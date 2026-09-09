@@ -255,5 +255,5 @@
   },
   "x-rpc-protocol-version": 1,
   "x-rpc-notifications": [],
-  "x-rpc-events": []
+  "x-rpc-notification-types": []
 }

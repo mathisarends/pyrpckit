@@ -82,7 +82,7 @@ class RpcInternalError(RpcError):
 
 
 class ProtocolDefinitionError(Exception):
-    """A handler, event, or feature is not a valid protocol definition."""
+    """A handler, notification, or feature is not a valid protocol definition."""
 
 
 def error_message(code: int) -> str:

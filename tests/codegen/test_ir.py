@@ -64,7 +64,7 @@ def test_types_reachable_from_the_api_surface_are_kept(
     names = {declaration.name for declaration in build_ir(document).declarations}
 
     assert {"SayParams", "SayResult", "ForgetParams"} <= names
-    assert {"GreetingChangedNotification", "GreetingEvent"} <= names
+    assert {"GreetingChangedNotification", "GreetingUpdate"} <= names
     assert {"GreetingSaid", "GreetingForgotten"} <= names
 
 
@@ -79,13 +79,13 @@ def test_models_carry_their_fields(document: dict[str, Any]) -> None:
     assert [(f.name, f.required) for f in say_params.fields] == [("name", True)]
 
 
-def test_events_are_lowered(document: dict[str, Any]) -> None:
+def test_notifications_are_lowered(document: dict[str, Any]) -> None:
     ir = build_ir(document)
 
-    assert len(ir.events) == 1
-    assert ir.events[0].rpc_name == "greeting.changed"
-    assert ir.events[0].message == NamedType("GreetingChangedNotification")
-    assert ir.events[0].payload == NamedType("GreetingEvent")
+    assert len(ir.notifications) == 1
+    assert ir.notifications[0].rpc_name == "greeting.changed"
+    assert ir.notifications[0].message == NamedType("GreetingChangedNotification")
+    assert ir.notifications[0].payload == NamedType("GreetingUpdate")
 
 
 def test_nested_routes_form_nested_api_nodes(document: dict[str, Any]) -> None:

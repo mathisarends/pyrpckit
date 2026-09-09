@@ -101,7 +101,7 @@ async def test_a_server_failure_surfaces_as_a_remote_error(
     assert error.value.message == "Unknown greeting: nobody"
 
 
-async def test_notifications_are_parsed_into_event_payloads(
+async def test_notifications_are_parsed_into_typed_payloads(
     generated_client: ModuleType,
     transport: LoopbackTransport,
 ) -> None:
@@ -114,10 +114,10 @@ async def test_notifications_are_parsed_into_event_payloads(
         }
     )
 
-    event = await anext(client.events())
+    notification = await anext(client.notifications())
 
-    assert event.text == "Hello!"
-    assert type(event).__name__ == "GreetingSaid"
+    assert notification.text == "Hello!"
+    assert type(notification).__name__ == "GreetingSaid"
 
 
 async def test_the_client_closes_its_transport(

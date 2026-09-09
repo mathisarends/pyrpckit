@@ -44,7 +44,7 @@ def test_the_generated_package_has_one_module_per_concern(
     )
 
 
-def test_renders_typed_api_groups_and_events(document: dict[str, Any]) -> None:
+def test_renders_typed_api_groups_and_notifications(document: dict[str, Any]) -> None:
     files = render_typescript_client(document, options())
     api = files["api/greeting.ts"]
     client = files["client.ts"]
@@ -54,8 +54,8 @@ def test_renders_typed_api_groups_and_events(document: dict[str, Any]) -> None:
     assert "async forget(params: ForgetParams): Promise<void>" in api
     assert "greeted(): Promise<GreetedResult>" in api
     assert "readonly greeting: GreetingApi;" in client
-    assert "events(): AsyncIterable<GreetingEvent>" in client
-    assert "notifications()" not in client
+    assert "notifications(): AsyncIterable<GreetingUpdate>" in client
+    assert "events()" not in client
 
 
 def test_renders_models_as_types_and_literal_unions(
@@ -70,7 +70,7 @@ def test_renders_models_as_types_and_literal_unions(
     models = render_typescript_client(document_with_enum, options())["models.ts"]
 
     assert 'name: "Ada" | "Grace";' in models
-    assert "export type GreetingEvent = GreetingSaid | GreetingForgotten;" in models
+    assert "export type GreetingUpdate = GreetingSaid | GreetingForgotten;" in models
     assert 'type: "greeting.said";' in models
 
 
@@ -175,7 +175,7 @@ def test_the_index_keeps_a_small_public_surface(document: dict[str, Any]) -> Non
     index = render_typescript_client(document, options())["index.ts"]
 
     assert 'export { GreetingClient } from "./client";' in index
-    assert 'export type { GreetingEvent } from "./models";' in index
+    assert 'export type { GreetingUpdate } from "./models";' in index
     assert "GreetingApi" not in index
     assert "RpcClientCore" not in index
 

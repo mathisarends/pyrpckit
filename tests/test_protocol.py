@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import pyrpckit as rpc
 from pyrpckit.protocol import RpcProtocol
@@ -48,13 +48,13 @@ def test_a_method_may_return_nothing(protocol: RpcProtocol) -> None:
     assert forget.result is type(None)
 
 
-def test_notifications_expand_into_their_union_of_events(
+def test_notifications_expand_into_their_union_types(
     protocol: RpcProtocol,
 ) -> None:
     assert [notification.name for notification in protocol.notifications] == [
         GreetingNotificationMethod.CHANGED
     ]
-    assert [event.name for event in protocol.events] == [
+    assert [item.name for item in protocol.notification_types] == [
         "greeting.said",
         "greeting.forgotten",
     ]
@@ -65,42 +65,52 @@ def test_an_unknown_method_is_rejected(protocol: RpcProtocol) -> None:
         protocol.method("greeting.unknown")
 
 
-def test_notification_payloads_must_be_decorated_events() -> None:
-    class Undecorated(BaseModel):
+def test_notification_types_need_a_literal_discriminator() -> None:
+    class Undiscriminated(BaseModel):
         text: str
 
     router = rpc.RpcRouter()
-    router.event("changed", Undecorated)
+
+    @router.notification("changed")
+    def changed() -> Undiscriminated: ...
+
     app = rpc.RpcApp()
     app.include_router(router)
 
-    with pytest.raises(rpc.ProtocolDefinitionError, match="not decorated"):
+    with pytest.raises(rpc.ProtocolDefinitionError, match="pinned to a string literal"):
         _ = app.protocol
 
 
 def test_notification_payloads_must_be_pydantic_models() -> None:
     router = rpc.RpcRouter()
-    router.event("changed", str)
+
+    @router.notification("changed")
+    def changed() -> str: ...
+
     app = rpc.RpcApp()
     app.include_router(router)
 
     with pytest.raises(
         rpc.ProtocolDefinitionError,
-        match="must contain Pydantic event models",
+        match="must contain Pydantic models",
     ):
         _ = app.protocol
 
 
-def test_an_annotated_union_of_events_still_expands_into_events() -> None:
+def test_an_annotated_union_still_expands_into_notification_types() -> None:
     router = rpc.RpcRouter()
-    router.event(
-        "changed",
-        Annotated[GreetingSaid | GreetingForgotten, "wire payload"],
-    )
+    type GreetingUpdate = Annotated[
+        GreetingSaid | GreetingForgotten,
+        Field(discriminator="type"),
+    ]
+
+    @router.notification("changed")
+    def changed() -> GreetingUpdate: ...
+
     app = rpc.RpcApp()
     app.include_router(router)
 
-    assert [event.name for event in app.protocol.events] == [
+    assert [item.name for item in app.protocol.notification_types] == [
         "greeting.said",
         "greeting.forgotten",
     ]

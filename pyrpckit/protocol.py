@@ -7,6 +7,7 @@ from typing import (
     Any,
     Literal,
     TypeAliasType,
+    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -15,7 +16,6 @@ from typing import (
 from pydantic import BaseModel, create_model
 
 from pyrpckit._wire import wire_annotation
-from pyrpckit.decorators import event_metadata
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
 from pyrpckit.models import RpcModel
 
@@ -44,7 +44,7 @@ class RpcNotificationDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class RpcEventDefinition:
+class RpcNotificationTypeDefinition:
     name: str
     payload: type[BaseModel]
 
@@ -57,7 +57,7 @@ class RpcProtocol:
         *,
         methods: Iterable[RpcMethodDefinition] = (),
         notifications: Iterable[RpcNotificationDefinition] = (),
-        events: Iterable[RpcEventDefinition] = (),
+        notification_types: Iterable[RpcNotificationTypeDefinition] = (),
         version: int = 1,
     ) -> None:
         self._version = version
@@ -69,9 +69,9 @@ class RpcProtocol:
             "notification",
             ((notification.name, notification) for notification in notifications),
         )
-        self._events = _unique(
-            "event",
-            ((event.name, event) for event in events),
+        self._notification_types = _unique(
+            "notification type",
+            ((item.name, item) for item in notification_types),
         )
 
     @property
@@ -87,8 +87,8 @@ class RpcProtocol:
         return tuple(self._notifications.values())
 
     @property
-    def events(self) -> tuple[RpcEventDefinition, ...]:
-        return tuple(self._events.values())
+    def notification_types(self) -> tuple[RpcNotificationTypeDefinition, ...]:
+        return tuple(self._notification_types.values())
 
     def method(self, name: str) -> RpcMethodDefinition:
         try:
@@ -192,30 +192,38 @@ def _result_annotation(function: Any) -> Any:
     return result
 
 
-def event_definitions(annotation: Any) -> tuple[RpcEventDefinition, ...]:
-    definitions: list[RpcEventDefinition] = []
-    for message in _event_message_types(annotation):
-        metadata = event_metadata(message)
-        if metadata is None:
+def notification_type_definitions(
+    annotation: Any,
+) -> tuple[RpcNotificationTypeDefinition, ...]:
+    definitions: list[RpcNotificationTypeDefinition] = []
+    for message in _notification_message_types(annotation):
+        name = _declared_notification_type(message)
+        if not isinstance(name, str):
             raise ProtocolDefinitionError(
-                f"RPC event is not decorated: {message.__name__}"
+                f"RPC notification type {message.__name__} needs a type field "
+                "pinned to a string literal"
             )
-        definitions.append(RpcEventDefinition(metadata.name, message))
+        definitions.append(RpcNotificationTypeDefinition(name, message))
     return tuple(definitions)
 
 
-def _event_message_types(annotation: Any) -> tuple[type[BaseModel], ...]:
+def _notification_message_types(annotation: Any) -> tuple[type[BaseModel], ...]:
     value = (
         annotation.__value__ if isinstance(annotation, TypeAliasType) else annotation
     )
     if get_origin(value) is Annotated:
         value = get_args(value)[0]
-    members = get_args(value) if get_origin(value) is UnionType else (value,)
+    members = get_args(value) if get_origin(value) in (Union, UnionType) else (value,)
     if not all(_is_model(member) for member in members):
         raise ProtocolDefinitionError(
-            "RPC notification payload must contain Pydantic event models"
+            "RPC notification payload must contain Pydantic models"
         )
     return members
+
+
+def _declared_notification_type(message: type[BaseModel]) -> Any:
+    schema = message.model_json_schema()
+    return schema.get("properties", {}).get("type", {}).get("const")
 
 
 def _unique[ValueT](

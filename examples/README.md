@@ -13,8 +13,8 @@ client, or application structure. Each file is standalone and executable.
   contract and returns it as a JSON-RPC failure.
 - [`error_mapping.py`](error_mapping.py) translates an exception from foreign code
   with an `error_mapper`.
-- [`events.py`](events.py) declares a typed union of events on a
-  router and serializes a server-initiated notification.
+- [`notifications.py`](notifications.py) declares a typed notification union on
+  a router and serializes a server-initiated notification.
 - [`schemas.py`](schemas.py) renders JSON Schema and OpenRPC documents from the
   same protocol definition.
 - [`typescript_codegen.py`](typescript_codegen.py) renders OpenRPC and generates
@@ -29,7 +29,7 @@ uv run python examples/no_params.py
 uv run python examples/features.py
 uv run python examples/errors.py
 uv run python examples/error_mapping.py
-uv run python examples/events.py
+uv run python examples/notifications.py
 uv run python examples/schemas.py
 uv run python examples/typescript_codegen.py
 ```

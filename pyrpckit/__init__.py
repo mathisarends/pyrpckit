@@ -1,6 +1,5 @@
 from .app import RpcApp, RpcMountBinding, RpcRouterMount
 from .contract import OpenRpcContract, OpenRpcServer, ServerVariable
-from .decorators import event
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
     ProtocolDefinitionError,
@@ -44,5 +43,4 @@ __all__ = [
     "ServerVariable",
     "__version__",
     "error_message",
-    "event",
 ]

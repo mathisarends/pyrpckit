@@ -68,8 +68,8 @@ def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
         _add_result_types(annotations, method.result)
     for notification in protocol.notifications:
         _add(annotations, notification.payload)
-    for event in protocol.events:
-        _add(annotations, event.payload)
+    for notification_type in protocol.notification_types:
+        _add(annotations, notification_type.payload)
     return annotations
 
 

@@ -8,8 +8,8 @@ from pyrpckit.protocol import (
     RpcMethodDefinition,
     RpcNotificationDefinition,
     RpcProtocol,
-    event_definitions,
     method_definition,
+    notification_type_definitions,
 )
 from pyrpckit.router import (
     RpcRoute,
@@ -51,7 +51,7 @@ class RpcApp:
     def __init__(self, *, version: int = 1) -> None:
         self._version = version
         self._routes: list[RpcRoute] = []
-        self._events: list[RpcNotificationDefinition] = []
+        self._notifications: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
         self._mounts: list[RpcRouterMount] = []
         self._protocol: RpcProtocol | None = None
@@ -82,16 +82,16 @@ class RpcApp:
             )
             for route in router.routes
         )
-        events = tuple(
+        notifications = tuple(
             replace(
-                event,
-                name=join_rpc_name(include_namespace, event.name),
-                tags=normalize_tags((*event.tags, *include_tags)),
+                notification,
+                name=join_rpc_name(include_namespace, notification.name),
+                tags=normalize_tags((*notification.tags, *include_tags)),
             )
-            for event in router.events
+            for notification in router.notifications
         )
         names = [route.name for route in routes]
-        names.extend(event.name for event in events)
+        names.extend(notification.name for notification in notifications)
         seen = set(self._names)
         for name in names:
             if name in seen:
@@ -101,22 +101,22 @@ class RpcApp:
         mount = RpcRouterMount(self, len(self._mounts) + 1, routes)
         self._mounts.append(mount)
         self._routes.extend(routes)
-        self._events.extend(events)
+        self._notifications.extend(notifications)
         return mount
 
     @property
     def protocol(self) -> RpcProtocol:
         if self._protocol is None:
             methods = _method_definitions(self._routes)
-            events = tuple(
+            notification_types = tuple(
                 definition
-                for notification in self._events
-                for definition in event_definitions(notification.payload)
+                for notification in self._notifications
+                for definition in notification_type_definitions(notification.payload)
             )
             self._protocol = RpcProtocol(
                 methods=methods,
-                notifications=self._events,
-                events=events,
+                notifications=self._notifications,
+                notification_types=notification_types,
                 version=self._version,
             )
         return self._protocol

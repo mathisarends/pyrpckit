@@ -127,7 +127,7 @@ flowchart LR
         N["navigation.router<br/>@router.method(...)"]
         I["input.router<br/>@router.method(...)"]
         T["tabs.router<br/>@router.method(...)"]
-        E["events.router<br/>router.event(...)"]
+        E["notifications.router<br/>@router.notification(...)"]
     end
     N --> A["BROWSER_RPC: RpcApp"]
     I --> A
@@ -210,32 +210,30 @@ class TabMethods:
     async def activate(self, params: TabParams) -> TabsResult: ...
 ```
 
-### Events am Router
+### Notifications am Router
 
-Ein serverseitiges Event besitzt keinen ausführbaren Handler. Deshalb sollte es
-nicht künstlich als Decorator modelliert, sondern explizit am Router registriert
-werden:
+Eine serverseitige Notification besitzt keinen ausführbaren Handler. Eine normale
+Deklarationsfunktion ordnet deshalb nur ihren annotierten Payload-Typ dem Router
+zu; sie wird zur Laufzeit weder gebunden noch aufgerufen:
 
 ```python
 router = rpckit.RpcRouter(namespace="browser", tags=("browser",))
-router.event(
-    "event",
-    BrowserEvent,
-    summary="Stream browser state to the frontend.",
-)
+
+
+@router.notification("update")
+def browser_update() -> BrowserUpdate:
+    """Stream browser state to the frontend."""
 ```
 
-Der resultierende Wire-Name ist `browser.event`. Auf der öffentlichen
-`rpckit`-Ebene heißt dieses Konzept bewusst **Event**. Auf dem JSON-RPC-Wire wird
-es als Notification, also als Nachricht ohne `id`, codiert. Der Begriff
-`notification` bleibt damit ein Implementierungs- und Wire-Begriff und erscheint
-nicht in der normalen Consumer-API.
+Der resultierende Wire-Name ist `browser.update`. Auf der öffentlichen
+`rpckit`-Ebene heißt dieses Konzept bewusst **Notification**, passend zum
+JSON-RPC-Wire: eine Nachricht ohne `id`.
 
 ### Zentrale Komposition
 
 ```python
 import rpckit
-from backend.features.browser_tunnel.presentation.rpc import events
+from backend.features.browser_tunnel.presentation.rpc import notifications
 from backend.features.browser_tunnel.presentation.rpc.methods import (
     clipboard,
     input,
@@ -250,7 +248,7 @@ BROWSER_RPC.include_router(navigation.router)
 BROWSER_RPC.include_router(input.router)
 BROWSER_RPC.include_router(clipboard.router)
 BROWSER_RPC.include_router(tabs.router)
-BROWSER_RPC.include_router(events.router)
+BROWSER_RPC.include_router(notifications.router)
 ```
 
 Optional kann `include_router` einen zusätzlichen Namespace und
@@ -620,7 +618,7 @@ async def browser_control(
             InputMethods(browser.input),
             TabMethods(browser.tabs),
         ),
-        events=browser.events,
+        notifications=browser.notifications,
     )
 ```
 
@@ -655,7 +653,7 @@ Verbindung:
 @dataclass(frozen=True, slots=True)
 class RpcBinding:
     handlers: tuple[object, ...]
-    events: AsyncIterable[object] | None = None
+    notifications: AsyncIterable[object] | None = None
 ```
 
 Der erste Schnitt verwendet ausschließlich `return RpcBinding(...)`. Eine
@@ -671,7 +669,7 @@ Der Adapter übernimmt:
 
 - das Auslassen einer Response bei eingehenden JSON-RPC-Notifications,
 
-- das Weiterleiten serverinitiierter Events aus dem `RpcBinding` als
+- das Weiterleiten serverinitiierter Notifications aus dem `RpcBinding` als
   JSON-RPC-Notifications,
 
 - sauberes Schließen und Cancellation.
@@ -737,13 +735,12 @@ class RpcRouter:
         summary: str | None = None,
         errors: Iterable[type[RpcError]] = (),
     ) -> Callable[[HandlerT], HandlerT]: ...
-    def event(
+    def notification(
         self,
         name: str,
-        payload: Any,
         *,
         summary: str | None = None,
-    ) -> None: ...
+    ) -> Callable[[FunctionType], FunctionType]: ...
     def include_router(
         self,
         router: RpcRouter,
@@ -909,8 +906,8 @@ angeboten. `RpcHandler`, der globale `@method`-Decorator, `feature(...)`,
 `notification(...)`, `RpcProtocol.of(...)` und die direkte Konstruktion von
 `RpcServer` entfallen. `RpcProtocol` bleibt ein internes, unveränderliches
 Ergebnis von `RpcApp.protocol`; Contract-Quellen sind ausschließlich `RpcApp`
-und `OpenRpcContract`. Der `@event`-Decorator bleibt Teil der neuen API, weil er
-die diskriminierten Payload-Typen beschreibt.
+und `OpenRpcContract`. Notification-Varianten bleiben normale Pydantic-Modelle;
+ihre diskriminierten Payload-Typen werden am Router deklariert.
 
 Alle repository-internen Beispiele und Tests werden im selben Schritt auf
 `RpcRouter`, `RpcApp` und `app.bind(...)` umgestellt. Es gibt keine
@@ -925,7 +922,7 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
 2. `RpcRouter.method` auf Basis der bestehenden Validierung aus
    `decorators.py` implementieren.
 
-3. Namespace-Normalisierung, Tags, Events und Duplikatprüfung ergänzen.
+3. Namespace-Normalisierung, Tags, Notifications und Duplikatprüfung ergänzen.
 
 4. Tests für Methoden innerhalb und außerhalb von Klassen, mehrere Klassen pro
    Router, Namespace-Komposition, geordnet deduplizierte Tags, Snapshots, doppelte
@@ -975,7 +972,7 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
    alle von OpenRPC verlangten Defaults erzwingen.
 
 5. OpenRPC-Snapshots vergleichen: Methodennamen, Parameter, Resultate, Fehler,
-   Tags und Events müssen bis auf absichtlich geänderte Metadaten
+   Tags und Notifications müssen bis auf absichtlich geänderte Metadaten
    identisch bleiben.
 
 6. Python- und TypeScript-Codegen im `--check`-Modus ausführen.
@@ -991,7 +988,7 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
    Backend-Session-Orchestrierung bleibt beim Consumer.
 
 3. Integrationstests für Path- und Query-Parameter, FastAPI-`Depends`, Dishka-
-   `FromDishka`, den `RpcBinding`-Rückgabewert, Text-Frames, Events auf dem Wire
+   `FromDishka`, den `RpcBinding`-Rückgabewert, Text-Frames, Notifications auf dem Wire
    und Disconnects ergänzen.
 
 4. Im ersten Schnitt nur `return RpcBinding(...)` unterstützen; keine `yield`-
@@ -1006,7 +1003,7 @@ Kompatibilitätsschicht und keine Legacy-Dokumentation.
 2. Vollständige Methodennamen auf lokale Namen kürzen; die bisherigen `StrEnum`s
    können entfallen, sofern sie außerhalb der Deklaration nicht genutzt werden.
 
-3. Den Event-Stream über `router.event(...)` deklarieren.
+3. Den Notification-Stream über `@router.notification(...)` deklarieren.
 
 4. `BROWSER_RPC_METHODS`, `browser_rpc_methods` und `BROWSER_PROTOCOL` durch
    `BROWSER_RPC` plus optional `browser_rpc_server(...)` ersetzen.

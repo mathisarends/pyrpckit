@@ -1,8 +1,9 @@
 import functools
+import inspect
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from types import FunctionType
-from typing import Any, overload
+from typing import Any, get_type_hints, overload
 
 from pyrpckit.decorators import _docstring_summary
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
@@ -54,7 +55,7 @@ class _RouterMethod:
 
 
 class RpcRouter:
-    """Collect RPC methods and events near the feature that declares them."""
+    """Collect RPC methods and notifications in one namespace."""
 
     def __init__(
         self,
@@ -65,7 +66,7 @@ class RpcRouter:
         self._namespace = normalize_namespace(namespace)
         self._tags = normalize_tags(tags)
         self._routes: list[RpcRoute] = []
-        self._events: list[RpcNotificationDefinition] = []
+        self._notifications: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
 
     @property
@@ -81,8 +82,8 @@ class RpcRouter:
         return tuple(self._routes)
 
     @property
-    def events(self) -> tuple[RpcNotificationDefinition, ...]:
-        return tuple(self._events)
+    def notifications(self) -> tuple[RpcNotificationDefinition, ...]:
+        return tuple(self._notifications)
 
     @overload
     def method(self, function: FunctionType, /) -> _RouterMethod: ...
@@ -131,24 +132,45 @@ class RpcRouter:
 
         return decorate(function) if function is not None else decorate
 
-    def event(
+    def notification(
         self,
         name: str,
-        payload: Any,
         *,
         summary: str | None = None,
-    ) -> None:
-        """Declare a server-initiated JSON-RPC notification."""
-        full_name = join_rpc_name(self._namespace, _name(name))
-        self._reserve(full_name)
-        self._events.append(
-            RpcNotificationDefinition(
-                name=full_name,
-                payload=payload,
-                summary=summary,
-                tags=self._tags,
+    ) -> Callable[[FunctionType], FunctionType]:
+        """Declare a server-initiated notification from a return annotation."""
+        local_name = _name(name)
+
+        def decorate(function: FunctionType) -> FunctionType:
+            if not isinstance(function, FunctionType):
+                raise ProtocolDefinitionError(
+                    f"RPC notification must decorate a function, got {function!r}"
+                )
+            if inspect.signature(function).parameters:
+                raise ProtocolDefinitionError(
+                    f"RPC notification {function.__qualname__} must not take parameters"
+                )
+            payload = get_type_hints(function, include_extras=True).get("return")
+            if payload is None:
+                raise ProtocolDefinitionError(
+                    f"RPC notification {function.__qualname__} needs a return "
+                    "annotation"
+                )
+            full_name = join_rpc_name(self._namespace, local_name)
+            self._reserve(full_name)
+            self._notifications.append(
+                RpcNotificationDefinition(
+                    name=full_name,
+                    payload=payload,
+                    summary=(
+                        summary if summary is not None else _docstring_summary(function)
+                    ),
+                    tags=self._tags,
+                )
             )
-        )
+            return function
+
+        return decorate
 
     def _reserve(self, name: str) -> None:
         if name in self._names:

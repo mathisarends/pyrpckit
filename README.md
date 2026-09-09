@@ -29,7 +29,7 @@ to either project and does not claim protocol compatibility with them.
           ^                             clients           clients
           |                                \               /
           +---- requests / responses ------- transport ---+
-          +---- typed server events -------- transport --->
+          +---- typed notifications -------- transport --->
 ```
 
 ## Contents
@@ -43,7 +43,7 @@ to either project and does not claim protocol compatibility with them.
 - [Composing the app](#composing-the-app)
 - [Serving requests](#serving-requests)
 - [Reporting errors](#reporting-errors)
-- [Server-initiated events](#server-initiated-events)
+- [Server-initiated notifications](#server-initiated-notifications)
 - [Generating the contract](#generating-the-contract)
 - [Generating a client](#generating-a-client)
 - [Development](#development)
@@ -52,7 +52,7 @@ to either project and does not claim protocol compatibility with them.
 
 OpenAPI-based HTTP clients are excellent for request/response APIs. They become
 less helpful when part of the real API lives on a WebSocket or another streaming
-transport. Event payload types often need to be exported separately, socket
+transport. Notification payload types often need to be exported separately, socket
 routes are written by hand, and the generated client knows nothing about the
 messages arriving from the server.
 
@@ -60,9 +60,9 @@ messages arriving from the server.
 
 - **Client-to-server methods** are validated, dispatched, documented, and
   generated as typed client methods.
-- **Server-to-client events** are declared alongside those methods and generated
-  as typed event streams.
-- **Discriminated event unions** let clients safely narrow `text.delta`,
+- **Server-to-client notifications** are declared alongside those methods and
+  generated as typed notification streams.
+- **Discriminated notification unions** let clients safely narrow `text.delta`,
   `tool.call`, `tool.result`, and other payloads.
 - **The transport is an adapter.** Use a WebSocket, HTTP, stdio, a message queue,
   an IPC channel, or something custom.
@@ -70,18 +70,18 @@ messages arriving from the server.
   the live Python application.
 
 The result is one source of truth for validation, discovery, generated types,
-method names, results, events, and declared errors—without turning the library
-into a web framework.
+method names, results, notifications, and declared errors—without turning the
+library into a web framework.
 
 ## What you can build
 
-| Use case | Methods flowing in | Events flowing out |
+| Use case | Methods flowing in | Notifications flowing out |
 | --- | --- | --- |
 | Agent gateway | start, steer, approve, cancel | text deltas, tool calls, tool results, completion |
 | Automation control plane | launch, pause, retry | progress, logs, state transitions |
 | Remote browser or device control | navigate, click, inspect | DOM changes, screenshots, telemetry |
 | Developer tooling | run, debug, stop | diagnostics, output, test results |
-| Realtime application backend | commands and queries | domain events and live updates |
+| Realtime application backend | commands and queries | domain notifications and live updates |
 
 These are architectural patterns, not bundled transports or domain-specific
 implementations. `pyrpckit` supplies the typed protocol layer between them.
@@ -90,7 +90,7 @@ implementations. `pyrpckit` supplies the typed protocol layer between them.
 
 The programming model has four small pieces:
 
-1. A `RpcRouter` groups methods and server-initiated events by namespace.
+1. A `RpcRouter` groups methods and server-initiated notifications by namespace.
 2. A `RpcApp` composes routers into one validated protocol.
 3. A bound `RpcServer` validates and dispatches decoded JSON-RPC messages.
 4. An OpenRPC contract generates clients that depend only on a tiny transport
@@ -129,7 +129,6 @@ typed updates leave it:
 ```python
 from typing import Literal
 
-import pyrpckit as rpc
 from pyrpckit import RpcApp, RpcModel, RpcRouter
 
 
@@ -146,14 +145,12 @@ class SteerRunParams(RpcModel):
     instruction: str
 
 
-@rpc.event
 class TextDelta(RpcModel):
     type: Literal["text.delta"] = "text.delta"
     run_id: str
     delta: str
 
 
-@rpc.event
 class ToolCall(RpcModel):
     type: Literal["tool.call"] = "tool.call"
     run_id: str
@@ -162,7 +159,6 @@ class ToolCall(RpcModel):
     arguments: dict[str, object]
 
 
-@rpc.event
 class ToolResult(RpcModel):
     type: Literal["tool.result"] = "tool.result"
     run_id: str
@@ -170,7 +166,7 @@ class ToolResult(RpcModel):
     output: str
 
 
-type AgentEvent = TextDelta | ToolCall | ToolResult
+type AgentUpdate = TextDelta | ToolCall | ToolResult
 
 agent = RpcRouter(namespace="agent", tags=("agent",))
 
@@ -189,7 +185,10 @@ class AgentMethods:
         await self._service.steer(params.run_id, params.instruction)
 
 
-agent.event("event", AgentEvent, summary="Stream updates from an agent run.")
+@agent.notification("run.update")
+def run_update() -> AgentUpdate:
+    """Updates emitted while an agent run is active."""
+
 
 app = RpcApp(version=1)
 app.include_router(agent)
@@ -197,7 +196,7 @@ server = app.bind(AgentMethods(service))
 ```
 
 The protocol now contains `agent.run.start`, `agent.run.steer`, and the
-`agent.event` notification. A generated TypeScript client makes all of them
+`agent.run.update` notification. A generated TypeScript client makes all of them
 discoverable:
 
 ```typescript
@@ -205,32 +204,33 @@ const run = await client.agent.run.start({
   prompt: "Investigate the deployment failure",
 });
 
-// This can be triggered while the event stream is still active.
+// This can be triggered while the notification stream is still active.
 await client.agent.run.steer({
   runId: run.runId,
   instruction: "Check the logs first",
 });
 
-for await (const event of client.events()) {
-  switch (event.type) {
+for await (const notification of client.notifications()) {
+  switch (notification.type) {
     case "text.delta":
-      renderText(event.delta);
+      renderText(notification.delta);
       break;
     case "tool.call":
-      showPendingTool(event.name, event.arguments);
+      showPendingTool(notification.name, notification.arguments);
       break;
     case "tool.result":
-      showToolResult(event.callId, event.output);
+      showToolResult(notification.callId, notification.output);
       break;
   }
 }
 ```
 
-The event `type` literals become a discriminated union in generated clients.
-`RpcModel` gives request, result, and event payloads one explicit protocol-level
-base class and applies the camel-case and strict-field wire conventions at their
-definition. Generated clients derive their corresponding types from the contract,
-so there is no second set of handwritten socket payload types to keep in sync.
+The notification `type` literals become a discriminated union in generated clients.
+`RpcModel` gives request, result, and notification payloads one explicit
+protocol-level base class and applies the camel-case and strict-field wire
+conventions at their definition. Generated clients derive their corresponding
+types from the contract, so there is no second set of handwritten socket payload
+types to keep in sync.
 
 ## Declaring routes
 
@@ -271,10 +271,10 @@ while tags are documentation metadata. Handler classes need no base class. The
 bare `@router.method` form uses the Python function name, so this method is
 exposed as `automation.get` and generated beneath `client.automation`.
 
-`RpcModel` is the canonical base for request, response, and event payloads. It
-makes the protocol boundary explicit in the type hierarchy: Python fields use
-`snake_case`, OpenRPC and JSON use `camelCase`, explicit Pydantic aliases win, and
-unknown input fields are rejected.
+`RpcModel` is the canonical base for request, response, and notification payloads.
+It makes the protocol boundary explicit in the type hierarchy: Python fields use
+`snake_case`, OpenRPC and JSON use `camelCase`, explicit Pydantic aliases win,
+and unknown input fields are rejected.
 
 For a small one-off method, keyword-only arguments remain available as a compact
 alternative. The router derives an internal params model from them, and any
@@ -402,32 +402,30 @@ server = app.bind(AutomationRpcMethods(service), error_mapper=to_rpc_error)
 Anything neither declared nor mapped becomes an internal error, so handler
 internals never leak to clients.
 
-## Server-initiated events
+## Server-initiated notifications
 
-Events carry a payload that is either a decorated event model or a union of them.
-Each event pins a `type` field to a literal, so clients can narrow the union — and
-that literal is the event name. On the JSON-RPC wire, an event is a notification
-without an `id`:
+Notifications declare their payload through the return annotation of a normal
+function. Each model pins a `type` field to a literal, so clients can narrow the
+union. The models need no decorator; their discriminator is validated when the app
+protocol is frozen. On the JSON-RPC wire, a notification has no `id`:
 
 ```python
-import pyrpckit as rpc
-
-
-@rpc.event
 class AutomationStarted(RpcModel):
     type: Literal["automation.started"] = "automation.started"
     automation_id: str
 
 
-type AutomationEvent = AutomationStarted | AutomationFinished
+type AutomationUpdate = AutomationStarted | AutomationFinished
 
-events = RpcRouter(namespace="automation", tags=("automation",))
-events.event(
-    "event",
-    AutomationEvent,
-    summary="Publish an automation lifecycle event.",
-)
-app.include_router(events)
+notifications = RpcRouter(namespace="automation", tags=("automation",))
+
+
+@notifications.notification("update")
+def automation_update() -> AutomationUpdate:
+    """Publish an automation lifecycle update."""
+
+
+app.include_router(notifications)
 ```
 
 Send one with the `RpcNotification` envelope.
@@ -530,15 +528,15 @@ The generated Python package holds no hand-written code and is meant to be commi
 - `metadata.py` — exact wire names, tags, errors, and deprecation metadata
 - `endpoints.py` — server URL templates when the contract declares servers
 - `errors.py` — stably named declared remote errors
-- `client.py` — the root facade, event stream, and transport lifecycle
+- `client.py` — the root facade, notification stream, and transport lifecycle
 - `__init__.py` — a small curated public surface
 - `.pyrpckit-generated.json` — generated-file ownership and contract digest
 
 ```python
 async with GreetingClient(transport) as client:
     greeting = await client.greeting.say(name="Mathis")  # -> SayResult
-    async for event in client.events():  # -> GreetingEvent
-        print(event)
+    async for notification in client.notifications():  # -> GreetingUpdate
+        print(notification)
 ```
 
 Only the schemas the client actually reaches are emitted — request and response

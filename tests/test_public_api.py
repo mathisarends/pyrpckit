@@ -11,6 +11,7 @@ import pyrpckit as rpc
         "RpcNotificationDefinition",
         "RpcProtocol",
         "feature",
+        "event",
         "method",
         "notification",
     ),

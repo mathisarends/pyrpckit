@@ -47,9 +47,9 @@ def render_openrpc(
             )
             for notification in protocol.notifications
         ],
-        "x-rpc-events": [
-            {"name": event.name, "payload": _ref(type_name(event.payload))}
-            for event in protocol.events
+        "x-rpc-notification-types": [
+            {"name": item.name, "payload": _ref(type_name(item.payload))}
+            for item in protocol.notification_types
         ],
     }
 

@@ -244,20 +244,24 @@ def _render_client(
     constants: list[str] = []
     for route in root_operations:
         constants.append(_result_adapter(route, imports, options))
-    event_type: TypeExpr | None = None
+    notification_type: TypeExpr | None = None
     message_type: TypeExpr | None = None
-    if ir.events:
+    if ir.notifications:
         imports.add("collections.abc", "AsyncIterator")
         imports.add("pydantic", "TypeAdapter")
-        event_type = _collapse(UnionType(tuple(event.payload for event in ir.events)))
-        message_type = _collapse(UnionType(tuple(event.message for event in ir.events)))
+        notification_type = _collapse(
+            UnionType(tuple(item.payload for item in ir.notifications))
+        )
+        message_type = _collapse(
+            UnionType(tuple(item.message for item in ir.notifications))
+        )
         imports.add(
             f"{options.package}.models",
-            *_model_names(event_type),
+            *_model_names(notification_type),
             *_model_names(message_type),
         )
         constants.append(
-            "_EVENT_MESSAGE_ADAPTER = TypeAdapter("
+            "_NOTIFICATION_MESSAGE_ADAPTER = TypeAdapter("
             f"{_annotation(message_type, imports)})"
         )
     lines = [
@@ -278,15 +282,15 @@ def _render_client(
         )
     for route in root_operations:
         lines.extend(["", *_operation_lines(route, imports, options)])
-    if event_type is not None:
-        annotation = _annotation(event_type, imports)
+    if notification_type is not None:
+        annotation = _annotation(notification_type, imports)
         lines.extend(
             [
                 "",
-                f"    async def events(self) -> AsyncIterator[{annotation}]:",
+                f"    async def notifications(self) -> AsyncIterator[{annotation}]:",
                 "        async for message in self._rpc.notifications():",
                 "            notification = "
-                "_EVENT_MESSAGE_ADAPTER.validate_python(message)",
+                "_NOTIFICATION_MESSAGE_ADAPTER.validate_python(message)",
                 "            yield notification.params",
             ]
         )
@@ -563,8 +567,8 @@ def _validate(
             for route in root_operations
         ),
     ]
-    if ir.events:
-        client_members.append(("<client.events>", "events"))
+    if ir.notifications:
+        client_members.append(("<client.notifications>", "notifications"))
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     assert_unique_names(

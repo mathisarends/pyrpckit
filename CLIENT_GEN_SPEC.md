@@ -37,7 +37,7 @@
 Dieses Dokument konkretisiert die Client-Generierung aus
 [`SPEC.md`](SPEC.md). Es beschreibt die gewünschte öffentliche Python- und
 TypeScript-API, die generierten Paketstrukturen und die Abbildung der neuen
-Begriffe `RpcRouter`, `RpcRoute`, `RpcApp`, Event und `OpenRpcContract` auf
+Begriffe `RpcRouter`, `RpcRoute`, `RpcApp`, Notification und `OpenRpcContract` auf
 Clients.
 
 Der wichtigste Grundsatz lautet:
@@ -70,9 +70,9 @@ Dieses Dokument ist zunächst eine Zielspezifikation. Es beschreibt bewusst auch
   Route darf mehrere Tags besitzen und Include-Tags können ergänzt werden.
   Tags bleiben deshalb Dokumentations- und Instrumentierungsmetadaten.
 
-- Der Begriff **Event** wird in der Consumer-API verwendet. Deshalb heißt der
-  typisierte Stream `client.events()`, nicht `client.notifications()`. Nur das
-  Transportprotokoll spricht weiterhin von JSON-RPC Notifications.
+- Der Begriff **Notification** wird durchgängig von der Protokolldeklaration bis
+  zur Consumer-API verwendet. Der typisierte Stream heißt deshalb
+  `client.notifications()`.
 
 - `OpenRpcContract.servers` erzeugt Endpoint-Metadaten, aber keine zusätzlichen
   Client-Klassen. Ein Server ist eine Deployment-Alternative derselben API.
@@ -201,8 +201,7 @@ einheitlich verwendet werden.
 | Operation | Aufrufbare Methode auf einer API-Gruppe | `navigate(...)` |
 | RPC-Route | Unveränderliche Client-Metadaten einer Operation | `BROWSER_NAV_NAVIGATE` |
 | Wire-Name | Wert des JSON-RPC-Felds `method` | `browser.nav.navigate` |
-| Event | Typisierte, serverinitiierte Nachricht in der öffentlichen API | `BrowserUrlChanged` |
-| Notification | JSON-RPC-Wire-Mechanik ohne Request-ID | Transportdetail |
+| Notification | Typisierte, serverinitiierte JSON-RPC-Nachricht ohne Request-ID | `BrowserUrlChanged` |
 | Endpoint | Aufgelöste Adresse, an der ein Contract erreichbar ist | `wss://…/control` |
 | Server | Benannte, möglicherweise templatisierte Endpoint-Beschreibung aus OpenRPC | `browser-control` |
 | Transport | Überträgt JSON-RPC-Envelopes; HTTP, WebSocket, stdio oder in-memory | `WebSocketTransport` |
@@ -232,7 +231,7 @@ BrowserNavApi  # Untergruppe
 | `methods[].deprecated` | Deprecation-Metadatum und optional Runtime-Warnung |
 | `methods[].tags` | `RpcRouteInfo.tags`, niemals primäre Gruppierung |
 | `methods[].errors` | deklarierte Remote-Fehler und Routenmetadaten |
-| `x-rpc-events` / Event-Erweiterung | Ereignistypen des Streams |
+| `x-rpc-notification-types` | Nachrichtentypen des Notification-Streams |
 | `servers` | `endpoints.py` und Servervariablen |
 | `x-rpckit-transport` | Transporthinweis in Endpoint-Metadaten |
 | `x-rpc-protocol-version` | `PROTOCOL_VERSION` |
@@ -323,19 +322,19 @@ from backend.generated.rpc.browser_control.models import (
 
 
 async with BrowserControlClient(transport) as client:
-    async for event in client.events():
-        match event:
+    async for notification in client.notifications():
+        match notification:
             case BrowserUrlChanged(url=url):
                 print("new URL", url)
             case BrowserTabClosed(tab_id=tab_id):
                 print("closed", tab_id)
 ```
 
-`events()` validiert den vollständigen Notification-Envelope und liefert den
-typisierten Event-Payload beziehungsweise den bereits im Contract definierten
-Event-Message-Typ. Welche der beiden Formen gilt, muss der OpenRPC-Extension
-eindeutig zu entnehmen sein; der Generator darf nicht anhand von Feldnamen
-raten.
+`notifications()` validiert den vollständigen Notification-Envelope und liefert
+den typisierten Notification-Payload beziehungsweise den bereits im Contract
+definierten Notification-Message-Typ. Welche der beiden Formen gilt, muss der
+OpenRPC-Extension eindeutig zu entnehmen sein; der Generator darf nicht anhand
+von Feldnamen raten.
 
 Das Low-Level-Transportinterface darf weiterhin
 `transport.notifications()` heißen, weil dies der JSON-RPC-Begriff ist. Diese
@@ -415,7 +414,7 @@ Contracts:
 | Datei | Inhalt |
 | --- | --- |
 | `__init__.py` | kleiner, kuratierter Public Export |
-| `client.py` | Root-Client, Lifecycle, Root-Operationen, Event-Stream |
+| `client.py` | Root-Client, Lifecycle, Root-Operationen, Notification-Stream |
 | `endpoints.py` | OpenRPC-Server, URL-Templates und Variablen |
 | `errors.py` | contract-spezifische deklarierte Remote-Fehler |
 | `metadata.py` | Contract- und Routenmetadaten, exakte Wire-Namen |
@@ -784,10 +783,10 @@ from backend.generated.rpc.browser_control.api.navigation import NavigationApi
 from backend.generated.rpc.browser_control.api.session import SessionApi
 from backend.generated.rpc.browser_control.api.tabs import TabsApi
 from backend.generated.rpc.browser_control.metadata import HEALTH
-from backend.generated.rpc.browser_control.models import BrowserEvent
+from backend.generated.rpc.browser_control.models import BrowserUpdate
 
 
-_EVENT_ADAPTER = TypeAdapter(BrowserEvent)
+_NOTIFICATION_MESSAGE_ADAPTER = TypeAdapter(BrowserUpdate)
 
 
 class BrowserControlClient:
@@ -808,9 +807,9 @@ class BrowserControlClient:
     async def health(self) -> None:
         await self._rpc.request(HEALTH, result_type=None)
 
-    async def events(self) -> AsyncIterator[BrowserEvent]:
+    async def notifications(self) -> AsyncIterator[BrowserUpdate]:
         async for message in self._rpc.notifications():
-            yield _EVENT_ADAPTER.validate_python(message)
+            yield _NOTIFICATION_MESSAGE_ADAPTER.validate_python(message)
 
     async def close(self) -> None:
         await self._rpc.close()
@@ -1046,7 +1045,7 @@ Die Zielspezifikation ändert beziehungsweise ergänzt jedoch:
 
 - Der explizite `api_root` und `api_names` vermeiden stotternde Call-Sites.
 
-- `notifications()` wird an der öffentlichen Oberfläche zu `events()`.
+- `notifications()` heißt auf Transport- und öffentlicher Oberfläche gleich.
 
 - Tags, Server, Routen, Deprecations und deklarierte Fehler werden nicht mehr
   beim Lowering verworfen, sondern generiert.
@@ -1064,7 +1063,7 @@ Die semantische Zuordnung bleibt gleich:
 | Root-Client | `BrowserControlClient` | `BrowserControlClient` |
 | API-Gruppe | `NavigationApi` | `NavigationApi` |
 | Operation | `navigate(url=...)` | `navigate({ url: ... })` |
-| Event-Stream | `AsyncIterator[BrowserEvent]` | `AsyncIterable<BrowserEvent>` |
+| Notification-Stream | `AsyncIterator[BrowserUpdate]` | `AsyncIterable<BrowserUpdate>` |
 | optionales Feld | `UnsetType` | optionale Property `?` |
 | explizites Null | `None` | `null` |
 | Modell | Pydantic-Klasse | `type` oder `interface` |
@@ -1126,39 +1125,38 @@ await browser.navigation.reload();
 await browser.navigation.reload({ ignoreCache: true });
 ```
 
-### TypeScript-Events
+### TypeScript-Notifications
 
-Events werden als diskriminierte Union erzeugt und über ein `AsyncIterable`
-bereitgestellt:
+Notifications werden als diskriminierte Union erzeugt und über ein
+`AsyncIterable` bereitgestellt:
 
 ```typescript
-import type { BrowserEvent } from "@/generated/rpc/browser-control/models";
+import type { BrowserUpdate } from "@/generated/rpc/browser-control/models";
 
 function assertNever(value: never): never {
-  throw new Error(`Unhandled browser event: ${JSON.stringify(value)}`);
+  throw new Error(`Unhandled browser notification: ${JSON.stringify(value)}`);
 }
 
-for await (const event of browser.events()) {
-  switch (event.type) {
+for await (const notification of browser.notifications()) {
+  switch (notification.type) {
     case "urlChanged":
-      console.log("new URL", event.url);
+      console.log("new URL", notification.url);
       break;
     case "tabClosed":
-      console.log("closed", event.tabId);
+      console.log("closed", notification.tabId);
       break;
     default:
-      assertNever(event);
+      assertNever(notification);
   }
 }
 ```
 
 Der Literal-Discriminator ermöglicht normales TypeScript-Narrowing und eine
-optionale Exhaustiveness-Prüfung über `never`. Das Event-Modell benötigt dafür
-keine generierten Klassen und kein `instanceof`.
+optionale Exhaustiveness-Prüfung über `never`. Das Notification-Modell benötigt
+dafür keine generierten Klassen und kein `instanceof`.
 
-Wie bei Python heißt nur die Low-Level-Methode des Transports
-`notifications()`. Der öffentliche Root-Client verwendet ausschließlich
-`events()`.
+Wie bei Python heißt die Methode sowohl im Low-Level-Transport als auch am
+öffentlichen Root-Client `notifications()`.
 
 ### TypeScript-Ordnerstruktur
 
@@ -1183,7 +1181,7 @@ browser-control/
 | Datei | Inhalt |
 | --- | --- |
 | `index.ts` | kleiner öffentlicher Barrel-Export |
-| `client.ts` | Root-Client, Lifecycle, Root-Operationen und Events |
+| `client.ts` | Root-Client, Lifecycle, Root-Operationen und Notifications |
 | `endpoints.ts` | Serverdeskriptoren und URL-Funktionen |
 | `errors.ts` | contract-spezifische Remote-Fehler |
 | `metadata.ts` | Contract- und Routenmetadaten |
@@ -1307,7 +1305,7 @@ export type BrowserTabClosed = {
   tabId: string;
 };
 
-export type BrowserEvent = BrowserUrlChanged | BrowserTabClosed;
+export type BrowserUpdate = BrowserUrlChanged | BrowserTabClosed;
 ```
 
 JSON-Properties werden an der TypeScript-Oberfläche in `camelCase` angeboten,
@@ -1361,7 +1359,7 @@ import { RpcClientCore } from "./core";
 import { NavigationApi } from "./api/navigation";
 import { SessionApi } from "./api/session";
 import { TabsApi } from "./api/tabs";
-import type { BrowserEvent } from "./models";
+import type { BrowserUpdate } from "./models";
 
 export class BrowserControlClient {
   readonly navigation: NavigationApi;
@@ -1379,8 +1377,8 @@ export class BrowserControlClient {
     this.tabs = new TabsApi(this.#rpc);
   }
 
-  events(): AsyncIterable<BrowserEvent> {
-    return this.#rpc.events<BrowserEvent>();
+  notifications(): AsyncIterable<BrowserUpdate> {
+    return this.#rpc.notifications<BrowserUpdate>();
   }
 
   close(): Promise<void> {
@@ -1474,7 +1472,7 @@ Der öffentliche Barrel bleibt bewusst klein:
 ```typescript
 export { BrowserControlClient } from "./client";
 export { browserControlUrl, servers } from "./endpoints";
-export type { BrowserEvent } from "./models";
+export type { BrowserUpdate } from "./models";
 ```
 
 Weitere Modelle werden direkt aus `/models`, Fehler aus `/errors` und
@@ -1694,7 +1692,7 @@ class ClientIr:
     declarations: tuple[Declaration, ...]
     root_operations: tuple[RouteDecl, ...]
     api: tuple[ApiNode, ...]
-    events: tuple[EventDecl, ...]
+    notifications: tuple[NotificationDecl, ...]
 ```
 
 `NamespaceDecl` wird damit durch einen echten Baum ersetzt. Der Baum ist für
@@ -1708,7 +1706,7 @@ Emitter angewendet. Dadurch bleibt das IR tatsächlich sprachneutral und beide
 Emitter können Kollisionen nach ihren eigenen Identifierregeln erkennen.
 
 Die Erreichbarkeitsanalyse für Modelle muss Parameter, Ergebnisse, Error-Data,
-Events und Servervariablen berücksichtigen. Nicht erreichbare Components werden
+Notifications und Servervariablen berücksichtigen. Nicht erreichbare Components werden
 weiterhin nicht generiert.
 
 ## Determinismus und Qualität
@@ -1745,10 +1743,11 @@ Repository-Root zu vermeiden.
 
 Die Umstellung kann in vier Schritten erfolgen:
 
-1. Das IR erhält Route, Tags, Server, Events und den hierarchischen API-Baum.
+1. Das IR erhält Route, Tags, Server, Notifications und den hierarchischen
+   API-Baum.
 
 2. Der Python-Emitter erzeugt `api/`, `metadata.py`, `endpoints.py` und
-   `errors.py`; `client.notifications()` wird zu `client.events()`.
+   `errors.py` und den typisierten `client.notifications()`-Stream.
 
 3. Für eine Übergangsphase können alte Namen als nicht dokumentierte Aliase
    erzeugt werden:
@@ -1821,12 +1820,12 @@ verwenden.
 - `OpenRpcContract.servers` erzeugt auflösbare Endpoint-Metadaten, aber keine
   zusätzlichen Root-Clients.
 
-- `router.event(...)` erscheint als typisierter `client.events()`-Stream; der
-  öffentliche Client verwendet den Begriff Notification nicht.
+- `router.notification(...)` erscheint als typisierter
+  `client.notifications()`-Stream.
 
 - Der TypeScript-Client bietet dieselbe Route als
-  `browser.navigation.navigate({ url })` und Events als
-  `AsyncIterable<BrowserEvent>` an.
+  `browser.navigation.navigate({ url })` und Notifications als
+  `AsyncIterable<BrowserUpdate>` an.
 
 - TypeScript-Operationen mit Parametern akzeptieren genau ein benanntes Objekt;
   parameterlose Operationen verlangen kein leeres Objekt.

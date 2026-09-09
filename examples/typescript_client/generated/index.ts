@@ -3,4 +3,4 @@
 // Regenerate it from the OpenRPC document instead.
 
 export { TaskClient } from "./client";
-export type { TaskEvent } from "./models";
+export type { TaskUpdate } from "./models";

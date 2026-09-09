@@ -300,21 +300,25 @@ def test_a_mount_from_another_app_is_rejected() -> None:
         second.bind(mount.bind())
 
 
-def test_router_events_reach_the_protocol_and_openrpc() -> None:
-    @rpc.event
+def test_router_notifications_reach_the_protocol_and_openrpc() -> None:
     class Changed(BaseModel):
         type: Literal["browser.changed"] = "browser.changed"
 
     router = rpc.RpcRouter(namespace="browser", tags=("browser",))
-    router.event("event", Changed, summary="Browser changes.")
+
+    @router.notification("changed", summary="Browser changes.")
+    def changed() -> Changed: ...
+
     app = rpc.RpcApp()
     app.include_router(router)
 
     document = render_openrpc(app.protocol, title="Browser")
 
-    assert [item.name for item in app.protocol.notifications] == ["browser.event"]
-    assert [item.name for item in app.protocol.events] == ["browser.changed"]
-    assert document["x-rpc-notifications"][0]["name"] == "browser.event"
+    assert [item.name for item in app.protocol.notifications] == ["browser.changed"]
+    assert [item.name for item in app.protocol.notification_types] == [
+        "browser.changed"
+    ]
+    assert document["x-rpc-notifications"][0]["name"] == "browser.changed"
 
 
 def test_app_validates_free_function_signatures_when_building_protocol() -> None:

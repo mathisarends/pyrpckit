@@ -35,19 +35,17 @@ class GreetedResult(BaseModel):
     names: list[str]
 
 
-@rpc.event
 class GreetingSaid(BaseModel):
     type: Literal["greeting.said"] = "greeting.said"
     text: str
 
 
-@rpc.event
 class GreetingForgotten(BaseModel):
     type: Literal["greeting.forgotten"] = "greeting.forgotten"
     name: str
 
 
-type GreetingEvent = GreetingSaid | GreetingForgotten
+type GreetingUpdate = GreetingSaid | GreetingForgotten
 
 
 class UnknownGreetingError(rpc.RpcError):
@@ -85,11 +83,10 @@ class GreetingRpcMethods:
         self.greeted.clear()
 
 
-GREETING_ROUTER.event(
-    "changed",
-    GreetingEvent,
-    summary="Publish a greeting change.",
-)
+@GREETING_ROUTER.notification("changed", summary="Publish a greeting change.")
+def greeting_changed() -> GreetingUpdate: ...
+
+
 GREETING_APP = rpc.RpcApp()
 GREETING_APP.include_router(GREETING_ROUTER)
 GREETING_PROTOCOL = GREETING_APP.protocol
