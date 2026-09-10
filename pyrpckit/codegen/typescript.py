@@ -75,7 +75,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
         files["transport.ts"] = renderer.transport()
     if view.nodes:
         files["namespaces/index.ts"] = renderer.namespaces_index()
-        for node in _walk(view.nodes):
+        for node in view.nodes:
             files[_api_file(node)] = renderer.api(node)
     return files
 
@@ -151,22 +151,26 @@ class _Renderer:
     def transport(self) -> str:
         return self.module(render_template("typescript/transport.ts.j2").rstrip())
 
-    def api(self, node: NamespaceViewNode) -> str:
-        root = _root_prefix(node)
+    def api(self, root_node: NamespaceViewNode) -> str:
+        root = "../"
+        nodes = tuple(_walk((root_node,)))
         imports = [f'import type {{ RpcClientCore }} from "{root}core";']
-        if node.operations:
+        if any(node.operations for node in nodes):
             imports.append(f'import {{ routes }} from "{root}routes";')
-        model_names = _route_model_names(node.operations)
-        model_names.update(
-            name for event in node.notifications for name in _model_names(event.payload)
-        )
+        model_names: set[str] = set()
+        for node in nodes:
+            model_names.update(_route_model_names(node.operations))
+            model_names.update(
+                name
+                for event in node.notifications
+                for name in _model_names(event.payload)
+            )
         if model_names:
             imports.append(_type_import(model_names, f"{root}models"))
-        for child in node.children:
-            child_name = _identifier(child.segment)
-            imports.append(
-                f'import {{ {_api_class(child.path)} }} from "./{child_name}";'
-            )
+        blocks = [self._api_block(node) for node in _walk_postorder((root_node,))]
+        return self.module("\n".join(imports) + "\n\n" + "\n\n".join(blocks))
+
+    def _api_block(self, node: NamespaceViewNode) -> str:
         lines = [f"export class {_api_class(node.path)} {{"]
         for child in node.children:
             lines.append(
@@ -193,7 +197,7 @@ class _Renderer:
         for event in node.notifications:
             lines.extend(["", *self._notification(event, root=False)])
         lines.append("}")
-        return self.module("\n".join(imports) + "\n\n" + "\n".join(lines))
+        return "\n".join(lines)
 
     def client(self) -> str:
         imports = [
@@ -790,6 +794,14 @@ def _validate(
         client_members.append(("<client.connect>", "connect"))
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
+    for node in nodes:
+        assert_unique_names(
+            f"TypeScript namespace module {_identifier(node.segment)!r}",
+            (
+                (".".join(item.source_path), _api_class(item.path))
+                for item in _walk((node,))
+            ),
+        )
     assert_unique_names(
         "servers",
         ((server.name, _identifier(server.name)) for server in ir.servers),
@@ -865,18 +877,8 @@ def _api_class(path: tuple[str, ...]) -> str:
     return "".join(pascal_case(segment) for segment in path)
 
 
-def _api_module(node: NamespaceViewNode) -> str:
-    return "namespaces/" + "/".join(_identifier(segment) for segment in node.path)
-
-
 def _api_file(node: NamespaceViewNode) -> str:
-    path = "/".join(_identifier(segment) for segment in node.path)
-    return f"namespaces/{path}/index.ts" if node.children else f"namespaces/{path}.ts"
-
-
-def _root_prefix(node: NamespaceViewNode) -> str:
-    levels = len(node.path) + (1 if node.children else 0)
-    return "../" * levels
+    return f"namespaces/{_identifier(node.path[0])}.ts"
 
 
 def _route_model_names(routes: Iterable[RouteDecl]) -> set[str]:
@@ -938,6 +940,14 @@ def _walk(nodes: tuple[NamespaceViewNode, ...]) -> Iterable[NamespaceViewNode]:
     for node in nodes:
         yield node
         yield from _walk(node.children)
+
+
+def _walk_postorder(
+    nodes: tuple[NamespaceViewNode, ...],
+) -> Iterable[NamespaceViewNode]:
+    for node in nodes:
+        yield from _walk_postorder(node.children)
+        yield node
 
 
 def _transports_name(client_name: str) -> str:

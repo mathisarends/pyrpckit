@@ -15,7 +15,7 @@ from pyrpckit.codegen.typescript import (
 )
 from pyrpckit.codegen.writer import MANIFEST, write_files
 
-LAYOUT_VERSION = 6
+LAYOUT_VERSION = 7
 
 __all__ = [
     "ClientIr",

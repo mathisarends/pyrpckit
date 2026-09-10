@@ -6,7 +6,7 @@ from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 
 
-def test_python_flattens_nested_api_files_but_typescript_keeps_directories(
+def test_nested_apis_share_top_level_namespace_modules(
     document: dict[str, Any],
 ) -> None:
     nested = deepcopy(document)
@@ -36,6 +36,12 @@ def test_python_flattens_nested_api_files_but_typescript_keeps_directories(
     assert "task_client.namespaces.tasks.status" not in "".join(python_files.values())
     assert {name for name in typescript_files if name.startswith("namespaces/")} == {
         "namespaces/index.ts",
-        "namespaces/tasks/index.ts",
-        "namespaces/tasks/status.ts",
+        "namespaces/tasks.ts",
     }
+    assert "export class TasksStatus" in typescript_files["namespaces/tasks.ts"]
+    assert "export class Tasks" in typescript_files["namespaces/tasks.ts"]
+    assert (
+        "this.status = new TasksStatus(rpc);" in typescript_files["namespaces/tasks.ts"]
+    )
+    assert 'from "../core"' in typescript_files["namespaces/tasks.ts"]
+    assert 'from "./status"' not in typescript_files["namespaces/tasks.ts"]

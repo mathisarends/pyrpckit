@@ -1,7 +1,7 @@
 {
   "generator": "pyrpckit",
   "generatorVersion": "0.2.0",
-  "layoutVersion": 6,
+  "layoutVersion": 7,
   "language": "typescript",
   "contractSha256": "fe2dbed4811014f3aa2a77b9c123b3ba6c96ae0d22b0800da3e955f01afb1743",
   "files": [
@@ -11,9 +11,7 @@
     "endpoints.ts",
     "index.ts",
     "models.ts",
-    "namespaces/browser/index.ts",
-    "namespaces/browser/screencast.ts",
-    "namespaces/browser/tabs.ts",
+    "namespaces/browser.ts",
     "namespaces/index.ts",
     "namespaces/tasks.ts",
     "routes.ts",
