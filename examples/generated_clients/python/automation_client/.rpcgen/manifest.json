@@ -1,7 +1,7 @@
 {
   "generator": "pyrpckit",
   "generatorVersion": "0.2.0",
-  "layoutVersion": 5,
+  "layoutVersion": 6,
   "language": "python",
   "contractSha256": "fe2dbed4811014f3aa2a77b9c123b3ba6c96ae0d22b0800da3e955f01afb1743",
   "files": [
@@ -17,9 +17,7 @@
     "internal/transport.py",
     "internal/unset.py",
     "models.py",
-    "namespaces/browser/__init__.py",
-    "namespaces/browser/screencast.py",
-    "namespaces/browser/tabs.py",
+    "namespaces/browser.py",
     "namespaces/tasks.py",
     "routes.py",
     "transport.py"

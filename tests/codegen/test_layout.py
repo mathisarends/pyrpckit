@@ -6,7 +6,7 @@ from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 
 
-def test_nested_typescript_api_files_mirror_the_python_package_structure(
+def test_python_flattens_nested_api_files_but_typescript_keeps_directories(
     document: dict[str, Any],
 ) -> None:
     nested = deepcopy(document)
@@ -27,9 +27,13 @@ def test_nested_typescript_api_files_mirror_the_python_package_structure(
     )
 
     assert {name for name in python_files if name.startswith("namespaces/")} == {
-        "namespaces/tasks/__init__.py",
-        "namespaces/tasks/status.py",
+        "namespaces/tasks.py",
     }
+    assert "class TasksStatus:" in python_files["namespaces/tasks.py"]
+    assert "class Tasks:" in python_files["namespaces/tasks.py"]
+    assert "self.status = TasksStatus(rpc)" in python_files["namespaces/tasks.py"]
+    assert "from task_client.namespaces.tasks import Tasks" in python_files["client.py"]
+    assert "task_client.namespaces.tasks.status" not in "".join(python_files.values())
     assert {name for name in typescript_files if name.startswith("namespaces/")} == {
         "namespaces/index.ts",
         "namespaces/tasks/index.ts",

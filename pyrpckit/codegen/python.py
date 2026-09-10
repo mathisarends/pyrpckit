@@ -97,7 +97,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
-        for node in _walk(view.nodes):
+        for node in view.nodes:
             files[_api_file(node)] = _render_api(node, ir, options)
     return files
 
@@ -450,29 +450,30 @@ def _event_lines(
 
 
 def _render_api(
-    node: NamespaceViewNode,
+    root: NamespaceViewNode,
     ir: ClientIr,
     options: PythonClientOptions,
 ) -> str:
     imports = _Imports()
     imports.add(_runtime_module(options), "RpcClientCore")
-    class_name = _api_class(node.path)
-    constants: list[str] = []
-    lines = [
-        f"class {class_name}:",
-        "    def __init__(self, rpc: RpcClientCore) -> None:",
-        "        self._rpc = rpc",
-    ]
-    for child in node.children:
-        child_class = _api_class(child.path)
-        imports.add(f"{options.package}.{_api_module(child)}", child_class)
-        lines.append(f"        self.{_identifier(child.segment)} = {child_class}(rpc)")
-    for route in node.operations:
-        lines.extend(["", *_operation_lines(route, imports, options)])
-    for event in node.notifications:
-        lines.extend(["", *_event_lines(event, imports, options)])
-    body = _constants_and_definition(constants, "\n".join(lines))
-    return _module(options, imports, body)
+    blocks: list[str] = []
+    for node in _walk_postorder((root,)):
+        lines = [
+            f"class {_api_class(node.path)}:",
+            "    def __init__(self, rpc: RpcClientCore) -> None:",
+            "        self._rpc = rpc",
+        ]
+        for child in node.children:
+            child_class = _api_class(child.path)
+            lines.append(
+                f"        self.{_identifier(child.segment)} = {child_class}(rpc)"
+            )
+        for route in node.operations:
+            lines.extend(["", *_operation_lines(route, imports, options)])
+        for event in node.notifications:
+            lines.extend(["", *_event_lines(event, imports, options)])
+        blocks.append("\n".join(lines))
+    return _module(options, imports, "\n\n\n".join(blocks))
 
 
 def _render_client(
@@ -928,6 +929,14 @@ def _validate(
         client_members.append(("<client.connect>", "connect"))
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
+    for node in nodes:
+        assert_unique_names(
+            f"Python namespace module {_identifier(node.segment)!r}",
+            (
+                (".".join(item.source_path), _api_class(item.path))
+                for item in _walk((node,))
+            ),
+        )
     assert_unique_names(
         "servers",
         ((server.name, _identifier(server.name)) for server in ir.servers),
@@ -1007,20 +1016,25 @@ def _api_class(path: tuple[str, ...]) -> str:
 
 
 def _api_module(node: NamespaceViewNode) -> str:
-    return "namespaces." + ".".join(_identifier(segment) for segment in node.path)
+    return f"namespaces.{_identifier(node.path[0])}"
 
 
 def _api_file(node: NamespaceViewNode) -> str:
-    path = "/".join(_identifier(segment) for segment in node.path)
-    return (
-        f"namespaces/{path}/__init__.py" if node.children else f"namespaces/{path}.py"
-    )
+    return f"namespaces/{_identifier(node.path[0])}.py"
 
 
 def _walk(nodes: tuple[NamespaceViewNode, ...]) -> Iterable[NamespaceViewNode]:
     for node in nodes:
         yield node
         yield from _walk(node.children)
+
+
+def _walk_postorder(
+    nodes: tuple[NamespaceViewNode, ...],
+) -> Iterable[NamespaceViewNode]:
+    for node in nodes:
+        yield from _walk_postorder(node.children)
+        yield node
 
 
 def _named_errors(ir: ClientIr) -> bool:
