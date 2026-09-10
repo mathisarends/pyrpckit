@@ -9,12 +9,11 @@ from .conftest import SayParams, UnknownGreetingError
 def test_router_methods_expose_their_metadata() -> None:
     router = rpc.RpcRouter(namespace="greeting")
 
-    class Handler:
-        @router.method("say", summary="Greet someone.")
-        async def say(self, params: SayParams) -> None: ...
+    @router.method("say", summary="Greet someone.")
+    async def say(params: SayParams) -> None: ...
 
-        @router.method("forget", errors=(UnknownGreetingError,))
-        async def forget(self, params: SayParams) -> None: ...
+    @router.method("forget", errors=(UnknownGreetingError,))
+    async def forget(params: SayParams) -> None: ...
 
     assert router.routes[0].summary == "Greet someone."
     assert router.routes[1].errors == (UnknownGreetingError,)
@@ -23,7 +22,7 @@ def test_router_methods_expose_their_metadata() -> None:
 def test_a_summary_falls_back_to_the_first_docstring_line() -> None:
     router = rpc.RpcRouter()
 
-    @router.method
+    @router.method()
     async def say(params: SayParams) -> None:
         """Greet someone.
 
@@ -36,7 +35,7 @@ def test_a_summary_falls_back_to_the_first_docstring_line() -> None:
 def test_a_method_without_a_docstring_has_no_summary() -> None:
     router = rpc.RpcRouter()
 
-    @router.method
+    @router.method()
     async def say(params: SayParams) -> None: ...
 
     assert router.routes[0].summary is None

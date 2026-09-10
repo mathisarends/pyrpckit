@@ -56,35 +56,50 @@ class UnknownGreetingError(rpc.RpcError):
 GREETING_ROUTER = rpc.RpcRouter(namespace="greeting", tags=("greeting",))
 
 
-class GreetingRpcMethods:
+class GreetingState:
     def __init__(self) -> None:
         self.greeted: list[str] = []
 
-    @GREETING_ROUTER.method("say", summary="Greet someone by name.")
-    async def say(self, params: SayParams) -> SayResult:
-        self.greeted.append(params.name)
-        return SayResult(text=f"Hello, {params.name}!")
 
-    @GREETING_ROUTER.method("forget", errors=(UnknownGreetingError,))
-    async def forget(self, params: ForgetParams) -> None:
-        """Forget a greeted name."""
-        if params.name not in self.greeted:
-            raise UnknownGreetingError(f"Unknown greeting: {params.name}")
-        self.greeted.remove(params.name)
-
-    @GREETING_ROUTER.method("greeted")
-    async def greeted_names(self) -> GreetedResult:
-        """List everyone greeted so far."""
-        return GreetedResult(names=list(self.greeted))
-
-    @GREETING_ROUTER.method("clear")
-    async def clear(self) -> None:
-        """Forget everyone."""
-        self.greeted.clear()
+@GREETING_ROUTER.method("say", summary="Greet someone by name.")
+async def say(
+    params: SayParams,
+    state: rpc.Inject[GreetingState],
+) -> SayResult:
+    state.greeted.append(params.name)
+    return SayResult(text=f"Hello, {params.name}!")
 
 
-@GREETING_ROUTER.notification("changed", summary="Publish a greeting change.")
-def greeting_changed() -> GreetingUpdate: ...
+@GREETING_ROUTER.method("forget", errors=(UnknownGreetingError,))
+async def forget(
+    params: ForgetParams,
+    state: rpc.Inject[GreetingState],
+) -> None:
+    """Forget a greeted name."""
+    if params.name not in state.greeted:
+        raise UnknownGreetingError(f"Unknown greeting: {params.name}")
+    state.greeted.remove(params.name)
+
+
+@GREETING_ROUTER.method("greeted")
+async def greeted_names(
+    state: rpc.Inject[GreetingState],
+) -> GreetedResult:
+    """List everyone greeted so far."""
+    return GreetedResult(names=list(state.greeted))
+
+
+@GREETING_ROUTER.method("clear")
+async def clear(state: rpc.Inject[GreetingState]) -> None:
+    """Forget everyone."""
+    state.greeted.clear()
+
+
+greeting_changed = GREETING_ROUTER.notification(
+    "changed",
+    payload=GreetingUpdate,
+    summary="Publish a greeting change.",
+)
 
 
 GREETING_APP = rpc.RpcApp()
@@ -98,5 +113,18 @@ def protocol() -> RpcProtocol:
 
 
 @pytest.fixture
-def handler() -> GreetingRpcMethods:
-    return GreetingRpcMethods()
+def handler() -> GreetingState:
+    return GreetingState()
+
+
+class TestResolver:
+    __test__ = False
+
+    def __init__(self, *values: object) -> None:
+        self.values = {type(value): value for value in values}
+
+    async def resolve[DependencyT](
+        self,
+        dependency: type[DependencyT],
+    ) -> DependencyT:
+        return self.values[dependency]  # type: ignore[return-value]

@@ -21,10 +21,14 @@ class Navigation:
     def __init__(self) -> None:
         self.params: NavigateParams | None = None
 
-    @NAVIGATION_ROUTER.method("navigate")
-    async def navigate(self, params: NavigateParams) -> NavigateResult:
-        self.params = params
-        return NavigateResult(active_project_id=params.project_id)
+
+@NAVIGATION_ROUTER.method("navigate")
+async def navigate(
+    params: NavigateParams,
+    navigation: rpc.Inject[Navigation],
+) -> NavigateResult:
+    navigation.params = params
+    return NavigateResult(active_project_id=params.project_id)
 
 
 NAVIGATION_APP = rpc.RpcApp()
@@ -65,7 +69,12 @@ def test_openrpc_uses_the_canonical_wire_field_names() -> None:
 
 async def test_server_accepts_camel_case_and_serializes_results_with_aliases() -> None:
     handler = Navigation()
-    response = await NAVIGATION_APP.bind(handler).handle(
+
+    class Resolver:
+        async def resolve(self, dependency: type[Navigation]) -> Navigation:
+            return handler
+
+    response = await NAVIGATION_APP.server(resolver=Resolver()).handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -86,9 +95,8 @@ def test_contract_rejects_colliding_wire_field_names() -> None:
 
     router = rpc.RpcRouter(namespace="collision")
 
-    class CollidingHandler:
-        @router.method("test")
-        async def test(self, params: CollidingParams) -> None: ...
+    @router.method("test")
+    async def test(params: CollidingParams) -> None: ...
 
     app = rpc.RpcApp()
     app.include_router(router)

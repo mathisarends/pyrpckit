@@ -9,15 +9,21 @@ from pyrpckit import (
     RpcSuccess,
 )
 
-from .conftest import GREETING_APP, GreetingRpcMethod, GreetingRpcMethods, SayParams
+from .conftest import (
+    GREETING_APP,
+    GreetingRpcMethod,
+    GreetingState,
+    SayParams,
+    TestResolver,
+)
 
 
-def _server(handler: GreetingRpcMethods) -> RpcServer:
-    return GREETING_APP.bind(handler)
+def _server(handler: GreetingState) -> RpcServer:
+    return GREETING_APP.server(resolver=TestResolver(handler))
 
 
 async def test_a_request_is_answered_with_its_result(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     response = await _server(handler).handle(
         {
@@ -35,7 +41,7 @@ async def test_a_request_is_answered_with_its_result(
 
 
 async def test_a_notification_is_served_without_a_response(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     response = await _server(handler).handle(
         {"jsonrpc": "2.0", "method": GreetingRpcMethod.SAY, "params": {"name": "M"}}
@@ -45,7 +51,7 @@ async def test_a_notification_is_served_without_a_response(
     assert handler.greeted == ["M"]
 
 
-async def test_an_unknown_method_becomes_a_failure(handler: GreetingRpcMethods) -> None:
+async def test_an_unknown_method_becomes_a_failure(handler: GreetingState) -> None:
     response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.unknown", "params": {}}
     )
@@ -55,7 +61,7 @@ async def test_an_unknown_method_becomes_a_failure(handler: GreetingRpcMethods) 
     assert response.error.code == RpcErrorCode.METHOD_NOT_FOUND
 
 
-async def test_invalid_params_become_a_failure(handler: GreetingRpcMethods) -> None:
+async def test_invalid_params_become_a_failure(handler: GreetingState) -> None:
     response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": 1, "method": GreetingRpcMethod.SAY, "params": {}}
     )
@@ -66,7 +72,7 @@ async def test_invalid_params_become_a_failure(handler: GreetingRpcMethods) -> N
 
 
 async def test_a_malformed_envelope_becomes_an_invalid_request(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     response = await _server(handler).handle({"id": 1, "method": "x"})
 
@@ -75,7 +81,7 @@ async def test_a_malformed_envelope_becomes_an_invalid_request(
 
 
 async def test_a_declared_error_goes_on_the_wire_as_declared(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     response = await _server(handler).handle(
         {
@@ -92,7 +98,7 @@ async def test_a_declared_error_goes_on_the_wire_as_declared(
 
 
 async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
-    server = BROKEN_APP.bind(BrokenRpcMethods(), error_mapper=_broken_error)
+    server = BROKEN_APP.server(error_mapper=_broken_error)
 
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
@@ -104,7 +110,7 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
 
 
 async def test_unmapped_handler_failures_stay_internal() -> None:
-    server = BROKEN_APP.bind(BrokenRpcMethods())
+    server = BROKEN_APP.server()
 
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
@@ -116,7 +122,7 @@ async def test_unmapped_handler_failures_stay_internal() -> None:
 
 
 async def test_a_non_object_payload_fails_without_an_id(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     response = await _server(handler).handle("nonsense")
 
@@ -124,7 +130,7 @@ async def test_a_non_object_payload_fails_without_an_id(
     assert response.id is None
 
 
-def test_rpc_errors_carry_their_own_code(handler: GreetingRpcMethods) -> None:
+def test_rpc_errors_carry_their_own_code(handler: GreetingState) -> None:
     failure = _server(handler).failure(3, RpcError("Busy", code=-32001))
 
     assert failure.id == 3
@@ -132,7 +138,7 @@ def test_rpc_errors_carry_their_own_code(handler: GreetingRpcMethods) -> None:
 
 
 async def test_a_boolean_id_on_a_failed_request_is_not_echoed_back(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     response = await _server(handler).handle(
         {"jsonrpc": "2.0", "id": True, "method": "greeting.unknown", "params": {}}
@@ -150,14 +156,13 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
 
     router = rpc.RpcRouter(namespace="greeting")
 
-    class Handler:
-        @router.method("broken")
-        async def broken(self, params: SayParams) -> None:
-            NestedParams.model_validate({"params": 1})
+    @router.method("broken")
+    async def broken(params: SayParams) -> None:
+        NestedParams.model_validate({"params": 1})
 
     app = rpc.RpcApp()
     app.include_router(router)
-    response = await app.bind(Handler()).handle(
+    response = await app.server().handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -181,10 +186,9 @@ class BrokenParams(BaseModel):
 BROKEN_ROUTER = rpc.RpcRouter(namespace="greeting")
 
 
-class BrokenRpcMethods:
-    @BROKEN_ROUTER.method("break")
-    async def fail(self, params: BrokenParams) -> None:
-        raise BreakageError("boom")
+@BROKEN_ROUTER.method("break")
+async def fail(params: BrokenParams) -> None:
+    raise BreakageError("boom")
 
 
 BROKEN_APP = rpc.RpcApp()

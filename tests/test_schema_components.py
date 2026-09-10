@@ -18,12 +18,11 @@ def test_rendering_rejects_two_distinct_types_sharing_a_schema_name() -> None:
 
     router = rpc.RpcRouter(namespace="greeting")
 
-    class Handler:
-        @router.method("a")
-        async def a(self, params: ParamsA) -> None: ...
+    @router.method("a")
+    async def a(params: ParamsA) -> None: ...
 
-        @router.method("b")
-        async def b(self, params: ParamsB) -> None: ...
+    @router.method("b")
+    async def b(params: ParamsB) -> None: ...
 
     app = rpc.RpcApp()
     app.include_router(router)

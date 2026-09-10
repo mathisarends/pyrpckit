@@ -18,10 +18,9 @@ class SearchResult(RpcModel):
 router = RpcRouter(namespace="search", tags=("search",))
 
 
-class SearchRpc:
-    @router.method
-    async def run(self, params: SearchParams) -> SearchResult:
-        return SearchResult(items=[])
+@router.method()
+async def run(params: SearchParams) -> SearchResult:
+    return SearchResult(items=[])
 
 
 APP = RpcApp(version=3)

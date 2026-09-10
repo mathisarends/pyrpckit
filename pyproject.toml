@@ -12,6 +12,8 @@ dependencies = [
 
 [project.optional-dependencies]
 codegen = ["jinja2>=3.1"]
+dishka = ["dishka>=1.7"]
+fastapi = ["fastapi>=0.115"]
 
 [project.scripts]
 pyrpckit = "pyrpckit.codegen.cli:main"

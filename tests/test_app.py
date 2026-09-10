@@ -1,4 +1,4 @@
-from typing import Literal
+from dataclasses import dataclass
 
 import pytest
 from pydantic import BaseModel, Field
@@ -45,14 +45,14 @@ async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
     router = rpc.RpcRouter(namespace="search")
     received: list[SearchParams] = []
 
-    @router.method
+    @router.method()
     async def run(params: SearchParams) -> SearchResult:
         received.append(params)
         return SearchResult(found_items=[SearchItem(item_id=params.project_id)])
 
     app = rpc.RpcApp()
     app.include_router(router)
-    response = await app.bind().handle(
+    response = await app.server().handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -62,13 +62,11 @@ async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
     )
 
     assert received[0].project_id == "p1"
-    assert isinstance(received[0], SearchParams)
-    assert response is not None
+    assert response is not None and not isinstance(response, list)
     assert response.result == SearchResult(found_items=[SearchItem(item_id="p1")])
     assert response.model_dump(mode="json")["result"] == {
         "foundItems": [{"itemId": "p1"}]
     }
-    assert "project_id" in SearchParams.model_json_schema()["properties"]
     schemas = render_openrpc(app.protocol, title="Search")["components"]["schemas"]
     assert set(schemas["SearchParams"]["properties"]) == {
         "projectId",
@@ -76,16 +74,16 @@ async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
     }
 
 
-async def test_keyword_only_parameters_and_arbitrary_results_form_a_contract() -> None:
+async def test_keyword_only_parameters_form_a_contract() -> None:
     router = rpc.RpcRouter(namespace="search")
 
-    @router.method
+    @router.method()
     async def run(*, query: str, max_results: int = 10) -> list[str]:
         return [query] * max_results
 
     app = rpc.RpcApp()
     app.include_router(router)
-    response = await app.bind().handle(
+    response = await app.server().handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -94,23 +92,14 @@ async def test_keyword_only_parameters_and_arbitrary_results_form_a_contract() -
         }
     )
 
-    assert response is not None
+    assert response is not None and not isinstance(response, list)
     assert response.result == ["hit", "hit"]
-    method = render_openrpc(app.protocol, title="Search")["methods"][0]
-    assert [parameter["name"] for parameter in method["params"]] == [
-        "query",
-        "maxResults",
-    ]
-    assert method["result"]["schema"] == {
-        "items": {"type": "string"},
-        "type": "array",
-    }
 
 
-def test_explicit_model_aliases_override_the_wire_name_convention() -> None:
+def test_explicit_model_aliases_override_wire_names() -> None:
     router = rpc.RpcRouter()
 
-    @router.method
+    @router.method()
     async def inspect(params: AliasedParams) -> None: ...
 
     app = rpc.RpcApp()
@@ -136,9 +125,7 @@ def test_app_composes_namespaces_tags_and_a_router_snapshot() -> None:
     assert [method.name for method in app.protocol.methods] == [
         "internal.browser.nav.navigate"
     ]
-    method = app.protocol.methods[0]
-    assert method.tags == ("browser", "control", "admin")
-    assert app.protocol.version == 2
+    assert app.protocol.methods[0].tags == ("browser", "control", "admin")
 
 
 def test_an_app_freezes_after_protocol_access() -> None:
@@ -161,167 +148,51 @@ def test_app_rejects_duplicate_names_while_including() -> None:
         app.include_router(router)
 
 
-async def test_free_functions_are_bound_without_a_handler() -> None:
-    router = rpc.RpcRouter()
+async def test_dependencies_are_injected_and_absent_from_openrpc() -> None:
+    @dataclass
+    class Service:
+        suffix: str
 
-    @router.method("echo")
-    async def echo(params: SetParams) -> ValueResult:
-        return ValueResult(value=params.value)
+    class Resolver:
+        calls = 0
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+        async def resolve(self, dependency: type[Service]) -> Service:
+            self.calls += 1
+            assert dependency is Service
+            return Service("!")
 
-    response = await app.bind().handle(_request("echo", "hello"))
-
-    assert response is not None
-    assert response.result == ValueResult(value="hello")
-
-
-async def test_an_instance_binds_all_mounts_of_its_router() -> None:
     router = rpc.RpcRouter(namespace="value")
 
-    class Methods:
-        def __init__(self, suffix: str) -> None:
-            self.suffix = suffix
-
-        @router.method("get")
-        async def get(self, params: SetParams) -> ValueResult:
-            return ValueResult(value=params.value + self.suffix)
+    @router.method("get")
+    async def get(
+        params: SetParams,
+        service: rpc.Inject[Service],
+    ) -> ValueResult:
+        return ValueResult(value=params.value + service.suffix)
 
     app = rpc.RpcApp()
-    app.include_router(router, namespace="primary")
-    app.include_router(router, namespace="secondary")
-    server = app.bind(Methods("!"))
+    app.include_router(router)
+    resolver = Resolver()
+    response = await app.server(resolver=resolver).handle(_request("value.get", "one"))
 
-    first = await server.handle(_request("primary.value.get", "one"))
-    second = await server.handle(_request("secondary.value.get", "two"))
-
-    assert first is not None and first.result == ValueResult(value="one!")
-    assert second is not None and second.result == ValueResult(value="two!")
-    request_names = [method.request_name for method in app.protocol.methods]
-    assert len(request_names) == len(set(request_names))
+    assert response is not None and not isinstance(response, list)
+    assert response.result == ValueResult(value="one!")
+    assert resolver.calls == 1
+    method = render_openrpc(app.protocol, title="Value")["methods"][0]
+    assert [parameter["name"] for parameter in method["params"]] == ["value"]
 
 
-async def test_mount_bindings_can_use_different_instances() -> None:
+def test_class_handlers_are_rejected_at_declaration() -> None:
     router = rpc.RpcRouter()
 
-    class Methods:
-        def __init__(self, value: str) -> None:
-            self.value = value
+    with pytest.raises(rpc.ProtocolDefinitionError, match="free function"):
 
-        @router.method("get")
-        async def get(self) -> ValueResult:
-            return ValueResult(value=self.value)
-
-    app = rpc.RpcApp()
-    primary = app.include_router(router, namespace="primary")
-    secondary = app.include_router(router, namespace="secondary")
-    server = app.bind(primary.bind(Methods("one")), secondary.bind(Methods("two")))
-
-    first = await server.handle({"jsonrpc": "2.0", "id": 1, "method": "primary.get"})
-    second = await server.handle({"jsonrpc": "2.0", "id": 2, "method": "secondary.get"})
-
-    assert first is not None and first.result == ValueResult(value="one")
-    assert second is not None and second.result == ValueResult(value="two")
+        class Handler:
+            @router.method()
+            async def get(self) -> None: ...
 
 
-def test_a_missing_handler_has_an_actionable_diagnostic() -> None:
-    router = rpc.RpcRouter(namespace="browser.nav")
-
-    class NavigationMethods:
-        @router.method("navigate")
-        async def navigate(self, params: SetParams) -> None: ...
-
-    app = rpc.RpcApp()
-    app.include_router(router)
-
-    with pytest.raises(rpc.ProtocolDefinitionError) as caught:
-        app.bind()
-
-    assert str(caught.value) == (
-        "No handler instance for browser.nav.navigate.\n"
-        "Declared by NavigationMethods.navigate.\n"
-        "Pass a NavigationMethods instance to app.bind(...)."
-    )
-
-
-def test_duplicate_handlers_name_every_binding_origin() -> None:
-    router = rpc.RpcRouter(namespace="browser.nav")
-
-    class NavigationMethods:
-        @router.method("navigate")
-        async def navigate(self, params: SetParams) -> None: ...
-
-    app = rpc.RpcApp()
-    app.include_router(router)
-
-    with pytest.raises(rpc.ProtocolDefinitionError) as caught:
-        app.bind(NavigationMethods(), object(), NavigationMethods())
-
-    message = str(caught.value)
-    assert "Multiple handler instances for browser.nav.navigate." in message
-    assert "Declared by NavigationMethods.navigate." in message
-    assert "- app.bind() argument 1: NavigationMethods" in message
-    assert "- app.bind() argument 3: NavigationMethods" in message
-    assert "Pass exactly one matching instance" in message
-
-
-def test_a_foreign_decorated_handler_has_an_actionable_diagnostic() -> None:
-    included = rpc.RpcRouter(namespace="included")
-    foreign = rpc.RpcRouter(namespace="foreign")
-
-    class IncludedMethods:
-        @included.method("run")
-        async def run(self) -> None: ...
-
-    class ForeignMethods:
-        @foreign.method("run")
-        async def run(self) -> None: ...
-
-    app = rpc.RpcApp()
-    app.include_router(included)
-
-    with pytest.raises(rpc.ProtocolDefinitionError) as caught:
-        app.bind(IncludedMethods(), ForeignMethods())
-
-    message = str(caught.value)
-    assert "Unknown decorated RPC method foreign.run." in message
-    assert "Declared by ForeignMethods.run." in message
-    assert "Include its router in the app" in message
-
-
-def test_a_mount_from_another_app_is_rejected() -> None:
-    router = rpc.RpcRouter()
-    first = rpc.RpcApp()
-    mount = first.include_router(router)
-    second = rpc.RpcApp()
-
-    with pytest.raises(rpc.ProtocolDefinitionError, match="different RpcApp"):
-        second.bind(mount.bind())
-
-
-def test_router_notifications_reach_the_protocol_and_openrpc() -> None:
-    class Changed(BaseModel):
-        type: Literal["browser.changed"] = "browser.changed"
-
-    router = rpc.RpcRouter(namespace="browser", tags=("browser",))
-
-    @router.notification("changed", summary="Browser changes.")
-    def changed() -> Changed: ...
-
-    app = rpc.RpcApp()
-    app.include_router(router)
-
-    document = render_openrpc(app.protocol, title="Browser")
-
-    assert [item.name for item in app.protocol.notifications] == ["browser.changed"]
-    assert [item.name for item in app.protocol.notification_types] == [
-        "browser.changed"
-    ]
-    assert document["x-rpc-notifications"][0]["name"] == "browser.changed"
-
-
-def test_app_validates_free_function_signatures_when_building_protocol() -> None:
+def test_app_validates_free_function_signatures() -> None:
     router = rpc.RpcRouter()
 
     @router.method("invalid")

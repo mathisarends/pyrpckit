@@ -85,3 +85,25 @@ class RpcNotification(RpcSchema):
     jsonrpc: Literal["2.0"] = JSONRPC_VERSION
     method: str
     params: Any
+    _payload_annotation: Any = PrivateAttr(default=None)
+
+    @classmethod
+    def _with_payload_annotation(
+        cls,
+        method: str,
+        payload: Any,
+        annotation: Any,
+    ) -> "RpcNotification":
+        notification = cls(method=method, params=payload)
+        notification._payload_annotation = annotation
+        return notification
+
+    @field_serializer("params")
+    def _serialize_params(self, params: Any, info: Any) -> Any:
+        if self._payload_annotation is None:
+            return params
+        return TypeAdapter(self._payload_annotation).dump_python(
+            params,
+            mode=info.mode,
+            by_alias=True,
+        )

@@ -15,6 +15,7 @@ from typing import (
 
 from pydantic import BaseModel, create_model
 
+from pyrpckit.dependencies import RpcInjectedParameter, RpcScope, injected_parameter
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
 from pyrpckit.models import RpcModel
 from pyrpckit.wire import wire_annotation
@@ -32,8 +33,10 @@ class RpcMethodDefinition:
     tags: tuple[str, ...] = ()
     server: str | None = None
     function: FunctionType | None = None
-    owner: type[object] | None = None
+    injected_parameters: tuple[RpcInjectedParameter, ...] = ()
+    scope: RpcScope | None = None
     params_style: Literal["model", "kwargs"] = "model"
+    params_parameter: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,17 +107,16 @@ def method_definition(
     name: str,
     function: FunctionType,
     handler_name: str,
-    owner: type[object] | None,
     summary: str | None,
     errors: tuple[type[RpcError], ...],
     tags: tuple[str, ...],
     server: str | None,
+    scope: RpcScope,
     request_name: str | None = None,
 ) -> RpcMethodDefinition:
     request_name = request_name or f"{_pascal_case(handler_name)}Request"
-    params, params_style = _router_params_model(
+    params, params_style, params_parameter, injected = _router_params_model(
         function,
-        instance_method=owner is not None,
         model_name=f"{_pascal_case(name.replace('.', '_'))}Params",
     )
     return RpcMethodDefinition(
@@ -128,41 +130,74 @@ def method_definition(
         tags=tags,
         server=server,
         function=function,
-        owner=owner,
+        injected_parameters=injected,
+        scope=scope,
         params_style=params_style,
+        params_parameter=params_parameter,
     )
 
 
 def _router_params_model(
     function: Any,
     *,
-    instance_method: bool,
     model_name: str,
-) -> tuple[type[BaseModel] | None, Literal["model", "kwargs"]]:
+) -> tuple[
+    type[BaseModel] | None,
+    Literal["model", "kwargs"],
+    str | None,
+    tuple[RpcInjectedParameter, ...],
+]:
     parameters = tuple(inspect.signature(function).parameters.values())
-    if instance_method:
-        if not parameters or parameters[0].name != "self":
-            raise ProtocolDefinitionError(
-                f"RPC handler {function.__qualname__} must start with self"
-            )
-        parameters = parameters[1:]
-
-    if not parameters:
-        return None, "model"
-
     hints = get_type_hints(function, include_extras=True)
-    if len(parameters) == 1:
-        parameter = parameters[0]
+    injected: list[RpcInjectedParameter] = []
+    wire_parameters: list[inspect.Parameter] = []
+    for parameter in parameters:
         annotation = hints.get(parameter.name)
+        if annotation is None:
+            raise ProtocolDefinitionError(
+                f"RPC handler {function.__qualname__} parameter "
+                f"{parameter.name!r} needs an annotation"
+            )
+        try:
+            dependency = injected_parameter(parameter.name, annotation)
+        except TypeError as error:
+            raise ProtocolDefinitionError(str(error)) from error
+        if dependency is None:
+            wire_parameters.append(parameter)
+            continue
         if parameter.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        ) and _is_model(annotation):
-            return wire_annotation(annotation), "model"
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise ProtocolDefinitionError(
+                f"Injected RPC parameter {parameter.name!r} must be passable by name"
+            )
+        if parameter.default is not inspect.Parameter.empty:
+            raise ProtocolDefinitionError(
+                f"Injected RPC parameter {parameter.name!r} cannot have a default"
+            )
+        injected.append(dependency)
+
+    if not wire_parameters:
+        return None, "model", None, tuple(injected)
+
+    if len(wire_parameters) == 1:
+        parameter = wire_parameters[0]
+        annotation = hints[parameter.name]
+        if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,) and _is_model(
+            annotation
+        ):
+            return (
+                wire_annotation(annotation),
+                "model",
+                parameter.name,
+                tuple(injected),
+            )
 
     unsupported = [
         parameter.name
-        for parameter in parameters
+        for parameter in wire_parameters
         if parameter.kind is not inspect.Parameter.KEYWORD_ONLY
     ]
     if unsupported:
@@ -173,18 +208,18 @@ def _router_params_model(
         )
 
     fields: dict[str, tuple[Any, Any]] = {}
-    for parameter in parameters:
-        annotation = hints.get(parameter.name)
-        if annotation is None:
-            raise ProtocolDefinitionError(
-                f"RPC handler {function.__qualname__} parameter "
-                f"{parameter.name!r} needs an annotation"
-            )
+    for parameter in wire_parameters:
+        annotation = hints[parameter.name]
         default = (
             ... if parameter.default is inspect.Parameter.empty else parameter.default
         )
         fields[parameter.name] = (wire_annotation(annotation), default)
-    return create_model(model_name, __base__=RpcModel, **fields), "kwargs"
+    return (
+        create_model(model_name, __base__=RpcModel, **fields),
+        "kwargs",
+        None,
+        tuple(injected),
+    )
 
 
 def _result_annotation(function: Any) -> Any:

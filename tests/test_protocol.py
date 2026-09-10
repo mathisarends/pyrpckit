@@ -71,8 +71,7 @@ def test_a_single_notification_payload_needs_no_literal_discriminator() -> None:
 
     router = rpc.RpcRouter()
 
-    @router.notification("changed")
-    def changed() -> Undiscriminated: ...
+    router.notification("changed", payload=Undiscriminated)
 
     app = rpc.RpcApp()
     app.include_router(router)
@@ -90,8 +89,7 @@ def test_notification_union_members_need_a_literal_discriminator() -> None:
 
     router = rpc.RpcRouter()
 
-    @router.notification("changed")
-    def changed() -> First | Second: ...
+    router.notification("changed", payload=First | Second)
 
     app = rpc.RpcApp()
     app.include_router(router)
@@ -103,8 +101,7 @@ def test_notification_union_members_need_a_literal_discriminator() -> None:
 def test_notification_payloads_must_be_pydantic_models() -> None:
     router = rpc.RpcRouter()
 
-    @router.notification("changed")
-    def changed() -> str: ...
+    router.notification("changed", payload=str)
 
     app = rpc.RpcApp()
     app.include_router(router)
@@ -123,8 +120,7 @@ def test_an_annotated_union_still_expands_into_notification_types() -> None:
         Field(discriminator="type"),
     ]
 
-    @router.notification("changed")
-    def changed() -> GreetingUpdate: ...
+    router.notification("changed", payload=GreetingUpdate)
 
     app = rpc.RpcApp()
     app.include_router(router)

@@ -1,5 +1,7 @@
-from .app import RpcApp, RpcMountBinding, RpcRouterMount
+from .app import RpcApp
+from .codec import RpcCodec
 from .contract import OpenRpcContract, OpenRpcServer, ServerVariable
+from .dependencies import Inject, RpcResolver, RpcScope, call_scope
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
     ProtocolDefinitionError,
@@ -13,6 +15,7 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
+from .notifications import RpcNotificationHandle, RpcOutgoingMessage
 from .router import RpcRouter
 from .server import RpcErrorMapper, RpcServer
 
@@ -22,7 +25,9 @@ __all__ = [
     "ProtocolDefinitionError",
     "OpenRpcContract",
     "OpenRpcServer",
+    "Inject",
     "RpcApp",
+    "RpcCodec",
     "RpcError",
     "RpcErrorCode",
     "RpcErrorMapper",
@@ -31,16 +36,19 @@ __all__ = [
     "RpcInvalidParamsError",
     "RpcInvalidRequestError",
     "RpcMethodNotFoundError",
-    "RpcMountBinding",
     "RpcModel",
     "RpcNotification",
+    "RpcNotificationHandle",
+    "RpcOutgoingMessage",
     "RpcParseError",
     "RpcRequestId",
     "RpcRouter",
-    "RpcRouterMount",
+    "RpcResolver",
+    "RpcScope",
     "RpcServer",
     "RpcSuccess",
     "ServerVariable",
     "__version__",
+    "call_scope",
     "error_message",
 ]

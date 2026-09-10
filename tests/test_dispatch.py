@@ -6,25 +6,18 @@ from pyrpckit.protocol import RpcProtocol
 
 from .conftest import (
     GreetingRpcMethod,
-    GreetingRpcMethods,
+    GreetingState,
     SayParams,
     SayResult,
+    TestResolver,
 )
 
 
 def _dispatcher(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> RpcDispatcher:
-    return RpcDispatcher(
-        protocol,
-        {
-            GreetingRpcMethod.SAY: handler.say,
-            GreetingRpcMethod.FORGET: handler.forget,
-            GreetingRpcMethod.GREETED: handler.greeted_names,
-            GreetingRpcMethod.CLEAR: handler.clear,
-        },
-    )
+    return RpcDispatcher(protocol, resolver=TestResolver(handler))
 
 
 def _request(name: str, params: dict[str, object]) -> dict[str, object]:
@@ -33,7 +26,7 @@ def _request(name: str, params: dict[str, object]) -> dict[str, object]:
 
 def test_parsing_resolves_the_method_and_validates_the_params(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
@@ -49,7 +42,7 @@ def test_parsing_resolves_the_method_and_validates_the_params(
 
 async def test_execution_invokes_the_bound_handler(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
     invocation = dispatcher.parse_request(
@@ -64,7 +57,7 @@ async def test_execution_invokes_the_bound_handler(
 
 def test_a_request_without_an_id_is_a_notification(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
@@ -77,7 +70,7 @@ def test_a_request_without_an_id_is_a_notification(
 
 def test_unknown_methods_are_rejected(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
@@ -87,7 +80,7 @@ def test_unknown_methods_are_rejected(
 
 def test_invalid_params_name_the_offending_field(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
@@ -98,14 +91,9 @@ def test_invalid_params_name_the_offending_field(
     assert error.value.code == rpc.RpcErrorCode.INVALID_PARAMS
 
 
-def test_handlers_must_cover_the_whole_protocol(protocol: RpcProtocol) -> None:
-    with pytest.raises(rpc.ProtocolDefinitionError, match="missing="):
-        RpcDispatcher(protocol, {})
-
-
 def test_params_sent_to_a_method_without_params_are_rejected(
     protocol: RpcProtocol,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 

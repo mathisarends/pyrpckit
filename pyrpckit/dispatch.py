@@ -1,14 +1,12 @@
-from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from pyrpckit.dependencies import EmptyResolver, RpcResolver
 from pyrpckit.envelopes import RpcRequestEnvelope
 from pyrpckit.errors import ProtocolDefinitionError, RpcInvalidParamsError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
-
-type BoundRpcMethod = Callable[..., Awaitable[Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,24 +17,19 @@ class RpcInvocation:
 
 
 class RpcDispatcher:
-    """Resolves requests against a protocol and invokes the bound handlers."""
+    """Resolve, scope, and invoke the free functions in a protocol."""
 
     def __init__(
         self,
         protocol: RpcProtocol,
-        bound_methods: Mapping[str, BoundRpcMethod],
+        *,
+        resolver: RpcResolver | None = None,
     ) -> None:
         self._protocol = protocol
-        self._bound = dict(bound_methods)
-        _assert_complete(protocol, self._bound)
+        self._resolver = resolver or EmptyResolver()
+        _assert_executable(protocol)
 
     def parse_request(self, raw_request: object) -> RpcInvocation:
-        """Validate a decoded JSON payload into an invocation.
-
-        Raises ``ValidationError`` for a malformed envelope,
-        ``RpcMethodNotFoundError`` for an unknown method, and
-        ``RpcInvalidParamsError`` for params that do not match the method.
-        """
         request = RpcRequestEnvelope.model_validate(raw_request)
         method = self._protocol.method(request.method)
         return RpcInvocation(
@@ -46,12 +39,27 @@ class RpcDispatcher:
         )
 
     async def execute(self, invocation: RpcInvocation) -> Any:
-        bound = self._bound[invocation.method.name]
-        if invocation.params is None:
-            return await bound()
-        if invocation.method.params_style == "kwargs":
-            return await bound(**invocation.params.model_dump(by_alias=False))
-        return await bound(invocation.params)
+        method = invocation.method
+        function = method.function
+        scope = method.scope
+        if function is None or scope is None:
+            raise ProtocolDefinitionError(f"RPC method {method.name} is not executable")
+
+        async with scope(self._resolver) as resolver:
+            arguments = {
+                parameter.name: await resolver.resolve(parameter.dependency)
+                for parameter in method.injected_parameters
+            }
+            if invocation.params is not None:
+                if method.params_style == "model":
+                    if method.params_parameter is None:
+                        raise ProtocolDefinitionError(
+                            f"RPC method {method.name} has no params parameter"
+                        )
+                    arguments[method.params_parameter] = invocation.params
+                else:
+                    arguments.update(invocation.params.model_dump(by_alias=False))
+            return await function(**arguments)
 
 
 def _validated_params(
@@ -74,7 +82,6 @@ def _unexpected_params_error(
     method: RpcMethodDefinition,
     names: list[str],
 ) -> ValidationError:
-    """A validation error shaped like the one a params model would have raised."""
     return ValidationError.from_exception_data(
         method.name,
         [
@@ -88,12 +95,11 @@ def _unexpected_params_error(
     )
 
 
-def _assert_complete(protocol: RpcProtocol, bound: dict[str, BoundRpcMethod]) -> None:
-    declared = {method.name for method in protocol.methods}
-    missing = sorted(declared - set(bound))
-    unexpected = sorted(set(bound) - declared)
-    if missing or unexpected:
+def _assert_executable(protocol: RpcProtocol) -> None:
+    missing = sorted(
+        method.name for method in protocol.methods if method.function is None
+    )
+    if missing:
         raise ProtocolDefinitionError(
-            f"RPC handlers do not match the protocol: "
-            f"missing={missing}, unexpected={unexpected}"
+            f"RPC protocol has no functions for methods: {missing}"
         )

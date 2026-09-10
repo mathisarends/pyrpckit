@@ -10,24 +10,29 @@ class Params(BaseModel):
     value: str
 
 
-def test_method_name_is_inferred_with_and_without_options() -> None:
+def test_method_name_is_inferred_with_explicit_parentheses() -> None:
     router = rpc.RpcRouter(namespace="search")
 
-    @router.method
+    @router.method()
     async def run(params: Params) -> None: ...
 
     @router.method(summary="Preview.")
     async def preview(params: Params) -> None: ...
 
-    @router.method()
-    async def inspect(params: Params) -> None: ...
-
     assert [route.name for route in router.routes] == [
         "search.run",
         "search.preview",
-        "search.inspect",
     ]
     assert router.routes[1].summary == "Preview."
+
+
+def test_bare_method_decorator_is_rejected() -> None:
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="with parentheses"):
+
+        @router.method
+        async def run() -> None: ...
 
 
 def test_explicit_method_name_overrides_the_function_name() -> None:
@@ -39,30 +44,30 @@ def test_explicit_method_name_overrides_the_function_name() -> None:
     assert router.routes[0].name == "search.run"
 
 
-def test_router_collects_class_methods_with_namespace_tags_and_metadata() -> None:
-    router = rpc.RpcRouter(namespace="browser.nav", tags=("browser", "control"))
+def test_class_methods_are_rejected() -> None:
+    router = rpc.RpcRouter()
 
-    class NavigationMethods:
-        @router.method(summary="Navigate.")
-        async def navigate(self, params: Params) -> None: ...
+    with pytest.raises(rpc.ProtocolDefinitionError, match="free function"):
 
-    route = router.routes[0]
-    assert route.name == "browser.nav.navigate"
-    assert route.tags == ("browser", "control")
-    assert route.summary == "Navigate."
-    assert route.binding.owner is NavigationMethods
-    assert route.binding.attribute_name == "navigate"
+        class Handler:
+            @router.method()
+            async def run(self) -> None: ...
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="free function"):
+
+        class StaticHandler:
+            @router.method()
+            async def run() -> None: ...
 
 
 async def test_a_decorated_free_function_remains_callable() -> None:
     router = rpc.RpcRouter()
 
-    @router.method
+    @router.method()
     async def ping() -> None:
         return None
 
     assert await ping() is None
-    assert router.routes[0].binding.owner is None
 
 
 def test_router_tags_are_ordered_and_deduplicated() -> None:
@@ -99,24 +104,26 @@ def test_router_rejects_invalid_names(name: str) -> None:
         router.method(name)
 
 
-def test_router_collects_notifications() -> None:
+def test_notification_declaration_is_a_typed_builder() -> None:
     class Changed(BaseModel):
         type: Literal["browser.changed"] = "browser.changed"
 
     router = rpc.RpcRouter(namespace="browser", tags=("browser",))
+    changed = router.notification(
+        "changed",
+        payload=Changed,
+        summary="Browser state.",
+    )
 
-    @router.notification("changed")
-    def changed() -> Changed:
-        """Browser state."""
+    message = changed(Changed())
 
-    assert changed.__name__ == "changed"
-    assert router.notifications[0].name == "browser.changed"
+    assert message.method == "browser.changed"
     assert router.notifications[0].payload is Changed
     assert router.notifications[0].summary == "Browser state."
     assert router.notifications[0].tags == ("browser",)
 
 
-def test_router_assigns_its_server_to_methods_and_notifications() -> None:
+def test_router_assigns_its_server_to_routes() -> None:
     class Changed(BaseModel):
         type: Literal["browser.changed"] = "browser.changed"
 
@@ -125,10 +132,8 @@ def test_router_assigns_its_server_to_methods_and_notifications() -> None:
     @router.method("navigate")
     async def navigate() -> None: ...
 
-    @router.notification("changed")
-    def changed() -> Changed: ...
+    router.notification("changed", payload=Changed)
 
-    assert router.server == "control"
     assert router.routes[0].server == "control"
     assert router.notifications[0].server == "control"
 
@@ -136,21 +141,3 @@ def test_router_assigns_its_server_to_methods_and_notifications() -> None:
 def test_router_rejects_an_empty_server_name() -> None:
     with pytest.raises(rpc.ProtocolDefinitionError, match="server cannot be empty"):
         rpc.RpcRouter(server="")
-
-
-def test_a_notification_declaration_must_not_take_parameters() -> None:
-    router = rpc.RpcRouter()
-
-    with pytest.raises(rpc.ProtocolDefinitionError, match="must not take parameters"):
-
-        @router.notification("changed")
-        def changed(value: str) -> str: ...
-
-
-def test_a_notification_declaration_needs_a_return_annotation() -> None:
-    router = rpc.RpcRouter()
-
-    with pytest.raises(rpc.ProtocolDefinitionError, match="return annotation"):
-
-        @router.notification("changed")
-        def changed(): ...

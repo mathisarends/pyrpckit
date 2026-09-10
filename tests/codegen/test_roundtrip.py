@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from pyrpckit import RpcServer
-from tests.conftest import GREETING_APP, GreetingRpcMethods
+from tests.conftest import GREETING_APP, GreetingState
 
 
 class LoopbackTransport:
@@ -59,23 +59,25 @@ class LoopbackTransport:
 
 
 @pytest.fixture
-def handler() -> GreetingRpcMethods:
-    return GreetingRpcMethods()
+def handler() -> GreetingState:
+    return GreetingState()
 
 
 @pytest.fixture
 def transport(
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
     generated_client: ModuleType,
 ) -> LoopbackTransport:
-    server = GREETING_APP.bind(handler)
+    from tests.conftest import TestResolver
+
+    server = GREETING_APP.server(resolver=TestResolver(handler))
     return LoopbackTransport(server, generated_client.RpcRemoteError)
 
 
 async def test_a_generated_call_reaches_the_handler_and_returns_a_model(
     generated_client: ModuleType,
     transport: LoopbackTransport,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     client = generated_client.GreetingClient(transport)
 
@@ -89,7 +91,7 @@ async def test_a_generated_call_reaches_the_handler_and_returns_a_model(
 async def test_a_call_without_a_result_returns_none(
     generated_client: ModuleType,
     transport: LoopbackTransport,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     client = generated_client.GreetingClient(transport)
     await client.greeting.say(name="Mathis")
@@ -167,7 +169,7 @@ async def test_a_call_without_params_takes_no_arguments(
 async def test_a_call_without_params_or_result_returns_none(
     generated_client: ModuleType,
     transport: LoopbackTransport,
-    handler: GreetingRpcMethods,
+    handler: GreetingState,
 ) -> None:
     client = generated_client.GreetingClient(transport)
     await client.greeting.say(name="Mathis")

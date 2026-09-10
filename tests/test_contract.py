@@ -95,8 +95,7 @@ def test_contract_assigns_router_routes_to_their_declared_server() -> None:
     @router.method("navigate")
     async def navigate() -> None: ...
 
-    @router.notification("changed")
-    def changed() -> Changed: ...
+    router.notification("changed", payload=Changed)
 
     app = rpc.RpcApp()
     app.include_router(router)

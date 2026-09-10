@@ -14,16 +14,15 @@ class Greeting(RpcModel):
 router = RpcRouter(namespace="greeting", tags=("greeting",))
 
 
-class GreetingRpc:
-    @router.method
-    async def say(self, params: GreetParams) -> Greeting:
-        return Greeting(text=f"Hello, {params.name}!")
+@router.method()
+async def say(params: GreetParams) -> Greeting:
+    return Greeting(text=f"Hello, {params.name}!")
 
 
 async def main() -> None:
     app = RpcApp()
     app.include_router(router)
-    server = app.bind(GreetingRpc())
+    server = app.server()
     response = await server.handle(
         {
             "jsonrpc": "2.0",
