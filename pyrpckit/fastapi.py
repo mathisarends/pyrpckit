@@ -1,8 +1,9 @@
 import asyncio
-import inspect
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from collections.abc import Mapping
 from contextlib import suppress
-from typing import Any, Protocol, get_type_hints
+from typing import Any, Protocol
+
+from pydantic import TypeAdapter
 
 from pyrpckit.app import RpcApp
 from pyrpckit.codec import RpcCodec
@@ -10,14 +11,10 @@ from pyrpckit.dependencies import (
     EmptyResolver,
     RpcResolver,
     connection_scope,
-    injected_parameter,
 )
 from pyrpckit.envelopes import RpcNotification
-from pyrpckit.errors import ProtocolDefinitionError
-from pyrpckit.notifications import RpcOutgoingMessage
+from pyrpckit.protocol import RpcNotificationDefinition
 from pyrpckit.server import RpcErrorMapper
-
-type RpcNotificationSource = Callable[..., AsyncIterator[RpcOutgoingMessage]]
 
 
 class WebSocket(Protocol):
@@ -36,7 +33,6 @@ class RpcWebSocketApp:
         app: RpcApp,
         *,
         resolver: RpcResolver | None = None,
-        notifications: Iterable[RpcNotificationSource] = (),
         error_mapper: RpcErrorMapper | None = None,
         max_concurrency: int = 32,
         max_queue_size: int = 128,
@@ -48,7 +44,6 @@ class RpcWebSocketApp:
             raise ValueError("max_queue_size must be at least 1")
         self._app = app
         self._resolver = resolver or EmptyResolver()
-        self._notifications = tuple(notifications)
         self._error_mapper = error_mapper
         self._max_concurrency = max_concurrency
         self._max_queue_size = max_queue_size
@@ -78,9 +73,9 @@ class RpcWebSocketApp:
             writer = asyncio.create_task(_send_messages(websocket, outgoing))
             sources = [
                 asyncio.create_task(
-                    self._send_notifications(source, resolver, outgoing)
+                    self._send_notifications(notification, resolver, outgoing)
                 )
-                for source in self._notifications
+                for notification in self._app.protocol.notifications
             ]
             try:
                 while True:
@@ -106,18 +101,25 @@ class RpcWebSocketApp:
 
     async def _send_notifications(
         self,
-        source: RpcNotificationSource,
+        notification: RpcNotificationDefinition,
         resolver: RpcResolver,
         outgoing: asyncio.Queue[str],
     ) -> None:
-        arguments = await _notification_arguments(source, resolver)
-        async for notification in source(**arguments):
-            if not isinstance(notification, RpcNotification):
-                raise TypeError(
-                    f"Notification source {source.__qualname__} yielded "
-                    f"{type(notification).__name__}, expected RpcOutgoingMessage"
-                )
-            await outgoing.put(self._codec.encode(notification))
+        if notification.function is None:
+            raise TypeError(f"Notification {notification.name!r} has no source")
+        arguments = {
+            parameter.name: await resolver.resolve(parameter.dependency)
+            for parameter in notification.injected_parameters
+        }
+        adapter = TypeAdapter(notification.payload)
+        async for payload in notification.function(**arguments):
+            validated = adapter.validate_python(payload)
+            message = RpcNotification._with_payload_annotation(
+                notification.name,
+                validated,
+                notification.payload,
+            )
+            await outgoing.put(self._codec.encode(message))
 
 
 async def _serve_message(
@@ -140,28 +142,3 @@ async def _send_messages(
 ) -> None:
     while True:
         await websocket.send_text(await outgoing.get())
-
-
-async def _notification_arguments(
-    source: RpcNotificationSource,
-    resolver: RpcResolver,
-) -> dict[str, object]:
-    if not inspect.isasyncgenfunction(source):
-        raise ProtocolDefinitionError(
-            f"Notification source {source.__qualname__} must be an async generator"
-        )
-    hints = get_type_hints(source, include_extras=True)
-    arguments: dict[str, object] = {}
-    for parameter in inspect.signature(source).parameters.values():
-        annotation = hints.get(parameter.name)
-        if annotation is None:
-            raise ProtocolDefinitionError(
-                f"Notification source parameter {parameter.name!r} needs an annotation"
-            )
-        injected = injected_parameter(parameter.name, annotation)
-        if injected is None:
-            raise ProtocolDefinitionError(
-                f"Notification source parameter {parameter.name!r} must use Inject[T]"
-            )
-        arguments[parameter.name] = await resolver.resolve(injected.dependency)
-    return arguments

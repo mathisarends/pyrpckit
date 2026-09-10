@@ -141,10 +141,13 @@ lifetime and its own scope.
 
 ## Typed notifications
 
-A notification declaration returns its message builder:
+A notification is an injected async source declared directly on its router:
 
 ```python
+from collections.abc import AsyncIterator
 from typing import Literal
+
+from pyrpckit import Inject
 
 
 class SessionUpdated(RpcModel):
@@ -152,18 +155,30 @@ class SessionUpdated(RpcModel):
     revision: int
 
 
-session_event = session_rpc.notification(
+@session_rpc.notification(
     "event",
     payload=SessionUpdated,
     summary="Canonical session update.",
 )
-
-message = session_event(SessionUpdated(revision=3))
+async def session_notifications(
+    events: Inject[SessionEvents],
+    connection: Inject[SessionConnection],
+) -> AsyncIterator[SessionUpdated]:
+    async with events.subscribe(connection.session_id) as stream:
+        async for event in stream:
+            yield event
 ```
 
-The builder owns the fully qualified method name, validates the payload, and
-returns an `RpcOutgoingMessage`. Payload unions with literal `type` fields are
-exported as discriminated notification types for generated clients.
+The router owns the fully qualified method name and the declared payload. The
+WebSocket runtime starts every included source once per connection, resolves
+its injected dependencies from the connection scope, validates every yielded
+payload, and wraps it in a JSON-RPC notification. Payload unions with literal
+`type` fields are exported as discriminated notification types for generated
+clients.
+
+The complete session migration, including Dishka, application composition, and
+FastAPI router registration, is shown in
+[`docs/session_rpc_new_api.py`](docs/session_rpc_new_api.py).
 
 ## FastAPI WebSockets
 
@@ -171,26 +186,13 @@ exported as discriminated notification types for generated clients.
 loop:
 
 ```python
-from collections.abc import AsyncIterator
-
 from fastapi import APIRouter, WebSocket
-from pyrpckit import Inject, RpcOutgoingMessage
 from pyrpckit.fastapi import RpcWebSocketApp
-
-
-async def session_notifications(
-    events: Inject[SessionEvents],
-    connection: Inject[SessionConnection],
-) -> AsyncIterator[RpcOutgoingMessage]:
-    async with events.subscribe(connection.session_id) as stream:
-        async for event in stream:
-            yield session_event(event)
 
 
 SESSION_RPC_APP = RpcWebSocketApp(
     session_rpc_app,
     resolver=resolver,
-    notifications=(session_notifications,),
     max_concurrency=32,
     max_queue_size=128,
 )
@@ -227,7 +229,6 @@ from pyrpckit.fastapi import RpcWebSocketApp
 SESSION_RPC_APP = RpcWebSocketApp(
     session_rpc_app,
     resolver=DishkaResolver(container),
-    notifications=(session_notifications,),
 )
 ```
 

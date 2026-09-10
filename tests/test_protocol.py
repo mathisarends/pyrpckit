@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 import pytest
@@ -71,7 +72,9 @@ def test_a_single_notification_payload_needs_no_literal_discriminator() -> None:
 
     router = rpc.RpcRouter()
 
-    router.notification("changed", payload=Undiscriminated)
+    @router.notification("changed", payload=Undiscriminated)
+    async def changed() -> AsyncIterator[Undiscriminated]:
+        yield Undiscriminated(text="")
 
     app = rpc.RpcApp()
     app.include_router(router)
@@ -89,7 +92,9 @@ def test_notification_union_members_need_a_literal_discriminator() -> None:
 
     router = rpc.RpcRouter()
 
-    router.notification("changed", payload=First | Second)
+    @router.notification("changed", payload=First | Second)
+    async def changed() -> AsyncIterator[First | Second]:
+        yield First(text="")
 
     app = rpc.RpcApp()
     app.include_router(router)
@@ -101,7 +106,9 @@ def test_notification_union_members_need_a_literal_discriminator() -> None:
 def test_notification_payloads_must_be_pydantic_models() -> None:
     router = rpc.RpcRouter()
 
-    router.notification("changed", payload=str)
+    @router.notification("changed", payload=str)
+    async def changed() -> AsyncIterator[str]:
+        yield "changed"
 
     app = rpc.RpcApp()
     app.include_router(router)
@@ -120,7 +127,9 @@ def test_an_annotated_union_still_expands_into_notification_types() -> None:
         Field(discriminator="type"),
     ]
 
-    router.notification("changed", payload=GreetingUpdate)
+    @router.notification("changed", payload=GreetingUpdate)
+    async def changed() -> AsyncIterator[GreetingUpdate]:
+        yield GreetingSaid(text="")
 
     app = rpc.RpcApp()
     app.include_router(router)

@@ -15,7 +15,6 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
-from .notifications import RpcNotificationHandle, RpcOutgoingMessage
 from .router import RpcRouter
 from .server import RpcErrorMapper, RpcServer
 
@@ -38,8 +37,6 @@ __all__ = [
     "RpcMethodNotFoundError",
     "RpcModel",
     "RpcNotification",
-    "RpcNotificationHandle",
-    "RpcOutgoingMessage",
     "RpcParseError",
     "RpcRequestId",
     "RpcRouter",

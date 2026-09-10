@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Literal
 
@@ -95,7 +96,9 @@ def test_contract_assigns_router_routes_to_their_declared_server() -> None:
     @router.method("navigate")
     async def navigate() -> None: ...
 
-    router.notification("changed", payload=Changed)
+    @router.notification("changed", payload=Changed)
+    async def changed() -> AsyncIterator[Changed]:
+        yield Changed()
 
     app = rpc.RpcApp()
     app.include_router(router)

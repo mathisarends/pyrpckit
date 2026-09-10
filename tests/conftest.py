@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from enum import StrEnum
 from typing import Literal
 
@@ -95,11 +96,14 @@ async def clear(state: rpc.Inject[GreetingState]) -> None:
     state.greeted.clear()
 
 
-greeting_changed = GREETING_ROUTER.notification(
+@GREETING_ROUTER.notification(
     "changed",
     payload=GreetingUpdate,
     summary="Publish a greeting change.",
 )
+async def greeting_changed() -> AsyncIterator[GreetingUpdate]:
+    if False:
+        yield GreetingSaid(text="")
 
 
 GREETING_APP = rpc.RpcApp()

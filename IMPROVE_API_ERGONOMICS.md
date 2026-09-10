@@ -195,28 +195,28 @@ Die Runtime übernimmt:
 
 ## Typisierte Notifications
 
-Eine Notification-Deklaration ist zugleich ein typisierter Message-Builder:
+Eine Notification-Deklaration registriert Vertrag und asynchrone Quelle gemeinsam:
 
 ```python
-session_event = session_rpc.notification(
+@session_rpc.notification(
     "event",
     payload=SessionRpcEvent,
 )
-
-
 async def session_notifications(
     coordinator: Inject[SessionRunCoordinator],
     connection: Inject[SessionConnection],
-) -> AsyncIterator[RpcOutgoingMessage]:
+) -> AsyncIterator[SessionRpcEvent]:
     async with coordinator.subscribe(
         session_id=connection.session_id,
     ) as events:
         async for event in events:
-            yield session_event(event)
+            yield event
 ```
 
-PromptStars baut weder `RpcNotification(...)` noch den Methodennamen
-`"session.event"` von Hand.
+Der Router registriert Vertrag und Stream-Quelle gemeinsam. Die WebSocket-Runtime
+startet die Quelle automatisch pro Verbindung, validiert ihre Payloads und baut
+weder in PromptStars noch in der Quelle `RpcNotification(...)` oder den
+Methodennamen `"session.event"` von Hand.
 
 ## Keine Controller-Klassen
 

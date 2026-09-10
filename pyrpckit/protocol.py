@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 from dataclasses import dataclass
 from types import FunctionType, UnionType
 from typing import (
@@ -43,6 +43,8 @@ class RpcNotificationDefinition:
     summary: str | None = None
     tags: tuple[str, ...] = ()
     server: str | None = None
+    function: FunctionType | None = None
+    injected_parameters: tuple[RpcInjectedParameter, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +218,55 @@ def notification_type_definitions(
             )
         definitions.append(RpcNotificationTypeDefinition(name, message))
     return tuple(definitions)
+
+
+def notification_definition(
+    *,
+    name: str,
+    payload: Any,
+    function: FunctionType,
+    summary: str | None,
+    tags: tuple[str, ...],
+    server: str | None,
+) -> RpcNotificationDefinition:
+    if not inspect.isasyncgenfunction(function):
+        raise ProtocolDefinitionError(
+            f"RPC notification source {function.__qualname__} must be an "
+            "async generator"
+        )
+    hints = get_type_hints(function, include_extras=True)
+    result = hints.get("return")
+    if result is None:
+        raise ProtocolDefinitionError(
+            f"RPC notification source {function.__qualname__} needs a return annotation"
+        )
+    origin = get_origin(result)
+    if origin not in (AsyncIterator, AsyncGenerator):
+        raise ProtocolDefinitionError(
+            f"RPC notification source {function.__qualname__} must return "
+            "AsyncIterator[Payload]"
+        )
+    yielded = get_args(result)[0]
+    if yielded != payload:
+        raise ProtocolDefinitionError(
+            f"RPC notification source {function.__qualname__} yields {yielded!r}, "
+            f"expected {payload!r}"
+        )
+    params, _, injected = _router_params_model(function)
+    if params is not None:
+        raise ProtocolDefinitionError(
+            f"RPC notification source {function.__qualname__} parameters must use "
+            "Inject[T]"
+        )
+    return RpcNotificationDefinition(
+        name=name,
+        payload=payload,
+        summary=summary,
+        tags=tags,
+        server=server,
+        function=function,
+        injected_parameters=injected,
+    )
 
 
 def _notification_message_types(annotation: Any) -> tuple[type[BaseModel], ...]:

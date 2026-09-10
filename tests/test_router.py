@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Literal
 
 import pytest
@@ -104,21 +105,22 @@ def test_router_rejects_invalid_names(name: str) -> None:
         router.method(name)
 
 
-def test_notification_declaration_is_a_typed_builder() -> None:
+def test_notification_declaration_registers_its_async_source() -> None:
     class Changed(BaseModel):
         type: Literal["browser.changed"] = "browser.changed"
 
     router = rpc.RpcRouter(namespace="browser", tags=("browser",))
-    changed = router.notification(
+
+    @router.notification(
         "changed",
         payload=Changed,
         summary="Browser state.",
     )
+    async def changed() -> AsyncIterator[Changed]:
+        yield Changed()
 
-    message = changed(Changed())
-
-    assert message.method == "browser.changed"
     assert router.notifications[0].payload is Changed
+    assert router.notifications[0].function is changed
     assert router.notifications[0].summary == "Browser state."
     assert router.notifications[0].tags == ("browser",)
 
@@ -132,7 +134,9 @@ def test_router_assigns_its_server_to_routes() -> None:
     @router.method("navigate")
     async def navigate() -> None: ...
 
-    router.notification("changed", payload=Changed)
+    @router.notification("changed", payload=Changed)
+    async def changed() -> AsyncIterator[Changed]:
+        yield Changed()
 
     assert router.routes[0].server == "control"
     assert router.notifications[0].server == "control"

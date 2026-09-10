@@ -6,8 +6,7 @@ from typing import Any
 
 from pyrpckit.dependencies import RpcScope, call_scope
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
-from pyrpckit.notifications import RpcNotificationHandle
-from pyrpckit.protocol import RpcNotificationDefinition
+from pyrpckit.protocol import RpcNotificationDefinition, notification_definition
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,25 +125,38 @@ class RpcRouter:
 
         return decorate
 
-    def notification[PayloadT](
+    def notification(
         self,
         name: str,
         *,
-        payload: type[PayloadT],
+        payload: Any,
         summary: str | None = None,
-    ) -> RpcNotificationHandle[PayloadT]:
-        """Declare a notification and return its typed message builder."""
+    ) -> Callable[[FunctionType], FunctionType]:
+        """Declare an async notification source."""
         full_name = join_rpc_name(self._namespace, _name(name))
-        self._reserve(full_name)
-        definition = RpcNotificationDefinition(
-            name=full_name,
-            payload=payload,
-            summary=summary,
-            tags=self._tags,
-            server=self._server,
-        )
-        self._notifications.append(definition)
-        return RpcNotificationHandle(full_name, payload)
+
+        def decorate(function: FunctionType) -> FunctionType:
+            if not isinstance(function, FunctionType) or not _is_free_function(
+                function
+            ):
+                raise ProtocolDefinitionError(
+                    f"RPC notification source {function!r} must be a free function"
+                )
+            definition = notification_definition(
+                name=full_name,
+                payload=payload,
+                function=function,
+                summary=(
+                    summary if summary is not None else _docstring_summary(function)
+                ),
+                tags=self._tags,
+                server=self._server,
+            )
+            self._reserve(full_name)
+            self._notifications.append(definition)
+            return function
+
+        return decorate
 
     def _reserve(self, name: str) -> None:
         if name in self._names:

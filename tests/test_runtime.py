@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -141,3 +141,50 @@ async def test_websocket_runtime_bridges_typed_connection_context() -> None:
 
     assert websocket.accepted
     assert websocket.sent == [{"jsonrpc": "2.0", "id": 1, "result": "Hello, Mathis"}]
+
+
+class SessionUpdated(rpc.RpcModel):
+    revision: int
+
+
+class NotificationWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+
+    async def accept(self, subprotocol: str | None = None) -> None:
+        pass
+
+    async def receive(self) -> dict[str, Any]:
+        while not self.sent:
+            await asyncio.sleep(0)
+        return {"type": "websocket.disconnect"}
+
+    async def send_text(self, data: str) -> None:
+        self.sent.append(json.loads(data))
+
+
+async def test_websocket_runtime_starts_decorated_notification_sources() -> None:
+    router = rpc.RpcRouter(namespace="session")
+
+    @router.notification("event", payload=SessionUpdated)
+    async def session_notifications(
+        connection: rpc.Inject[Connection],
+    ) -> AsyncIterator[SessionUpdated]:
+        yield SessionUpdated(revision=len(connection.name))
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+    websocket = NotificationWebSocket()
+
+    await RpcWebSocketApp(app).serve(
+        websocket,
+        context=Connection("Mathis"),
+    )
+
+    assert websocket.sent == [
+        {
+            "jsonrpc": "2.0",
+            "method": "session.event",
+            "params": {"revision": 6},
+        }
+    ]
