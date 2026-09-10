@@ -145,3 +145,103 @@ def test_router_assigns_its_server_to_routes() -> None:
 def test_router_rejects_an_empty_server_name() -> None:
     with pytest.raises(rpc.ProtocolDefinitionError, match="server cannot be empty"):
         rpc.RpcRouter(server="")
+
+
+def test_router_exposes_its_routes_and_resolver_scope() -> None:
+    router = rpc.RpcRouter()
+
+    @router.method()
+    async def ping() -> None: ...
+
+    assert router.routes[0].function is ping
+    assert callable(router.resolver_scope)
+
+
+def test_router_rejects_invalid_resolver_scopes_and_tags() -> None:
+    with pytest.raises(rpc.ProtocolDefinitionError, match="scope must be callable"):
+        rpc.RpcRouter(resolver_scope="invalid")  # type: ignore[arg-type]
+    with pytest.raises(rpc.ProtocolDefinitionError, match="tags cannot be empty"):
+        rpc.RpcRouter(tags=("",))
+
+
+def test_router_rejects_non_function_and_non_async_method_handlers() -> None:
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="must decorate a function"):
+        router.method()(object())  # type: ignore[arg-type]
+    with pytest.raises(rpc.ProtocolDefinitionError, match="must be async"):
+
+        @router.method()
+        def sync() -> None: ...
+
+
+def test_notification_sources_must_be_free_functions() -> None:
+    class Changed(BaseModel):
+        revision: int
+
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="free function"):
+
+        class Source:
+            @router.notification("changed", payload=Changed)
+            async def changed() -> AsyncIterator[Changed]:
+                yield Changed(revision=1)
+
+
+def test_notification_sources_must_be_async_generators_with_the_declared_payload() -> (
+    None
+):
+    class Changed(BaseModel):
+        revision: int
+
+    class Other(BaseModel):
+        message: str
+
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="async generator"):
+
+        @router.notification("changed", payload=Changed)
+        async def not_a_generator() -> AsyncIterator[Changed]:
+            return Changed(revision=1)  # type: ignore[return-value]
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="expected"):
+
+        @router.notification("changed", payload=Changed)
+        async def wrong_payload() -> AsyncIterator[Other]:
+            yield Other(message="wrong")
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="needs a return annotation"):
+
+        @router.notification("changed", payload=Changed)
+        async def missing_annotation():
+            yield Changed(revision=1)
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="must return"):
+
+        @router.notification("changed", payload=Changed)
+        async def wrong_return_annotation() -> list[Changed]:
+            yield Changed(revision=1)
+
+    @router.notification("changed", payload=Changed)
+    async def changed() -> AsyncIterator[Changed]:
+        yield Changed(revision=1)
+
+    assert router.notifications[0].function is changed
+
+
+def test_notification_source_parameters_must_be_injected() -> None:
+    class Changed(BaseModel):
+        revision: int
+
+    class SourceParams(BaseModel):
+        revision: int
+
+    router = rpc.RpcRouter()
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="parameters must use Inject"):
+
+        @router.notification("changed", payload=Changed)
+        async def changed(params: SourceParams) -> AsyncIterator[Changed]:
+            yield Changed(revision=params.revision)

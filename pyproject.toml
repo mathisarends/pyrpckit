@@ -51,6 +51,7 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["pyrpckit"]
+branch = true
 
 [tool.coverage.report]
 show_missing = true

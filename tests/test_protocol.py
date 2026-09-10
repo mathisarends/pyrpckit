@@ -154,3 +154,53 @@ def test_a_method_may_take_no_params_and_return_nothing(
 
     assert clear.params is None
     assert clear.result is type(None)
+
+
+def test_protocol_rejects_unannotated_and_invalid_injected_parameters() -> None:
+    class Service:
+        pass
+
+    unannotated_router = rpc.RpcRouter()
+
+    @unannotated_router.method()
+    async def unannotated(value) -> None: ...
+
+    unannotated_app = rpc.RpcApp()
+    unannotated_app.include_router(unannotated_router)
+    with pytest.raises(rpc.ProtocolDefinitionError, match="needs an annotation"):
+        _ = unannotated_app.protocol
+
+    positional_router = rpc.RpcRouter()
+
+    @positional_router.method()
+    async def positional(service: rpc.Inject[Service], /) -> None: ...
+
+    positional_app = rpc.RpcApp()
+    positional_app.include_router(positional_router)
+    with pytest.raises(rpc.ProtocolDefinitionError, match="passable by name"):
+        _ = positional_app.protocol
+
+    default_router = rpc.RpcRouter()
+    default_service = Service()
+
+    @default_router.method()
+    async def default(service: rpc.Inject[Service] = default_service) -> None: ...
+
+    default_app = rpc.RpcApp()
+    default_app.include_router(default_router)
+    with pytest.raises(rpc.ProtocolDefinitionError, match="cannot have a default"):
+        _ = default_app.protocol
+
+
+def test_protocol_requires_method_return_annotations() -> None:
+    router = rpc.RpcRouter()
+
+    @router.method()
+    async def missing_result():
+        pass
+
+    app = rpc.RpcApp()
+    app.include_router(router)
+
+    with pytest.raises(rpc.ProtocolDefinitionError, match="needs a return annotation"):
+        _ = app.protocol
