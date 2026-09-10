@@ -1,20 +1,24 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from types import ModuleType
 from typing import Any
 
 import pytest
 
 from pyrpckit import RpcServer
-from pyrpckit.client import RpcRemoteError
 from tests.conftest import GREETING_APP, GreetingRpcMethods
 
 
 class LoopbackTransport:
     """Carries requests straight into an RpcServer, over JSON like the wire."""
 
-    def __init__(self, server: RpcServer) -> None:
+    def __init__(
+        self,
+        server: RpcServer,
+        remote_error: Callable[[int, str], Exception],
+    ) -> None:
         self._server = server
+        self._remote_error = remote_error
         self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._next_id = 0
         self.closed = False
@@ -36,7 +40,10 @@ class LoopbackTransport:
         assert response is not None
         payload = response.model_dump(mode="json")
         if "error" in payload:
-            raise RpcRemoteError(payload["error"]["code"], payload["error"]["message"])
+            raise self._remote_error(
+                payload["error"]["code"],
+                payload["error"]["message"],
+            )
         return payload["result"]
 
     def publish(self, message: dict[str, Any]) -> None:
@@ -57,9 +64,12 @@ def handler() -> GreetingRpcMethods:
 
 
 @pytest.fixture
-def transport(handler: GreetingRpcMethods) -> LoopbackTransport:
+def transport(
+    handler: GreetingRpcMethods,
+    generated_client: ModuleType,
+) -> LoopbackTransport:
     server = GREETING_APP.bind(handler)
-    return LoopbackTransport(server)
+    return LoopbackTransport(server, generated_client.RpcRemoteError)
 
 
 async def test_a_generated_call_reaches_the_handler_and_returns_a_model(
@@ -94,7 +104,7 @@ async def test_a_server_failure_surfaces_as_a_remote_error(
 ) -> None:
     client = generated_client.GreetingClient(transport)
 
-    with pytest.raises(RpcRemoteError) as error:
+    with pytest.raises(generated_client.RpcRemoteError) as error:
         await client.greeting.forget(name="nobody")
 
     assert error.value.code == -32001

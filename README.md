@@ -561,10 +561,10 @@ async with GreetingClient(transport) as client:
 ```
 
 Only the schemas the client actually reaches are emitted — request and response
-envelopes stay out of the generated models. The transport is not generated: the
-Python clients accept anything satisfying `pyrpckit.client.RpcTransport`, while
-TypeScript clients import the equivalent `RpcTransport` interface from
-`--transport-module`. Both therefore work over a WebSocket, HTTP, or a queue.
+envelopes stay out of the generated models. Python clients embed their transport
+protocol and accept any structurally compatible implementation. TypeScript clients
+import the equivalent `RpcTransport` interface from `--transport-module`. Both
+therefore work over a WebSocket, HTTP, or a queue.
 
 Run the generator with `--check` in CI to fail the build when the committed
 client no longer matches the server schema:
