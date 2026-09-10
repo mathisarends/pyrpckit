@@ -44,7 +44,7 @@ def _request(name: str, value: str = "value") -> dict[str, object]:
 
 
 async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
-    router = rpc.RpcRouter(namespace="search")
+    router = rpc.RpcModule(namespace="search")
     received: list[SearchParams] = []
 
     @router.method()
@@ -52,8 +52,8 @@ async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
         received.append(params)
         return SearchResult(found_items=[SearchItem(item_id=params.project_id)])
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
     response = await app.server().handle(
         {
             "jsonrpc": "2.0",
@@ -77,41 +77,41 @@ async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
 
 
 def test_keyword_only_wire_parameters_are_rejected() -> None:
-    router = rpc.RpcRouter(namespace="search")
+    router = rpc.RpcModule(namespace="search")
 
     @router.method()
     async def run(*, query: str, max_results: int = 10) -> list[str]:
         return [query] * max_results
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     with pytest.raises(rpc.ProtocolDefinitionError, match="Pydantic params model"):
         _ = app.protocol
 
 
 def test_explicit_model_aliases_override_wire_names() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
     @router.method()
     async def inspect(params: AliasedParams) -> None: ...
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
     schema = render_openrpc(app.protocol, title="Aliased")["components"]["schemas"]
 
     assert set(schema["AliasedParams"]["properties"]) == {"projectKey"}
 
 
 def test_app_composes_namespaces_tags_and_a_router_snapshot() -> None:
-    router = rpc.RpcRouter(namespace="browser.nav", tags=("browser", "control"))
+    router = rpc.RpcModule(namespace="browser.nav", tags=("browser", "control"))
 
     @router.method("navigate")
     async def navigate(params: SetParams) -> ValueResult:
         return ValueResult(value=params.value)
 
-    app = rpc.RpcApp(version=2)
-    app.include_router(router, namespace="internal", tags=("admin", "browser"))
+    app = rpc.RpcChannel(version=2)
+    app.include(router, namespace="internal", tags=("admin", "browser"))
 
     @router.method("back")
     async def back() -> None: ...
@@ -139,14 +139,14 @@ async def test_include_can_override_a_router_resolver_scope() -> None:
         entered.append("mount")
         yield resolver
 
-    router = rpc.RpcRouter(resolver_scope=router_scope)
+    router = rpc.RpcModule(resolver_scope=router_scope)
 
     @router.method()
     async def ping() -> str:
         return "pong"
 
-    app = rpc.RpcApp()
-    app.include_router(router, resolver_scope=mount_scope)
+    app = rpc.RpcChannel()
+    app.include(router, resolver_scope=mount_scope)
     response = await app.server().handle({"jsonrpc": "2.0", "id": 1, "method": "ping"})
 
     assert response is not None and not isinstance(response, list)
@@ -155,23 +155,23 @@ async def test_include_can_override_a_router_resolver_scope() -> None:
 
 
 def test_an_app_freezes_after_protocol_access() -> None:
-    app = rpc.RpcApp()
+    app = rpc.RpcChannel()
     _ = app.protocol
 
     with pytest.raises(rpc.ProtocolDefinitionError, match="frozen"):
-        app.include_router(rpc.RpcRouter())
+        app.include(rpc.RpcModule())
 
 
 def test_app_rejects_duplicate_names_while_including() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
     @router.method("ping")
     async def ping() -> None: ...
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
     with pytest.raises(rpc.ProtocolDefinitionError, match="Duplicate RPC route: ping"):
-        app.include_router(router)
+        app.include(router)
 
 
 async def test_dependencies_are_injected_and_absent_from_openrpc() -> None:
@@ -187,7 +187,7 @@ async def test_dependencies_are_injected_and_absent_from_openrpc() -> None:
             assert dependency is Service
             return Service("!")
 
-    router = rpc.RpcRouter(namespace="value")
+    router = rpc.RpcModule(namespace="value")
 
     @router.method("get")
     async def get(
@@ -196,8 +196,8 @@ async def test_dependencies_are_injected_and_absent_from_openrpc() -> None:
     ) -> ValueResult:
         return ValueResult(value=params.value + service.suffix)
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
     resolver = Resolver()
     response = await app.server(resolver=resolver).handle(_request("value.get", "one"))
 
@@ -209,7 +209,7 @@ async def test_dependencies_are_injected_and_absent_from_openrpc() -> None:
 
 
 def test_class_handlers_are_rejected_at_declaration() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
     with pytest.raises(rpc.ProtocolDefinitionError, match="free function"):
 
@@ -219,13 +219,13 @@ def test_class_handlers_are_rejected_at_declaration() -> None:
 
 
 def test_app_validates_free_function_signatures() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
     @router.method("invalid")
     async def invalid(first: SetParams, second: SetParams) -> None: ...
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     with pytest.raises(rpc.ProtocolDefinitionError, match="Pydantic params model"):
         _ = app.protocol

@@ -58,7 +58,7 @@ class RpcNotificationTypeDefinition:
 
 
 class RpcProtocol:
-    """The immutable protocol materialized by an ``RpcApp``."""
+    """The immutable protocol materialized by an ``RpcChannel``."""
 
     def __init__(
         self,
@@ -235,32 +235,30 @@ def notification_definition(
 ) -> RpcNotificationDefinition:
     if not inspect.isasyncgenfunction(function):
         raise ProtocolDefinitionError(
-            f"RPC notification source {function.__qualname__} must be an "
-            "async generator"
+            f"RPC event source {function.__qualname__} must be an async generator"
         )
     hints = get_type_hints(function, include_extras=True)
     result = hints.get("return")
     if result is None:
         raise ProtocolDefinitionError(
-            f"RPC notification source {function.__qualname__} needs a return annotation"
+            f"RPC event source {function.__qualname__} needs a return annotation"
         )
     origin = get_origin(result)
     if origin not in (AsyncIterator, AsyncGenerator):
         raise ProtocolDefinitionError(
-            f"RPC notification source {function.__qualname__} must return "
+            f"RPC event source {function.__qualname__} must return "
             "AsyncIterator[Payload]"
         )
     yielded = get_args(result)[0]
     if yielded != payload:
         raise ProtocolDefinitionError(
-            f"RPC notification source {function.__qualname__} yields {yielded!r}, "
+            f"RPC event source {function.__qualname__} yields {yielded!r}, "
             f"expected {payload!r}"
         )
     params, _, injected = _router_params_model(function)
     if params is not None:
         raise ProtocolDefinitionError(
-            f"RPC notification source {function.__qualname__} parameters must use "
-            "Inject[T]"
+            f"RPC event source {function.__qualname__} parameters must use Inject[T]"
         )
     return RpcNotificationDefinition(
         name=name,
@@ -281,9 +279,7 @@ def _notification_message_types(annotation: Any) -> tuple[type[BaseModel], ...]:
         value = get_args(value)[0]
     members = get_args(value) if get_origin(value) in (Union, UnionType) else (value,)
     if not all(_is_model(member) for member in members):
-        raise ProtocolDefinitionError(
-            "RPC notification payload must contain Pydantic models"
-        )
+        raise ProtocolDefinitionError("RPC event payload must contain Pydantic models")
     return members
 
 

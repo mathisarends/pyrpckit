@@ -3,12 +3,12 @@ import json
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
+from fastapi import Depends, FastAPI, WebSocket
 
 import pyrpckit as rpc
-from pyrpckit.fastapi import RpcWebSocketApp
+from pyrpckit.fastapi import RpcAPIRouter
 
 
 @dataclass(frozen=True)
@@ -50,17 +50,15 @@ class ValueResolver:
 
 
 async def test_batch_members_receive_independent_call_scopes() -> None:
-    router = rpc.RpcRouter()
+    channel = rpc.RpcChannel()
 
-    @router.method()
+    @channel.method()
     async def value(scoped: rpc.Inject[ScopedValue]) -> int:
         await asyncio.sleep(0)
         return scoped.number
 
-    app = rpc.RpcApp()
-    app.include_router(router)
     resolver = ScopedResolver()
-    response = await app.server(resolver=resolver).handle(
+    response = await channel.server(resolver=resolver).handle(
         [
             {"jsonrpc": "2.0", "id": 1, "method": "value"},
             {"jsonrpc": "2.0", "id": 2, "method": "value"},
@@ -73,16 +71,13 @@ async def test_batch_members_receive_independent_call_scopes() -> None:
 
 
 async def test_codec_returns_parse_errors_and_omits_batch_notifications() -> None:
-    router = rpc.RpcRouter()
+    channel = rpc.RpcChannel()
 
-    @router.method()
+    @channel.method()
     async def ping() -> str:
         return "pong"
 
-    app = rpc.RpcApp()
-    app.include_router(router)
-    server = app.server()
-
+    server = channel.server()
     parse_error = json.loads(await server.handle_json("{") or "")
     batch = json.loads(
         await server.handle_json(
@@ -101,24 +96,24 @@ class Connection:
     name: str
 
 
+def _token() -> str:
+    return "authenticated"
+
+
 class FakeWebSocket:
-    def __init__(self) -> None:
+    def __init__(self, *messages: dict[str, object]) -> None:
+        self.messages = list(messages)
+        self.sent: list[dict[str, object]] = []
         self.accepted = False
         self.subprotocol: str | None = None
-        self.sent: list[dict[str, Any]] = []
-        self.received = False
 
     async def accept(self, subprotocol: str | None = None) -> None:
         self.accepted = True
         self.subprotocol = subprotocol
 
-    async def receive(self) -> dict[str, Any]:
-        if not self.received:
-            self.received = True
-            return {
-                "type": "websocket.receive",
-                "text": '{"jsonrpc":"2.0","id":1,"method":"hello"}',
-            }
+    async def receive(self) -> dict[str, object]:
+        if self.messages:
+            return self.messages.pop(0)
         while not self.sent:
             await asyncio.sleep(0)
         return {"type": "websocket.disconnect"}
@@ -127,130 +122,105 @@ class FakeWebSocket:
         self.sent.append(json.loads(data))
 
 
-async def test_websocket_runtime_bridges_typed_connection_context() -> None:
-    router = rpc.RpcRouter()
+async def test_fastapi_router_resolves_connection_context_and_path_dependencies() -> (
+    None
+):
+    router = RpcAPIRouter(prefix="/sessions/{session_id}")
+    control = router.websocket("/control", name="control", namespace="browser")
 
-    @router.method()
+    @router.connection()
+    async def connection(
+        websocket: WebSocket,
+        session_id: str,
+        token: str = Depends(_token),
+    ) -> Connection:
+        return Connection(f"{session_id}:{token}")
+
+    @control.method()
     async def hello(connection: rpc.Inject[Connection]) -> str:
         return f"Hello, {connection.name}"
 
-    app = rpc.RpcApp()
+    route = router.routes[0]
+    dependency = route.dependant.dependencies[0]
+    assert dependency.call is connection
+    assert [parameter.name for parameter in dependency.path_params] == ["session_id"]
+    assert route.path == "/sessions/{session_id}/control"
+    app = FastAPI()
     app.include_router(router)
-    websocket = FakeWebSocket()
-
-    await RpcWebSocketApp(app).serve(
-        websocket,
-        context=Connection("Mathis"),
+    assert any(
+        getattr(included, "original_router", None) is router
+        or getattr(included, "path", None) == route.path
+        for included in app.routes
     )
 
-    assert websocket.accepted
-    assert websocket.sent == [{"jsonrpc": "2.0", "id": 1, "result": "Hello, Mathis"}]
+    websocket = FakeWebSocket(
+        {
+            "type": "websocket.receive",
+            "text": '{"jsonrpc":"2.0","id":1,"method":"browser.hello"}',
+        }
+    )
+    await route.endpoint(
+        websocket=websocket,
+        rpc_connection=Connection("abc:authenticated"),
+    )
+    assert websocket.sent == [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": "Hello, abc:authenticated",
+        }
+    ]
 
 
-class BytesWebSocket(FakeWebSocket):
-    async def receive(self) -> dict[str, Any]:
-        if not self.received:
-            self.received = True
-            return {
-                "type": "websocket.receive",
-                "bytes": b'{"jsonrpc":"2.0","id":1,"method":"ping"}',
-            }
-        while not self.sent:
-            await asyncio.sleep(0)
-        return {"type": "websocket.disconnect"}
+async def test_fastapi_channels_are_runtime_boundaries() -> None:
+    router = RpcAPIRouter(prefix="/rpc")
+    control = router.websocket("/control", name="control")
+    screencast = router.websocket("/screencast", name="screencast")
 
+    @control.method()
+    async def key_down() -> str:
+        return "key"
 
-class IgnoredMessageWebSocket(BytesWebSocket):
-    def __init__(self) -> None:
-        super().__init__()
-        self.ignored = False
+    @screencast.method()
+    async def frame() -> str:
+        return "frame"
 
-    async def receive(self) -> dict[str, Any]:
-        if not self.ignored:
-            self.ignored = True
-            return {"type": "websocket.receive", "text": object()}
-        return await super().receive()
+    websocket = FakeWebSocket(
+        {
+            "type": "websocket.receive",
+            "text": '{"jsonrpc":"2.0","id":1,"method":"frame"}',
+        }
+    )
+    await router.routes[0].endpoint(websocket=websocket)
 
-
-async def test_websocket_runtime_handles_binary_json_and_subprotocols() -> None:
-    router = rpc.RpcRouter()
-
-    @router.method()
-    async def ping() -> str:
-        return "pong"
-
-    app = rpc.RpcApp()
-    app.include_router(router)
-    websocket = BytesWebSocket()
-
-    await RpcWebSocketApp(app, subprotocol="json-rpc").serve(websocket)
-
-    assert websocket.subprotocol == "json-rpc"
-    assert websocket.sent == [{"jsonrpc": "2.0", "id": 1, "result": "pong"}]
-
-
-async def test_websocket_runtime_ignores_messages_without_json_payloads() -> None:
-    router = rpc.RpcRouter()
-
-    @router.method()
-    async def ping() -> str:
-        return "pong"
-
-    app = rpc.RpcApp()
-    app.include_router(router)
-    websocket = IgnoredMessageWebSocket()
-
-    await RpcWebSocketApp(app).serve(websocket)
-
-    assert websocket.sent == [{"jsonrpc": "2.0", "id": 1, "result": "pong"}]
-
-
-def test_websocket_runtime_rejects_non_positive_operational_limits() -> None:
-    app = rpc.RpcApp()
-    assert RpcWebSocketApp(app).app is app
-
-    with pytest.raises(ValueError, match="max_concurrency"):
-        RpcWebSocketApp(app, max_concurrency=0)
-    with pytest.raises(ValueError, match="max_queue_size"):
-        RpcWebSocketApp(app, max_queue_size=0)
+    assert websocket.sent[0]["error"] == {
+        "code": -32601,
+        "message": "Method not found",
+    }
 
 
 class SessionUpdated(rpc.RpcModel):
     revision: int
 
 
-class NotificationWebSocket:
-    def __init__(self) -> None:
-        self.sent: list[dict[str, Any]] = []
+async def test_fastapi_runtime_starts_only_the_connected_channels_events() -> None:
+    router = RpcAPIRouter()
+    updates = router.websocket("/updates", name="updates", namespace="session")
 
-    async def accept(self, subprotocol: str | None = None) -> None:
-        pass
+    @updates.connection()
+    async def connection() -> Connection:
+        return Connection("Mathis")
 
-    async def receive(self) -> dict[str, Any]:
-        while not self.sent:
-            await asyncio.sleep(0)
-        return {"type": "websocket.disconnect"}
-
-    async def send_text(self, data: str) -> None:
-        self.sent.append(json.loads(data))
-
-
-async def test_websocket_runtime_starts_decorated_notification_sources() -> None:
-    router = rpc.RpcRouter(namespace="session")
-
-    @router.notification("event", payload=SessionUpdated)
-    async def session_notifications(
+    @updates.event("event", payload=SessionUpdated)
+    async def session_events(
         connection: rpc.Inject[Connection],
     ) -> AsyncIterator[SessionUpdated]:
         yield SessionUpdated(revision=len(connection.name))
 
-    app = rpc.RpcApp()
-    app.include_router(router)
-    websocket = NotificationWebSocket()
-
-    await RpcWebSocketApp(app).serve(
-        websocket,
-        context=Connection("Mathis"),
+    websocket = FakeWebSocket()
+    await router.routes[0].endpoint(
+        websocket=websocket,
+        rpc_connection=Connection("Mathis"),
     )
 
     assert websocket.sent == [
@@ -260,3 +230,15 @@ async def test_websocket_runtime_starts_decorated_notification_sources() -> None
             "params": {"revision": 6},
         }
     ]
+
+
+def test_fastapi_router_rejects_invalid_runtime_limits_and_channel_names() -> None:
+    with pytest.raises(ValueError, match="max_concurrency"):
+        RpcAPIRouter(max_concurrency=0)
+    with pytest.raises(ValueError, match="max_queue_size"):
+        RpcAPIRouter(max_queue_size=0)
+
+    router = RpcAPIRouter()
+    router.websocket("/one", name="duplicate")
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Duplicate.*duplicate"):
+        router.websocket("/two", name="duplicate")

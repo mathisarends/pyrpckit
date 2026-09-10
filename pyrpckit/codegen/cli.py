@@ -205,13 +205,13 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
         "schema",
         help="Render the contract of a protocol.",
         description=(
-            "Render an RpcApp or OpenRpcContract as the contract "
+            "Render an RpcChannel or RpcContract as the contract "
             "clients are generated from. The source is named as "
             "module:attribute and imported from the current directory."
         ),
     )
     schema.add_argument(
-        "source", help="RpcApp or OpenRpcContract, as module:attribute."
+        "source", help="RpcChannel or RpcContract, as module:attribute."
     )
     schema.add_argument(
         "--output",
@@ -221,7 +221,7 @@ def _add_schema_command(commands: argparse._SubParsersAction) -> None:
     )
     schema.add_argument(
         "--title",
-        help="Title of the API (required unless the source is an OpenRpcContract).",
+        help="Title of the API (required unless the source is an RpcContract).",
     )
     schema.add_argument("--description", help="Description of the API.")
     schema.add_argument(

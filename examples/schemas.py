@@ -1,6 +1,6 @@
 import json
 
-from pyrpckit import RpcApp, RpcModel, RpcRouter
+from pyrpckit import RpcChannel, RpcModel, RpcModule
 from pyrpckit.schema import render_openrpc
 
 
@@ -15,7 +15,7 @@ class SearchResult(RpcModel):
     next_page_token: str | None = None
 
 
-router = RpcRouter(namespace="search", tags=("search",))
+router = RpcModule(namespace="search", tags=("search",))
 
 
 @router.method()
@@ -23,8 +23,8 @@ async def run(params: SearchParams) -> SearchResult:
     return SearchResult(items=[])
 
 
-APP = RpcApp(version=3)
-APP.include_router(router)
+APP = RpcChannel(version=3)
+APP.include(router)
 
 
 def main() -> None:

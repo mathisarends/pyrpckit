@@ -1,6 +1,6 @@
 import asyncio
 
-from pyrpckit import RpcApp, RpcModel, RpcRouter
+from pyrpckit import RpcChannel, RpcModel, RpcModule
 
 
 class GreetParams(RpcModel):
@@ -11,7 +11,7 @@ class Greeting(RpcModel):
     text: str
 
 
-router = RpcRouter(namespace="greeting", tags=("greeting",))
+router = RpcModule(namespace="greeting", tags=("greeting",))
 
 
 @router.method()
@@ -20,8 +20,8 @@ async def say(params: GreetParams) -> Greeting:
 
 
 async def main() -> None:
-    app = RpcApp()
-    app.include_router(router)
+    app = RpcChannel()
+    app.include(router)
     server = app.server()
     response = await server.handle(
         {

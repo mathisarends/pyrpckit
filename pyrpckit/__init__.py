@@ -1,6 +1,6 @@
-from .app import RpcApp
+from .app import RpcChannel
 from .codec import RpcCodec
-from .contract import OpenRpcContract, OpenRpcServer, ServerVariable
+from .contract import RpcContract, ServerVariable
 from .dependencies import Inject, RpcResolver, RpcResolverScope, call_scope
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
@@ -15,17 +15,15 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
-from .router import RpcRouter
+from .router import RpcModule
 from .server import RpcErrorMapper, RpcServer
 
 __version__ = "0.3.0"
 
 __all__ = [
     "ProtocolDefinitionError",
-    "OpenRpcContract",
-    "OpenRpcServer",
     "Inject",
-    "RpcApp",
+    "RpcChannel",
     "RpcCodec",
     "RpcError",
     "RpcErrorCode",
@@ -39,7 +37,8 @@ __all__ = [
     "RpcNotification",
     "RpcParseError",
     "RpcRequestId",
-    "RpcRouter",
+    "RpcContract",
+    "RpcModule",
     "RpcResolver",
     "RpcResolverScope",
     "RpcServer",

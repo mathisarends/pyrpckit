@@ -1,21 +1,21 @@
 import importlib
 import json
 
-from pyrpckit.app import RpcApp
-from pyrpckit.contract import OpenRpcContract
+from pyrpckit.app import RpcChannel
+from pyrpckit.contract import RpcContract
 from pyrpckit.protocol import RpcProtocol
 from pyrpckit.schema.openrpc import Server, render_openrpc
 
 
 class ProtocolReferenceError(Exception):
-    """Raised when a ``module:attribute`` reference names no RPC app."""
+    """Raised when a ``module:attribute`` reference names no RPC source."""
 
 
-type ContractSource = RpcApp | OpenRpcContract
+type ContractSource = RpcChannel | RpcContract
 
 
 def load_contract_source(reference: str) -> ContractSource:
-    """Import an app or contract named by ``module:attribute``."""
+    """Import a channel or contract named by ``module:attribute``."""
     module_name, separator, attribute_name = reference.partition(":")
     if not separator or not module_name or not attribute_name:
         raise ProtocolReferenceError(
@@ -31,18 +31,18 @@ def load_contract_source(reference: str) -> ContractSource:
         raise ProtocolReferenceError(
             f"{module_name} has no attribute {attribute_name}"
         ) from error
-    if not isinstance(source, RpcApp | OpenRpcContract):
+    if not isinstance(source, RpcChannel | RpcContract):
         raise ProtocolReferenceError(
-            f"{reference} is a {type(source).__name__}, not an RpcApp or "
-            "OpenRpcContract"
+            f"{reference} is a {type(source).__name__}, not an RpcChannel or "
+            "RpcContract"
         )
     return source
 
 
 def load_protocol(reference: str) -> RpcProtocol:
-    """Import an app or contract and return its internal protocol."""
+    """Import a channel or contract and return its internal protocol."""
     source = load_contract_source(reference)
-    return source.protocol if isinstance(source, RpcApp) else source.app.protocol
+    return source.protocol
 
 
 def render_contract(
@@ -53,21 +53,19 @@ def render_contract(
     servers: tuple[Server, ...] | None = None,
 ) -> str:
     """Render a contract as the JSON text committed to the repository."""
-    if isinstance(source, OpenRpcContract):
-        protocol = source.app.protocol
+    if isinstance(source, RpcContract):
+        protocol = source.protocol
         resolved_title = source.title if title is None else title
         resolved_description = (
             source.description if description is None else description
         )
-        resolved_servers = (
-            tuple(server.document() for server in source.servers)
-            if servers is None
-            else servers
-        )
+        resolved_servers = tuple(source.servers) if servers is None else servers
     else:
         protocol = source.protocol
         if title is None:
-            raise ProtocolReferenceError("A title is required when rendering an RpcApp")
+            raise ProtocolReferenceError(
+                "A title is required when rendering an RpcChannel"
+            )
         resolved_title = title
         resolved_description = (
             "Typed JSON-RPC API." if description is None else description

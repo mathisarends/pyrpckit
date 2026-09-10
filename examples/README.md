@@ -5,10 +5,10 @@ client, or application structure. Each file is standalone and executable.
 
 - [`basic.py`](basic.py) declares a typed method, serves one raw JSON-RPC request,
   and prints the response.
-- [`features.py`](features.py) composes multiple tagged routers into one
-  versioned app.
-- [`notifications.py`](notifications.py) decorates an injected async notification
-  source and declares its typed payload union on the router.
+- [`features.py`](features.py) composes multiple tagged modules into one
+  versioned channel.
+- [`notifications.py`](notifications.py) decorates an injected async event
+  source and declares its typed payload union on the module.
 - [`schemas.py`](schemas.py) renders JSON Schema and OpenRPC documents from the
   same protocol definition.
 - [`generated_clients`](generated_clients) contains inspectable Python and

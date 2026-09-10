@@ -1,4 +1,4 @@
-from pyrpckit import RpcApp, RpcModel, RpcRouter
+from pyrpckit import RpcChannel, RpcModel, RpcModule
 
 
 class StatusResult(RpcModel):
@@ -9,8 +9,8 @@ class ProfileResult(RpcModel):
     name: str
 
 
-system = RpcRouter(namespace="system", tags=("system",))
-account = RpcRouter(namespace="account", tags=("account",))
+system = RpcModule(namespace="system", tags=("system",))
+account = RpcModule(namespace="account", tags=("account",))
 
 
 @system.method()
@@ -23,9 +23,9 @@ async def profile() -> ProfileResult:
     return ProfileResult(name="Mathis")
 
 
-APP = RpcApp(version=2)
-APP.include_router(system)
-APP.include_router(account)
+APP = RpcChannel(version=2)
+APP.include(system)
+APP.include(account)
 
 
 def main() -> None:

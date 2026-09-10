@@ -38,12 +38,16 @@ Python 3.12 or newer is required.
 
 ## Your first API
 
-Start with a router and a normal async function. `RpcModel` gives request and
-response data a consistent JSON shape; its field names are automatically
-available in camelCase on the wire.
+Start with a WebSocket channel and a normal async function. Methods declared on
+the same channel share one socket. `RpcModel` gives request and response data a
+consistent JSON shape; its field names are automatically available in
+camelCase on the wire.
 
 ```python
-from pyrpckit import Inject, RpcApp, RpcModel, RpcRouter
+from fastapi import FastAPI
+
+from pyrpckit import Inject, RpcModel
+from pyrpckit.fastapi import RpcAPIRouter
 
 
 class OpenPage(RpcModel):
@@ -55,7 +59,16 @@ class Page(RpcModel):
     url: str
 
 
-browser = RpcRouter(namespace="browser", tags=("navigation",))
+rpc = RpcAPIRouter(
+    prefix="/sessions/{session_id}",
+    resolver=resolver,
+)
+browser = rpc.websocket(
+    "/control",
+    name="browser-control",
+    namespace="browser",
+    tags=("navigation",),
+)
 
 
 @browser.method()
@@ -67,8 +80,8 @@ async def open_page(
     return Page(title=page.title, url=page.url)
 
 
-app = RpcApp()
-app.include_router(browser)
+app = FastAPI()
+app.include_router(rpc)
 ```
 
 That is the API. Clients see a `browser.open_page` method that accepts
@@ -90,15 +103,22 @@ async def go_back(navigation: Inject[BrowserNavigation]) -> None:
 
 ## Use it from your application
 
-Combine related routers in one app, then give the app a resolver for your own
-services. The core library does not prescribe a web framework or DI container.
+For a custom transport, create the same channel directly and give its server a
+resolver for your own services. The core library does not prescribe a web
+framework or DI container.
 
 ```python
-app = RpcApp()
-app.include_router(browser)
-app.include_router(bookmarks)
+from pyrpckit import RpcChannel
 
-server = app.server(resolver=resolver)
+
+channel = RpcChannel(name="browser", namespace="browser")
+
+
+@channel.method()
+async def ping() -> str:
+    return "pong"
+
+server = channel.server(resolver=resolver)
 response = await server.handle_json(request_body)
 ```
 
@@ -111,8 +131,8 @@ a call in a service designed to own that longer lifetime.
 
 ## Send typed events
 
-For server-initiated updates, declare a notification source alongside the
-methods it belongs to. The WebSocket runtime starts it once per connection and
+For server-initiated updates, declare an event source alongside the methods it
+belongs to. The WebSocket runtime starts it once per connection and
 sends each yielded value as a JSON-RPC notification.
 
 ```python
@@ -125,7 +145,7 @@ class PageChanged(RpcModel):
     url: str
 
 
-@browser.notification("event", payload=PageChanged)
+@browser.event("event", payload=PageChanged)
 async def page_events(
     events: Inject[BrowserEvents],
 ) -> AsyncIterator[PageChanged]:
@@ -134,20 +154,26 @@ async def page_events(
             yield PageChanged(url=event.url)
 ```
 
-Notification payloads are validated before they are sent and are included in
+Event payloads are validated before they are sent and are included in
 the generated client types. Literal `type` fields also become discriminated
 event unions in supported clients.
 
 ## Create a contract and clients
 
-The OpenRPC document is the portable description of your API. It includes only
-what callers need: method names, data models, documented errors, and events.
+The OpenRPC document is the portable description of your API. FastAPI paths and
+generated client endpoints come from the same channel declarations.
 
 ```python
-from pyrpckit import OpenRpcContract
+from pyrpckit import ServerVariable
 
 
-contract = OpenRpcContract(app=app, title="Browser API")
+contract = rpc.contract(
+    title="Browser API",
+    public_base_url="wss://api.example.com",
+    variables={
+        "session_id": ServerVariable(default="demo-session"),
+    },
+)
 ```
 
 ```bash
@@ -164,34 +190,61 @@ document.
 
 ## FastAPI and Dishka
 
-The optional FastAPI helper keeps the endpoint small: it accepts the socket,
-handles JSON-RPC traffic, and forwards a typed connection context to your
-handlers.
+`RpcAPIRouter` is included like a normal FastAPI router. A connection factory
+can use path parameters and `Depends`; its result is injectable into every
+method and event on that socket.
 
 ```python
-from fastapi import APIRouter, WebSocket
-from pyrpckit.fastapi import RpcWebSocketApp
+from dataclasses import dataclass
+
+from fastapi import Depends, FastAPI, WebSocket
+
+from pyrpckit import Inject
+from pyrpckit.fastapi import RpcAPIRouter
 
 
-rpc = RpcWebSocketApp(app, resolver=resolver)
-router = APIRouter(prefix="/browser")
+@dataclass(frozen=True)
+class BrowserConnection:
+    session_id: str
+    user_id: str
 
 
-@router.websocket("/rpc")
-async def browser_rpc(websocket: WebSocket) -> None:
-    await rpc.serve(websocket)
+router = RpcAPIRouter(
+    prefix="/sessions/{session_id}",
+    resolver=resolver,
+)
+control = router.websocket("/control", name="control", namespace="browser")
+
+
+@router.connection()
+async def browser_connection(
+    websocket: WebSocket,
+    session_id: str,
+    user: User = Depends(current_user),
+) -> BrowserConnection:
+    return BrowserConnection(session_id=session_id, user_id=user.id)
+
+
+@control.method()
+async def current_url(connection: Inject[BrowserConnection]) -> str:
+    return await lookup_url(connection.session_id)
+
+
+app = FastAPI()
+app.include_router(router)
 ```
 
 If you use Dishka, pass its adapter as the resolver:
 
 ```python
 from pyrpckit.dishka import DishkaResolver
-from pyrpckit.fastapi import RpcWebSocketApp
+from pyrpckit.fastapi import RpcAPIRouter
 
 
-rpc = RpcWebSocketApp(app, resolver=DishkaResolver(container))
+rpc = RpcAPIRouter(resolver=DishkaResolver(container))
 ```
 
+Each socket opens a Dishka `SESSION`; individual calls open `REQUEST` scopes.
 The core package has no FastAPI or Dishka dependency.
 
 ## Errors

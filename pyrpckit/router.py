@@ -16,7 +16,6 @@ class RpcRoute:
     summary: str | None
     errors: tuple[type[RpcError], ...]
     tags: tuple[str, ...]
-    server: str | None
     resolver_scope: RpcResolverScope
 
 
@@ -27,25 +26,23 @@ def _docstring_summary(handler: Any) -> str | None:
     return docstring.splitlines()[0].strip() or None
 
 
-class RpcRouter:
-    """Collect free RPC functions and notifications in one namespace."""
+class RpcModule:
+    """Collect endpoint-independent RPC operations for optional reuse."""
 
     def __init__(
         self,
         *,
         namespace: str = "",
         tags: Iterable[str] = (),
-        server: str | None = None,
         resolver_scope: RpcResolverScope = call_scope,
     ) -> None:
         if not callable(resolver_scope):
             raise ProtocolDefinitionError("RPC resolver scope must be callable")
         self._namespace = normalize_namespace(namespace)
         self._tags = normalize_tags(tags)
-        self._server = normalize_server(server)
         self._resolver_scope = resolver_scope
         self._routes: list[RpcRoute] = []
-        self._notifications: list[RpcNotificationDefinition] = []
+        self._events: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
 
     @property
@@ -57,10 +54,6 @@ class RpcRouter:
         return self._tags
 
     @property
-    def server(self) -> str | None:
-        return self._server
-
-    @property
     def resolver_scope(self) -> RpcResolverScope:
         return self._resolver_scope
 
@@ -69,8 +62,8 @@ class RpcRouter:
         return tuple(self._routes)
 
     @property
-    def notifications(self) -> tuple[RpcNotificationDefinition, ...]:
-        return tuple(self._notifications)
+    def events(self) -> tuple[RpcNotificationDefinition, ...]:
+        return tuple(self._events)
 
     def method(
         self,
@@ -82,7 +75,7 @@ class RpcRouter:
         """Declare an async free function as an RPC method."""
         if name is not None and not isinstance(name, str):
             raise ProtocolDefinitionError(
-                "RPC methods must use @router.method() with parentheses"
+                "RPC methods must use @module.method() with parentheses"
             )
         explicit_name = None if name is None else _name(name)
         declared_errors = tuple(declared_error(error) for error in errors)
@@ -117,7 +110,6 @@ class RpcRouter:
                     ),
                     errors=declared_errors,
                     tags=self._tags,
-                    server=self._server,
                     resolver_scope=self._resolver_scope,
                 )
             )
@@ -125,14 +117,14 @@ class RpcRouter:
 
         return decorate
 
-    def notification(
+    def event(
         self,
         name: str,
         *,
         payload: Any,
         summary: str | None = None,
     ) -> Callable[[FunctionType], FunctionType]:
-        """Declare an async notification source."""
+        """Declare an async source for a server-pushed event."""
         full_name = join_rpc_name(self._namespace, _name(name))
 
         def decorate(function: FunctionType) -> FunctionType:
@@ -140,7 +132,7 @@ class RpcRouter:
                 function
             ):
                 raise ProtocolDefinitionError(
-                    f"RPC notification source {function!r} must be a free function"
+                    f"RPC event source {function!r} must be a free function"
                 )
             definition = notification_definition(
                 name=full_name,
@@ -150,10 +142,10 @@ class RpcRouter:
                     summary if summary is not None else _docstring_summary(function)
                 ),
                 tags=self._tags,
-                server=self._server,
+                server=None,
             )
             self._reserve(full_name)
-            self._notifications.append(definition)
+            self._events.append(definition)
             return function
 
         return decorate
@@ -199,12 +191,3 @@ def normalize_tags(values: Iterable[str]) -> tuple[str, ...]:
             raise ProtocolDefinitionError("RPC tags cannot be empty")
         unique.setdefault(tag, None)
     return tuple(unique)
-
-
-def normalize_server(value: object | None) -> str | None:
-    if value is None:
-        return None
-    server = str(value)
-    if not server:
-        raise ProtocolDefinitionError("RPC router server cannot be empty")
-    return server

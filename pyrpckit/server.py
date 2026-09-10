@@ -24,10 +24,10 @@ class RpcServer:
     """Serve decoded or encoded JSON-RPC messages over any transport."""
 
     def __init__(self) -> None:
-        raise TypeError("RpcServer instances are created by RpcApp.server()")
+        raise TypeError("RpcServer instances are created by RpcChannel.server()")
 
     @classmethod
-    def _from_app(
+    def _from_channel(
         cls,
         protocol: RpcProtocol,
         *,

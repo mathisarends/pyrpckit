@@ -54,7 +54,7 @@ class UnknownGreetingError(rpc.RpcError):
     message = "Unknown greeting"
 
 
-GREETING_ROUTER = rpc.RpcRouter(namespace="greeting", tags=("greeting",))
+GREETING_ROUTER = rpc.RpcModule(namespace="greeting", tags=("greeting",))
 
 
 class GreetingState:
@@ -96,7 +96,7 @@ async def clear(state: rpc.Inject[GreetingState]) -> None:
     state.greeted.clear()
 
 
-@GREETING_ROUTER.notification(
+@GREETING_ROUTER.event(
     "changed",
     payload=GreetingUpdate,
     summary="Publish a greeting change.",
@@ -106,8 +106,8 @@ async def greeting_changed() -> AsyncIterator[GreetingUpdate]:
         yield GreetingSaid(text="")
 
 
-GREETING_APP = rpc.RpcApp()
-GREETING_APP.include_router(GREETING_ROUTER)
+GREETING_APP = rpc.RpcChannel()
+GREETING_APP.include(GREETING_ROUTER)
 GREETING_PROTOCOL = GREETING_APP.protocol
 
 

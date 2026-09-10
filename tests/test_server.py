@@ -154,14 +154,14 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     class NestedParams(BaseModel):
         params: str
 
-    router = rpc.RpcRouter(namespace="greeting")
+    router = rpc.RpcModule(namespace="greeting")
 
     @router.method("broken")
     async def broken(params: SayParams) -> None:
         NestedParams.model_validate({"params": 1})
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
     response = await app.server().handle(
         {
             "jsonrpc": "2.0",
@@ -183,7 +183,7 @@ class BrokenParams(BaseModel):
     pass
 
 
-BROKEN_ROUTER = rpc.RpcRouter(namespace="greeting")
+BROKEN_ROUTER = rpc.RpcModule(namespace="greeting")
 
 
 @BROKEN_ROUTER.method("break")
@@ -191,8 +191,8 @@ async def fail(params: BrokenParams) -> None:
     raise BreakageError("boom")
 
 
-BROKEN_APP = rpc.RpcApp()
-BROKEN_APP.include_router(BROKEN_ROUTER)
+BROKEN_APP = rpc.RpcChannel()
+BROKEN_APP.include(BROKEN_ROUTER)
 
 
 def _broken_error(error: Exception) -> RpcError | None:

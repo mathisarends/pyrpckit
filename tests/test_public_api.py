@@ -10,6 +10,10 @@ import pyrpckit as rpc
         "RpcHandler",
         "RpcNotificationDefinition",
         "RpcProtocol",
+        "RpcApp",
+        "RpcRouter",
+        "OpenRpcContract",
+        "OpenRpcServer",
         "feature",
         "event",
         "method",
@@ -21,5 +25,5 @@ def test_removed_pre_v1_composition_symbols_are_not_public(name: str) -> None:
 
 
 def test_servers_are_created_by_an_app() -> None:
-    with pytest.raises(TypeError, match="RpcApp.server"):
+    with pytest.raises(TypeError, match="RpcChannel.server"):
         rpc.RpcServer()

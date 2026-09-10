@@ -70,14 +70,14 @@ def test_a_single_notification_payload_needs_no_literal_discriminator() -> None:
     class Undiscriminated(BaseModel):
         text: str
 
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
-    @router.notification("changed", payload=Undiscriminated)
+    @router.event("changed", payload=Undiscriminated)
     async def changed() -> AsyncIterator[Undiscriminated]:
         yield Undiscriminated(text="")
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     assert app.protocol.notifications[0].payload is Undiscriminated
     assert app.protocol.notification_types == ()
@@ -90,28 +90,28 @@ def test_notification_union_members_need_a_literal_discriminator() -> None:
     class Second(BaseModel):
         value: str
 
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
-    @router.notification("changed", payload=First | Second)
+    @router.event("changed", payload=First | Second)
     async def changed() -> AsyncIterator[First | Second]:
         yield First(text="")
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     with pytest.raises(rpc.ProtocolDefinitionError, match="when used in a union"):
         _ = app.protocol
 
 
 def test_notification_payloads_must_be_pydantic_models() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
-    @router.notification("changed", payload=str)
+    @router.event("changed", payload=str)
     async def changed() -> AsyncIterator[str]:
         yield "changed"
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     with pytest.raises(
         rpc.ProtocolDefinitionError,
@@ -121,18 +121,18 @@ def test_notification_payloads_must_be_pydantic_models() -> None:
 
 
 def test_an_annotated_union_still_expands_into_notification_types() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
     type GreetingUpdate = Annotated[
         GreetingSaid | GreetingForgotten,
         Field(discriminator="type"),
     ]
 
-    @router.notification("changed", payload=GreetingUpdate)
+    @router.event("changed", payload=GreetingUpdate)
     async def changed() -> AsyncIterator[GreetingUpdate]:
         yield GreetingSaid(text="")
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     assert [item.name for item in app.protocol.notification_types] == [
         "greeting.said",
@@ -160,47 +160,47 @@ def test_protocol_rejects_unannotated_and_invalid_injected_parameters() -> None:
     class Service:
         pass
 
-    unannotated_router = rpc.RpcRouter()
+    unannotated_router = rpc.RpcModule()
 
     @unannotated_router.method()
     async def unannotated(value) -> None: ...
 
-    unannotated_app = rpc.RpcApp()
-    unannotated_app.include_router(unannotated_router)
+    unannotated_app = rpc.RpcChannel()
+    unannotated_app.include(unannotated_router)
     with pytest.raises(rpc.ProtocolDefinitionError, match="needs an annotation"):
         _ = unannotated_app.protocol
 
-    positional_router = rpc.RpcRouter()
+    positional_router = rpc.RpcModule()
 
     @positional_router.method()
     async def positional(service: rpc.Inject[Service], /) -> None: ...
 
-    positional_app = rpc.RpcApp()
-    positional_app.include_router(positional_router)
+    positional_app = rpc.RpcChannel()
+    positional_app.include(positional_router)
     with pytest.raises(rpc.ProtocolDefinitionError, match="passable by name"):
         _ = positional_app.protocol
 
-    default_router = rpc.RpcRouter()
+    default_router = rpc.RpcModule()
     default_service = Service()
 
     @default_router.method()
     async def default(service: rpc.Inject[Service] = default_service) -> None: ...
 
-    default_app = rpc.RpcApp()
-    default_app.include_router(default_router)
+    default_app = rpc.RpcChannel()
+    default_app.include(default_router)
     with pytest.raises(rpc.ProtocolDefinitionError, match="cannot have a default"):
         _ = default_app.protocol
 
 
 def test_protocol_requires_method_return_annotations() -> None:
-    router = rpc.RpcRouter()
+    router = rpc.RpcModule()
 
     @router.method()
     async def missing_result():
         pass
 
-    app = rpc.RpcApp()
-    app.include_router(router)
+    app = rpc.RpcChannel()
+    app.include(router)
 
     with pytest.raises(rpc.ProtocolDefinitionError, match="needs a return annotation"):
         _ = app.protocol

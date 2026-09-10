@@ -467,6 +467,7 @@ fastapi = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fastapi" },
     { name = "jinja2" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -486,6 +487,7 @@ provides-extras = ["codegen", "dishka", "fastapi"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "pre-commit", specifier = ">=3.7" },
     { name = "pytest", specifier = ">=8.0" },
