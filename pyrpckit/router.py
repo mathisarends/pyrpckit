@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Any, get_type_hints, overload
 
-from pyrpckit.decorators import _docstring_summary
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.protocol import RpcNotificationDefinition
 
@@ -35,6 +34,13 @@ class RpcRoute:
     tags: tuple[str, ...]
     server: str | None
     binding: _BindingReference
+
+
+def _docstring_summary(handler: Any) -> str | None:
+    docstring = inspect.getdoc(handler)
+    if not docstring:
+        return None
+    return docstring.splitlines()[0].strip() or None
 
 
 class _RouterMethod:
