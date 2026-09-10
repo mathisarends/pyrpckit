@@ -172,6 +172,32 @@ def test_servers_generate_endpoint_metadata(document: dict[str, Any]) -> None:
     assert 'from "./endpoints"' in files["index.ts"]
 
 
+def test_single_server_websocket_clients_accept_compact_url_overrides(
+    document: dict[str, Any],
+) -> None:
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "greeting-api",
+            "url": "wss://api.example.com/greeting",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+                "subprotocols": ["jsonrpc"],
+            },
+        }
+    ]
+    configured = TypeScriptClientOptions(with_transport="websocket")
+
+    files = render_typescript_client(deployed, configured)
+
+    assert "readonly url?: string | URL;" in files["client.ts"]
+    assert 'server: "greeting-api", url: options.url' in files["client.ts"]
+    assert "readonly subprotocols?: readonly string[];" in files["endpoints.ts"]
+    assert "endpoint.subprotocols ?? declared?.subprotocols" in files["endpoints.ts"]
+    assert "url: string | URL" in files["transport.ts"]
+
+
 def test_the_index_exports_all_public_models(document: dict[str, Any]) -> None:
     index = render_typescript_client(document, options())["index.ts"]
 

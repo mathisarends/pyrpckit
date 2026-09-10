@@ -218,6 +218,16 @@ external OpenRPC document. Every generated TypeScript request, response, and
 event model is exported from the package root, so consumers can import all
 public types from the generated package entry point.
 
+A generated single-server TypeScript client can override its deployed endpoint
+with a string or `URL`. Declared WebSocket subprotocols remain in effect:
+
+```typescript
+const client = await BrowserClient.connect({ url: socketUrl(session.path) });
+```
+
+For multi-server contracts, pass `endpoints`. Each override needs only
+`server` and `url`; `subprotocols` is optional and defaults to the contract.
+
 ## FastAPI and Dishka
 
 Use a normal FastAPI router and one WebSocket endpoint per channel. FastAPI

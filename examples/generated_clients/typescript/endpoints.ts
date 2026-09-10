@@ -32,8 +32,8 @@ export type ServerName = "production" | "browser" | "streaming";
 
 export type Endpoint = {
   readonly server: ServerName;
-  readonly url: string;
-  readonly subprotocols: readonly string[];
+  readonly url: string | URL;
+  readonly subprotocols?: readonly string[];
 };
 
 export const servers = {
@@ -135,7 +135,11 @@ export function resolveEndpoints(
       throw new Error(`Duplicate endpoint for ${endpoint.server}`);
     }
     supplied.add(endpoint.server);
-    resolved.set(endpoint.server, endpoint);
+    const declared = resolved.get(endpoint.server);
+    resolved.set(endpoint.server, {
+      ...endpoint,
+      subprotocols: endpoint.subprotocols ?? declared?.subprotocols,
+    });
   }
   return [...resolved.values()];
 }

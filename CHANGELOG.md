@@ -11,3 +11,6 @@
 - Add an optional `[contract]` source and output to codegen TOML configs. A
   single `pyrpckit generate --config ...` invocation now renders the OpenRPC
   contract and every client, and `--check` verifies that complete pipeline.
+- Let generated TypeScript WebSocket transports and endpoint overrides accept
+  `URL` objects. Endpoint `subprotocols` are optional and inherit their contract
+  default; single-server clients also accept `connect({ url })`.

@@ -46,9 +46,10 @@ export class AutomationClient {
   static async connect(
     options: ConnectOptions = {},
   ): Promise<AutomationClient> {
+    const endpointOverrides: readonly Endpoint[] = options.endpoints ?? [];
     const transports: Partial<Record<ServerName, RpcTransport>> = {};
     try {
-      for (const endpoint of resolveEndpoints(options.endpoints ?? [])) {
+      for (const endpoint of resolveEndpoints(endpointOverrides)) {
         transports[endpoint.server] = await WebSocketTransport.open(
           endpoint.url,
           {

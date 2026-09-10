@@ -11,7 +11,7 @@ export type RpcTransport = {
 };
 
 export type WebSocketFactory = (
-  url: string,
+  url: string | URL,
   protocols?: readonly string[],
 ) => WebSocketSocket;
 
@@ -67,7 +67,7 @@ export class WebSocketTransport implements RpcTransport {
   }
 
   static async open(
-    url: string,
+    url: string | URL,
     options: WebSocketOptions = {},
   ): Promise<WebSocketTransport> {
     const factory = options.socketFactory ?? defaultWebSocketFactory;
@@ -207,13 +207,13 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
 }
 
 function defaultWebSocketFactory(
-  url: string,
+  url: string | URL,
   protocols?: readonly string[],
 ): WebSocketSocket {
   const constructor = (
     globalThis as unknown as {
       readonly WebSocket?: new (
-        url: string,
+        url: string | URL,
         protocols?: readonly string[],
       ) => WebSocketSocket;
     }

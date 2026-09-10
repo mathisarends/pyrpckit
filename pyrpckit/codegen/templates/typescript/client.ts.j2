@@ -6,7 +6,8 @@ export type {{ transports_name }} = {
 {% endif %}{% if with_websocket %}
 export type ConnectOptions = {
   readonly endpoints?: readonly Endpoint[];
-  readonly requestTimeoutMs?: number;
+{% if servers | length == 1 %}  readonly url?: string | URL;
+{% endif %}  readonly requestTimeoutMs?: number;
   readonly notificationQueueSize?: number;
   readonly socketFactory?: WebSocketFactory;
 };
@@ -35,9 +36,16 @@ export class {{ client_name }} {
   static async connect(
     options: ConnectOptions = {},
   ): Promise<{{ client_name }}> {
-    const transports: Partial<Record<ServerName, RpcTransport>> = {};
+{% if servers | length == 1 %}    if (options.url !== undefined && options.endpoints !== undefined) {
+      throw new Error("url and endpoints cannot be used together");
+    }
+    const endpointOverrides: readonly Endpoint[] = options.url === undefined
+      ? options.endpoints ?? []
+      : [{ server: {{ servers[0].name | literal }}, url: options.url }];
+{% else %}    const endpointOverrides: readonly Endpoint[] = options.endpoints ?? [];
+{% endif %}    const transports: Partial<Record<ServerName, RpcTransport>> = {};
     try {
-      for (const endpoint of resolveEndpoints(options.endpoints ?? [])) {
+      for (const endpoint of resolveEndpoints(endpointOverrides)) {
         transports[endpoint.server] = await WebSocketTransport.open(
           endpoint.url,
           {
