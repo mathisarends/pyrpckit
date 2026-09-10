@@ -21,7 +21,7 @@ class RpcResolver(Protocol):
     ) -> DependencyT: ...
 
 
-class RpcScope(Protocol):
+class RpcResolverScope(Protocol):
     def __call__(
         self,
         resolver: RpcResolver,

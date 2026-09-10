@@ -14,7 +14,11 @@ from typing import (
 
 from pydantic import BaseModel
 
-from pyrpckit.dependencies import RpcInjectedParameter, RpcScope, injected_parameter
+from pyrpckit.dependencies import (
+    RpcInjectedParameter,
+    RpcResolverScope,
+    injected_parameter,
+)
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
 from pyrpckit.wire import wire_annotation
 
@@ -32,7 +36,7 @@ class RpcMethodDefinition:
     server: str | None = None
     function: FunctionType | None = None
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
-    scope: RpcScope | None = None
+    resolver_scope: RpcResolverScope | None = None
     params_parameter: str | None = None
 
 
@@ -110,7 +114,7 @@ def method_definition(
     errors: tuple[type[RpcError], ...],
     tags: tuple[str, ...],
     server: str | None,
-    scope: RpcScope,
+    resolver_scope: RpcResolverScope,
     request_name: str | None = None,
 ) -> RpcMethodDefinition:
     request_name = request_name or f"{_pascal_case(handler_name)}Request"
@@ -127,7 +131,7 @@ def method_definition(
         server=server,
         function=function,
         injected_parameters=injected,
-        scope=scope,
+        resolver_scope=resolver_scope,
         params_parameter=params_parameter,
     )
 

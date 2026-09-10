@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import pytest
@@ -118,6 +120,38 @@ def test_app_composes_namespaces_tags_and_a_router_snapshot() -> None:
         "internal.browser.nav.navigate"
     ]
     assert app.protocol.methods[0].tags == ("browser", "control", "admin")
+
+
+async def test_include_can_override_a_router_resolver_scope() -> None:
+    entered: list[str] = []
+
+    @asynccontextmanager
+    async def router_scope(
+        resolver: rpc.RpcResolver,
+    ) -> AsyncIterator[rpc.RpcResolver]:
+        entered.append("router")
+        yield resolver
+
+    @asynccontextmanager
+    async def mount_scope(
+        resolver: rpc.RpcResolver,
+    ) -> AsyncIterator[rpc.RpcResolver]:
+        entered.append("mount")
+        yield resolver
+
+    router = rpc.RpcRouter(resolver_scope=router_scope)
+
+    @router.method()
+    async def ping() -> str:
+        return "pong"
+
+    app = rpc.RpcApp()
+    app.include_router(router, resolver_scope=mount_scope)
+    response = await app.server().handle({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+
+    assert response is not None and not isinstance(response, list)
+    assert response.result == "pong"
+    assert entered == ["mount"]
 
 
 def test_an_app_freezes_after_protocol_access() -> None:

@@ -81,15 +81,13 @@ browser_rpc.include_router(clipboard_rpc)
 browser_rpc.include_router(navigation_rpc)
 ```
 
-An include takes a snapshot. It may add a namespace or tags, and may override
-the call scope for that mount:
+An include takes a snapshot. It may add a namespace or tags:
 
 ```python
 browser_rpc.include_router(
     internal_rpc,
     namespace="internal",
     tags=("admin",),
-    scope=custom_scope,
 )
 ```
 
@@ -118,8 +116,28 @@ response = await server.handle(decoded_json)
 
 The default `call_scope` is entered once per RPC invocation, including each
 member of a batch. A resolver may implement `enter_scope()` as an async context
-manager to create and clean up its call-scoped child. Custom `RpcScope`
-callables can be configured on a router or include.
+manager to create and clean up its call-scoped child. Most integrations,
+including Dishka, need no additional configuration.
+
+Advanced integrations can replace that behavior for a router or a specific
+mount with a custom `RpcResolverScope` callable:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from pyrpckit import RpcResolver, call_scope
+
+
+@asynccontextmanager
+async def traced_scope(resolver: RpcResolver) -> AsyncIterator[RpcResolver]:
+    async with call_scope(resolver) as scoped_resolver:
+        # Start tracing or another invocation-specific resource here.
+        yield scoped_resolver
+
+
+browser_rpc.include_router(internal_rpc, resolver_scope=traced_scope)
+```
 
 Connection context is also a dependency. A WebSocket endpoint can pass a typed
 value without placing connection state on handlers:

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Any
 
-from pyrpckit.dependencies import RpcScope, call_scope
+from pyrpckit.dependencies import RpcResolverScope, call_scope
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.protocol import RpcNotificationDefinition, notification_definition
 
@@ -17,7 +17,7 @@ class RpcRoute:
     errors: tuple[type[RpcError], ...]
     tags: tuple[str, ...]
     server: str | None
-    scope: RpcScope
+    resolver_scope: RpcResolverScope
 
 
 def _docstring_summary(handler: Any) -> str | None:
@@ -36,14 +36,14 @@ class RpcRouter:
         namespace: str = "",
         tags: Iterable[str] = (),
         server: str | None = None,
-        scope: RpcScope = call_scope,
+        resolver_scope: RpcResolverScope = call_scope,
     ) -> None:
-        if not callable(scope):
-            raise ProtocolDefinitionError("RPC router scope must be callable")
+        if not callable(resolver_scope):
+            raise ProtocolDefinitionError("RPC resolver scope must be callable")
         self._namespace = normalize_namespace(namespace)
         self._tags = normalize_tags(tags)
         self._server = normalize_server(server)
-        self._scope = scope
+        self._resolver_scope = resolver_scope
         self._routes: list[RpcRoute] = []
         self._notifications: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
@@ -61,8 +61,8 @@ class RpcRouter:
         return self._server
 
     @property
-    def scope(self) -> RpcScope:
-        return self._scope
+    def resolver_scope(self) -> RpcResolverScope:
+        return self._resolver_scope
 
     @property
     def routes(self) -> tuple[RpcRoute, ...]:
@@ -118,7 +118,7 @@ class RpcRouter:
                     errors=declared_errors,
                     tags=self._tags,
                     server=self._server,
-                    scope=self._scope,
+                    resolver_scope=self._resolver_scope,
                 )
             )
             return function

@@ -41,11 +41,11 @@ class RpcDispatcher:
     async def execute(self, invocation: RpcInvocation) -> Any:
         method = invocation.method
         function = method.function
-        scope = method.scope
-        if function is None or scope is None:
+        resolver_scope = method.resolver_scope
+        if function is None or resolver_scope is None:
             raise ProtocolDefinitionError(f"RPC method {method.name} is not executable")
 
-        async with scope(self._resolver) as resolver:
+        async with resolver_scope(self._resolver) as resolver:
             arguments = {
                 parameter.name: await resolver.resolve(parameter.dependency)
                 for parameter in method.injected_parameters

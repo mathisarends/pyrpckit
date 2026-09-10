@@ -2,7 +2,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import replace
 
-from pyrpckit.dependencies import RpcResolver, RpcScope
+from pyrpckit.dependencies import RpcResolver, RpcResolverScope
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import (
     RpcMethodDefinition,
@@ -37,7 +37,7 @@ class RpcApp:
         *,
         namespace: str = "",
         tags: Iterable[str] = (),
-        scope: RpcScope | None = None,
+        resolver_scope: RpcResolverScope | None = None,
     ) -> None:
         """Include a snapshot of a router, optionally overriding mount metadata."""
         if self._protocol is not None:
@@ -48,8 +48,8 @@ class RpcApp:
             raise ProtocolDefinitionError(
                 f"Expected an RpcRouter, got {type(router).__name__}"
             )
-        if scope is not None and not callable(scope):
-            raise ProtocolDefinitionError("RPC router scope must be callable")
+        if resolver_scope is not None and not callable(resolver_scope):
+            raise ProtocolDefinitionError("RPC resolver scope must be callable")
         include_namespace = normalize_namespace(namespace)
         include_tags = normalize_tags(tags)
         routes = tuple(
@@ -57,7 +57,9 @@ class RpcApp:
                 route,
                 name=join_rpc_name(include_namespace, route.name),
                 tags=normalize_tags((*route.tags, *include_tags)),
-                scope=route.scope if scope is None else scope,
+                resolver_scope=(
+                    route.resolver_scope if resolver_scope is None else resolver_scope
+                ),
             )
             for route in router.routes
         )
@@ -121,7 +123,7 @@ def _method_definitions(routes: list[RpcRoute]) -> tuple[RpcMethodDefinition, ..
             errors=route.errors,
             tags=route.tags,
             server=route.server,
-            scope=route.scope,
+            resolver_scope=route.resolver_scope,
         )
         for route in routes
     ]

@@ -1,7 +1,7 @@
 from .app import RpcApp
 from .codec import RpcCodec
 from .contract import OpenRpcContract, OpenRpcServer, ServerVariable
-from .dependencies import Inject, RpcResolver, RpcScope, call_scope
+from .dependencies import Inject, RpcResolver, RpcResolverScope, call_scope
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
     ProtocolDefinitionError,
@@ -41,7 +41,7 @@ __all__ = [
     "RpcRequestId",
     "RpcRouter",
     "RpcResolver",
-    "RpcScope",
+    "RpcResolverScope",
     "RpcServer",
     "RpcSuccess",
     "ServerVariable",
