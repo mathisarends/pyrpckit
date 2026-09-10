@@ -181,6 +181,33 @@ def test_generate_config_builds_independent_sibling_clients(
     assert main(["generate", "--config", str(config), "--check"]) == 0
 
 
+def test_generate_config_renders_contract_and_clients_together(tmp_path: Path) -> None:
+    config = tmp_path / "rpcgen.toml"
+    config.write_text(
+        "version = 1\n\n"
+        "[contract]\n"
+        'source = "tests.test_contract:CONTRACT"\n'
+        'output = "schemas/health.openrpc.json"\n\n'
+        "[[clients]]\n"
+        'language = "typescript"\n'
+        'output = "generated/health"\n'
+        'client_name = "HealthClient"\n'
+        'with_transport = "websocket"\n',
+        encoding="utf-8",
+    )
+
+    assert main(["generate", "--config", str(config)]) == 0
+    schema = tmp_path / "schemas" / "health.openrpc.json"
+    assert json.loads(schema.read_text(encoding="utf-8"))["info"]["title"] == (
+        "Health API"
+    )
+    assert (tmp_path / "generated" / "health" / "client.ts").exists()
+    assert main(["generate", "--config", str(config), "--check"]) == 0
+
+    schema.write_text("{}\n", encoding="utf-8")
+    assert main(["generate", "--config", str(config), "--check"]) == 1
+
+
 def test_generate_passes_api_tree_options_to_both_emitters(
     schema: Path,
     tmp_path: Path,

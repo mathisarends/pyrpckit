@@ -182,19 +182,41 @@ contract = RpcContract.from_channels(
 )
 ```
 
-```bash
-pyrpckit schema browser.api:contract --output schema/browser.openrpc.json
-pyrpckit generate schema/browser.openrpc.json \
-  --language python \
-  --output src/browser_client \
-  --package browser_client \
-  --client-name BrowserClient
+Put the contract source and every generated client in one repository-relative
+configuration:
+
+```toml
+# rpcgen.toml
+version = 1
+
+[contract]
+source = "browser.api:contract"
+output = "schema/browser.openrpc.json"
+
+[[clients]]
+language = "python"
+output = "src/browser_client"
+package = "browser_client"
+client_name = "BrowserClient"
+
+[[clients]]
+language = "typescript"
+output = "frontend/generated/browser-client"
+client_name = "BrowserClient"
+with_transport = "websocket"
 ```
 
-Use `--language typescript` to generate a TypeScript client from the same
-document. Every generated request, response, and event model is exported from
-the package root, so consumers can import all public types from the generated
-package entry point.
+Then update or verify the contract and all clients with the same command:
+
+```bash
+pyrpckit generate --config rpcgen.toml
+pyrpckit generate --config rpcgen.toml --check
+```
+
+Each client may still name its own `schema` when it is generated from an
+external OpenRPC document. Every generated TypeScript request, response, and
+event model is exported from the package root, so consumers can import all
+public types from the generated package entry point.
 
 ## FastAPI and Dishka
 

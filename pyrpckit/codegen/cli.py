@@ -5,7 +5,7 @@ import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
-from pyrpckit.codegen import generate_python_client, generate_typescript_client
+from pyrpckit.codegen import render_python_client, render_typescript_client
 from pyrpckit.codegen.options import PythonClientOptions, TypeScriptClientOptions
 from pyrpckit.codegen.writer import write_files
 from pyrpckit.schema.export import (
@@ -72,6 +72,15 @@ def _generate(arguments: argparse.Namespace) -> int:
 
 def _generate_one(arguments: argparse.Namespace) -> int:
     document = json.loads(arguments.schema.read_text(encoding="utf-8"))
+    files = _render_client(arguments, document)
+    changed = write_files(arguments.output, files, check=arguments.check)
+    return _report_generation(changed, check=arguments.check)
+
+
+def _render_client(
+    arguments: argparse.Namespace,
+    document: dict[str, object],
+) -> dict[str, str]:
     if arguments.language == "python":
         options = PythonClientOptions(
             package=arguments.package or arguments.output.name,
@@ -81,12 +90,7 @@ def _generate_one(arguments: argparse.Namespace) -> int:
             source=arguments.schema.name,
             with_transport=arguments.with_transport,
         )
-        changed = generate_python_client(
-            document,
-            arguments.output,
-            options,
-            check=arguments.check,
-        )
+        return dict(render_python_client(document, options))
     else:
         options = TypeScriptClientOptions(
             client_name=arguments.client_name,
@@ -96,13 +100,11 @@ def _generate_one(arguments: argparse.Namespace) -> int:
             source=arguments.schema.name,
             with_transport=arguments.with_transport,
         )
-        changed = generate_typescript_client(
-            document,
-            arguments.output,
-            options,
-            check=arguments.check,
-        )
-    if arguments.check:
+        return dict(render_typescript_client(document, options))
+
+
+def _report_generation(changed: Sequence[Path], *, check: bool) -> int:
+    if check:
         return _report_check(changed)
     for path in changed:
         print(f"Wrote {path}")
@@ -123,16 +125,85 @@ def _generate_config(path: Path, *, check: bool) -> int:
         print(f"error: Invalid client config {path}: {error}", file=sys.stderr)
         return 2
 
-    failed = False
+    try:
+        contract = config.get("contract")
+        contract_job = (
+            _config_contract(path.parent, contract) if contract is not None else None
+        )
+    except (KeyError, TypeError, ValueError, ProtocolReferenceError) as error:
+        print(f"error: Invalid contract config: {error}", file=sys.stderr)
+        return 2
+
+    arguments_list: list[argparse.Namespace] = []
     for index, client in enumerate(clients, start=1):
         try:
-            arguments = _config_arguments(path.parent, client, check=check)
+            arguments_list.append(
+                _config_arguments(
+                    path.parent,
+                    client,
+                    check=check,
+                    default_schema=(contract_job[0] if contract_job else None),
+                )
+            )
         except (KeyError, TypeError, ValueError) as error:
             print(f"error: Invalid clients[{index}]: {error}", file=sys.stderr)
-            failed = True
-            continue
-        failed = _generate_one(arguments) != 0 or failed
-    return 1 if failed else 0
+            return 2
+
+    contract_document = json.loads(contract_job[1]) if contract_job else None
+    rendered: list[tuple[argparse.Namespace, dict[str, str]]] = []
+    for arguments in arguments_list:
+        document = (
+            contract_document
+            if contract_job is not None and arguments.schema == contract_job[0]
+            else json.loads(arguments.schema.read_text(encoding="utf-8"))
+        )
+        rendered.append((arguments, _render_client(arguments, document)))
+
+    changed_contract: tuple[Path, ...] = ()
+    if contract_job is not None:
+        output, content = contract_job
+        changed_contract = write_files(
+            output.parent, {output.name: content}, check=check
+        )
+    failed = bool(changed_contract)
+    if check:
+        _report_check(changed_contract, subject="Contract")
+    for arguments, files in rendered:
+        changed = write_files(arguments.output, files, check=check)
+        failed = bool(changed) or failed
+        _report_generation(changed, check=check)
+    return int(check and failed)
+
+
+def _config_contract(base: Path, contract: object) -> tuple[Path, str]:
+    if not isinstance(contract, dict):
+        raise TypeError("contract must be a table")
+    source_name = _config_string(contract, "source")
+    output = base / _config_string(contract, "output")
+    sys.path.insert(0, str(base))
+    try:
+        source = load_contract_source(source_name)
+    finally:
+        sys.path.pop(0)
+    servers = contract.get("servers")
+    if servers is not None:
+        if not isinstance(servers, dict) or not all(
+            isinstance(name, str) and isinstance(url, str)
+            for name, url in servers.items()
+        ):
+            raise TypeError("contract.servers must be a string-to-string table")
+        server_entries = tuple(
+            {"name": name, "url": url} for name, url in servers.items()
+        )
+    else:
+        server_entries = None
+    content = render_contract(
+        source,
+        title=contract.get("title"),
+        description=contract.get("description"),
+        servers=server_entries,
+    )
+    return output, content
 
 
 def _config_arguments(
@@ -140,9 +211,12 @@ def _config_arguments(
     client: object,
     *,
     check: bool,
+    default_schema: Path | None = None,
 ) -> argparse.Namespace:
     if not isinstance(client, dict):
         raise TypeError("entry must be a table")
+    if "schema" not in client and default_schema is None:
+        raise KeyError("schema is required without a [contract] table")
     language = client["language"]
     if language not in LANGUAGES:
         raise ValueError(f"language must be one of {LANGUAGES!r}")
@@ -153,7 +227,11 @@ def _config_arguments(
     ):
         raise TypeError("api_names must be a string-to-string table")
     return argparse.Namespace(
-        schema=base / _config_string(client, "schema"),
+        schema=(
+            base / _config_string(client, "schema")
+            if "schema" in client
+            else default_schema
+        ),
         language=language,
         output=base / _config_string(client, "output"),
         package=client.get("package"),

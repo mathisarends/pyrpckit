@@ -8,3 +8,6 @@
   response types no longer require a manually configured `./models` subpath.
 - Accept typed `context` values in `RpcChannel.server()` for lightweight tests,
   scripts, and custom transports without a bespoke resolver.
+- Add an optional `[contract]` source and output to codegen TOML configs. A
+  single `pyrpckit generate --config ...` invocation now renders the OpenRPC
+  contract and every client, and `--check` verifies that complete pipeline.
