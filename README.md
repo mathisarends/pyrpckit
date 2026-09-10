@@ -1,297 +1,157 @@
 # pyrpckit
 
-Build typed, bidirectional JSON-RPC 2.0 gateways with a declaration style that
-feels familiar from FastAPI.
+Build a pleasant, typed JSON-RPC API in Python.
 
-`pyrpckit` turns decorated async functions into a transport-agnostic protocol,
-an OpenRPC contract, and generated Python or TypeScript clients. It is designed
-for APIs where requests and server-initiated notifications share one long-lived
-connection.
+`pyrpckit` lets you describe an API with small async functions, then use that
+same description to serve requests, publish an OpenRPC contract, and generate
+typed clients. It stays out of the way of your transport and dependency
+injection choices, so the API definition remains the easy part to read.
 
-## Installation
+It is especially handy for WebSocket-style applications, where a client calls
+methods and the server can also send typed events over the same connection.
+
+## Contents
+
+- [Install](#install)
+- [Your first API](#your-first-api)
+- [Use it from your application](#use-it-from-your-application)
+- [Send typed events](#send-typed-events)
+- [Create a contract and clients](#create-a-contract-and-clients)
+- [FastAPI and Dishka](#fastapi-and-dishka)
+- [Errors](#errors)
+- [Development](#development)
+
+## Install
 
 ```bash
 uv add pyrpckit
 ```
 
-Client generation, FastAPI, and Dishka are optional:
+Add extras only when you need them:
 
 ```bash
-uv add "pyrpckit[codegen]"
-uv add "pyrpckit[fastapi,dishka]"
+uv add "pyrpckit[codegen]"          # client generation
+uv add "pyrpckit[fastapi,dishka]"   # WebSocket and Dishka helpers
 ```
 
 Python 3.12 or newer is required.
 
-## Declare methods
+## Your first API
 
-Handlers are async free functions. A normal parameter belongs to the JSON-RPC
-contract; `Inject[T]` is resolved only on the server and is absent from OpenRPC.
+Start with a router and a normal async function. `RpcModel` gives request and
+response data a consistent JSON shape; its field names are automatically
+available in camelCase on the wire.
 
 ```python
 from pyrpckit import Inject, RpcApp, RpcModel, RpcRouter
 
 
-class NavigateParams(RpcModel):
+class OpenPage(RpcModel):
     url: str
 
 
-navigation_rpc = RpcRouter(
-    namespace="navigation",
-    tags=("browser",),
-)
+class Page(RpcModel):
+    title: str
+    url: str
 
 
-@navigation_rpc.method()
-async def navigate(
-    params: NavigateParams,
+browser = RpcRouter(namespace="browser", tags=("navigation",))
+
+
+@browser.method()
+async def open_page(
+    params: OpenPage,
     navigation: Inject[BrowserNavigation],
-) -> None:
-    await navigation.navigate(params.url)
+) -> Page:
+    page = await navigation.open(params.url)
+    return Page(title=page.title, url=page.url)
+
+
+app = RpcApp()
+app.include_router(browser)
 ```
 
-The parentheses are intentional: methods are always declared through a
-decorator factory, leaving a consistent place for options.
+That is the API. Clients see a `browser.open_page` method that accepts
+`OpenPage` and returns `Page`. Your application sees the `BrowserNavigation`
+service it already knows how to provide.
+
+`Inject[...]` marks a server-side dependency. It never becomes part of the
+public JSON-RPC request or the generated contract. A handler can have one
+positional `RpcModel` parameter (or none) plus any number of injected services.
+
+You can choose a more descriptive wire name without changing the Python
+function name:
 
 ```python
-@navigation_rpc.method(
-    "history.back",
-    errors=(NavigationUnavailable,),
-)
-async def back(
-    navigation: Inject[BrowserNavigation],
-) -> None:
+@browser.method("history.back")
+async def go_back(navigation: Inject[BrowserNavigation]) -> None:
     await navigation.back()
 ```
 
-A method may use one positional Pydantic params model. Methods without wire
-parameters may omit it, and either form may additionally use injected parameters.
+## Use it from your application
 
-`RpcModel` applies strict input and camel-case wire aliases. Plain Pydantic
-models are adapted at the protocol boundary as well.
-
-## Compose an application
-
-Routers compose directly into an application:
+Combine related routers in one app, then give the app a resolver for your own
+services. The core library does not prescribe a web framework or DI container.
 
 ```python
-browser_rpc = RpcApp()
+app = RpcApp()
+app.include_router(browser)
+app.include_router(bookmarks)
 
-browser_rpc.include_router(clipboard_rpc)
-browser_rpc.include_router(navigation_rpc)
+server = app.server(resolver=resolver)
+response = await server.handle_json(request_body)
 ```
 
-An include takes a snapshot. It may add a namespace or tags:
+`handle_json()` takes a JSON request (or batch) and returns JSON ready to send
+back. If your transport already decoded the request, use `handle()` instead.
 
-```python
-browser_rpc.include_router(
-    internal_rpc,
-    namespace="internal",
-    tags=("admin",),
-)
-```
+Each call gets its own dependency scope by default. This makes request-scoped
+resources such as database sessions simple to clean up. Keep work that outlives
+a call in a service designed to own that longer lifetime.
 
-There are no controller instances, constructor injection, mount bindings, or
-`bind(...)` step.
+## Send typed events
 
-## Dependency resolution and call scopes
-
-PyRPC Kit owns the injection syntax and scope timing, but not a DI container.
-A resolver only needs one method:
-
-```python
-from typing import Protocol
-
-
-class RpcResolver(Protocol):
-    async def resolve[T](self, dependency: type[T]) -> T: ...
-```
-
-Create a transport-agnostic server with a resolver:
-
-```python
-server = browser_rpc.server(resolver=resolver)
-response = await server.handle(decoded_json)
-```
-
-The default `call_scope` is entered once per RPC invocation, including each
-member of a batch. A resolver may implement `enter_scope()` as an async context
-manager to create and clean up its call-scoped child. Most integrations,
-including Dishka, need no additional configuration.
-
-Advanced integrations can replace that behavior for a router or a specific
-mount with a custom `RpcResolverScope` callable:
-
-```python
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
-from pyrpckit import RpcResolver, call_scope
-
-
-@asynccontextmanager
-async def traced_scope(resolver: RpcResolver) -> AsyncIterator[RpcResolver]:
-    async with call_scope(resolver) as scoped_resolver:
-        # Start tracing or another invocation-specific resource here.
-        yield scoped_resolver
-
-
-browser_rpc.include_router(internal_rpc, resolver_scope=traced_scope)
-```
-
-Connection context is also a dependency. A WebSocket endpoint can pass a typed
-value without placing connection state on handlers:
-
-```python
-from dataclasses import dataclass
-from uuid import UUID
-
-
-@dataclass(frozen=True, slots=True)
-class SessionConnection:
-    session_id: UUID
-    user_id: UUID
-```
-
-Do not retain call-scoped dependencies in background jobs. A method that starts
-long-lived work should hand it to an application service that owns the job
-lifetime and its own scope.
-
-## Typed notifications
-
-A notification is an injected async source declared directly on its router:
+For server-initiated updates, declare a notification source alongside the
+methods it belongs to. The WebSocket runtime starts it once per connection and
+sends each yielded value as a JSON-RPC notification.
 
 ```python
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from pyrpckit import Inject
+
+class PageChanged(RpcModel):
+    type: Literal["page.changed"] = "page.changed"
+    url: str
 
 
-class SessionUpdated(RpcModel):
-    type: Literal["session.updated"] = "session.updated"
-    revision: int
-
-
-@session_rpc.notification(
-    "event",
-    payload=SessionUpdated,
-    summary="Canonical session update.",
-)
-async def session_notifications(
-    events: Inject[SessionEvents],
-    connection: Inject[SessionConnection],
-) -> AsyncIterator[SessionUpdated]:
-    async with events.subscribe(connection.session_id) as stream:
+@browser.notification("event", payload=PageChanged)
+async def page_events(
+    events: Inject[BrowserEvents],
+) -> AsyncIterator[PageChanged]:
+    async with events.subscribe() as stream:
         async for event in stream:
-            yield event
+            yield PageChanged(url=event.url)
 ```
 
-The router owns the fully qualified method name and the declared payload. The
-WebSocket runtime starts every included source once per connection, resolves
-its injected dependencies from the connection scope, validates every yielded
-payload, and wraps it in a JSON-RPC notification. Payload unions with literal
-`type` fields are exported as discriminated notification types for generated
-clients.
+Notification payloads are validated before they are sent and are included in
+the generated client types. Literal `type` fields also become discriminated
+event unions in supported clients.
 
-The complete session migration, including Dishka, application composition, and
-FastAPI router registration, is shown in
-[`docs/session_rpc_new_api.py`](docs/session_rpc_new_api.py).
+## Create a contract and clients
 
-## FastAPI WebSockets
-
-`pyrpckit.fastapi` provides a runtime facade. The endpoint contains no transport
-loop:
-
-```python
-from fastapi import APIRouter, WebSocket
-from pyrpckit.fastapi import RpcWebSocketApp
-
-
-SESSION_RPC_APP = RpcWebSocketApp(
-    session_rpc_app,
-    resolver=resolver,
-    max_concurrency=32,
-    max_queue_size=128,
-)
-
-router = APIRouter(prefix="/sessions")
-
-
-@router.websocket("/{session_id}/rpc")
-async def session_rpc_endpoint(
-    websocket: WebSocket,
-    session_id: UUID,
-    user_id: AuthenticatedUserId,
-) -> None:
-    await SESSION_RPC_APP.serve(
-        websocket,
-        context=SessionConnection(session_id=session_id, user_id=user_id),
-    )
-```
-
-The facade accepts the socket, decodes and encodes JSON, handles batches and
-parse errors, bounds concurrent calls and the outgoing queue, serializes writes,
-and multiplexes responses with typed notifications.
-
-## Dishka
-
-The optional adapter maps a WebSocket connection to Dishka `SESSION` scope and
-each RPC invocation to its child `REQUEST` scope:
-
-```python
-from pyrpckit.dishka import DishkaResolver
-from pyrpckit.fastapi import RpcWebSocketApp
-
-
-SESSION_RPC_APP = RpcWebSocketApp(
-    session_rpc_app,
-    resolver=DishkaResolver(container),
-)
-```
-
-The value passed to `serve(..., context=value)` is available directly through
-`Inject[type(value)]` and is also forwarded to Dishka's connection context map.
-The core package imports neither FastAPI nor Dishka.
-
-## Errors and JSON-RPC messages
-
-Declare application errors on methods and raise them from handlers:
-
-```python
-class SessionNotFound(RpcError):
-    code = -32004
-    message = "Session not found"
-
-
-@session_rpc.method(errors=(SessionNotFound,))
-async def sync(...) -> SessionSnapshot:
-    ...
-```
-
-`RpcServer.handle(...)` accepts a decoded request or batch.
-`RpcServer.handle_json(...)` centralizes JSON decoding and encoding, including
-parse errors. Invalid envelopes, unknown methods, invalid params, and internal
-errors become JSON-RPC failure responses; notifications do not receive a
-response.
-
-## OpenRPC and generated clients
-
-The contract remains the boundary for code generation. Injected parameters and
-server runtime details do not change it.
+The OpenRPC document is the portable description of your API. It includes only
+what callers need: method names, data models, documented errors, and events.
 
 ```python
 from pyrpckit import OpenRpcContract
 
 
-CONTRACT = OpenRpcContract(
-    app=browser_rpc,
-    title="Browser API",
-)
+contract = OpenRpcContract(app=app, title="Browser API")
 ```
 
 ```bash
-pyrpckit schema browser.api:CONTRACT --output schema/browser.openrpc.json
+pyrpckit schema browser.api:contract --output schema/browser.openrpc.json
 pyrpckit generate schema/browser.openrpc.json \
   --language python \
   --output src/browser_client \
@@ -299,8 +159,73 @@ pyrpckit generate schema/browser.openrpc.json \
   --client-name BrowserClient
 ```
 
-TypeScript generation uses the same document with `--language typescript`.
-Generated clients retain the namespace-oriented API and transport abstraction.
+Use `--language typescript` to generate a TypeScript client from the same
+document.
+
+## FastAPI and Dishka
+
+The optional FastAPI helper keeps the endpoint small: it accepts the socket,
+handles JSON-RPC traffic, and forwards a typed connection context to your
+handlers.
+
+```python
+from fastapi import APIRouter, WebSocket
+from pyrpckit.fastapi import RpcWebSocketApp
+
+
+rpc = RpcWebSocketApp(app, resolver=resolver)
+router = APIRouter(prefix="/browser")
+
+
+@router.websocket("/rpc")
+async def browser_rpc(websocket: WebSocket) -> None:
+    await rpc.serve(websocket)
+```
+
+If you use Dishka, pass its adapter as the resolver:
+
+```python
+from pyrpckit.dishka import DishkaResolver
+from pyrpckit.fastapi import RpcWebSocketApp
+
+
+rpc = RpcWebSocketApp(app, resolver=DishkaResolver(container))
+```
+
+The core package has no FastAPI or Dishka dependency.
+
+## Errors
+
+Declare the errors a caller can handle, then raise them naturally in the
+handler:
+
+```python
+from pyrpckit import RpcError
+
+
+class PageNotFound(RpcError):
+    code = -32004
+    message = "Page not found"
+
+
+class PageId(RpcModel):
+    id: str
+
+
+@browser.method(errors=(PageNotFound,))
+async def get_page(
+    params: PageId,
+    navigation: Inject[BrowserNavigation],
+) -> Page:
+    page = await navigation.get(params.id)
+    if page is None:
+        raise PageNotFound()
+    return Page(title=page.title, url=page.url)
+```
+
+Known errors become clear JSON-RPC responses and are recorded in the contract.
+Invalid requests, unknown methods, invalid parameters, and unexpected failures
+are handled as standard JSON-RPC errors. Notifications do not receive a reply.
 
 ## Development
 
