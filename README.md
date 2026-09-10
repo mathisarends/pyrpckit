@@ -64,19 +64,8 @@ async def back(
     await navigation.back()
 ```
 
-A method may use one positional Pydantic params model, or keyword-only wire
-fields for a small method:
-
-```python
-@navigation_rpc.method()
-async def search(
-    *,
-    query: str,
-    max_results: int = 10,
-    index: Inject[SearchIndex],
-) -> list[str]:
-    return await index.search(query, limit=max_results)
-```
+A method may use one positional Pydantic params model. Methods without wire
+parameters may omit it, and either form may additionally use injected parameters.
 
 `RpcModel` applies strict input and camel-case wire aliases. Plain Pydantic
 models are adapted at the protocol boundary as well.

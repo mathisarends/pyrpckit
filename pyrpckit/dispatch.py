@@ -51,14 +51,11 @@ class RpcDispatcher:
                 for parameter in method.injected_parameters
             }
             if invocation.params is not None:
-                if method.params_style == "model":
-                    if method.params_parameter is None:
-                        raise ProtocolDefinitionError(
-                            f"RPC method {method.name} has no params parameter"
-                        )
-                    arguments[method.params_parameter] = invocation.params
-                else:
-                    arguments.update(invocation.params.model_dump(by_alias=False))
+                if method.params_parameter is None:
+                    raise ProtocolDefinitionError(
+                        f"RPC method {method.name} has no params parameter"
+                    )
+                arguments[method.params_parameter] = invocation.params
             return await function(**arguments)
 
 

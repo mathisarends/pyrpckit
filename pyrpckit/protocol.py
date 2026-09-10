@@ -5,7 +5,6 @@ from types import FunctionType, UnionType
 from typing import (
     Annotated,
     Any,
-    Literal,
     TypeAliasType,
     Union,
     get_args,
@@ -13,11 +12,10 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel
 
 from pyrpckit.dependencies import RpcInjectedParameter, RpcScope, injected_parameter
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
-from pyrpckit.models import RpcModel
 from pyrpckit.wire import wire_annotation
 
 
@@ -35,7 +33,6 @@ class RpcMethodDefinition:
     function: FunctionType | None = None
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
     scope: RpcScope | None = None
-    params_style: Literal["model", "kwargs"] = "model"
     params_parameter: str | None = None
 
 
@@ -115,10 +112,7 @@ def method_definition(
     request_name: str | None = None,
 ) -> RpcMethodDefinition:
     request_name = request_name or f"{_pascal_case(handler_name)}Request"
-    params, params_style, params_parameter, injected = _router_params_model(
-        function,
-        model_name=f"{_pascal_case(name.replace('.', '_'))}Params",
-    )
+    params, params_parameter, injected = _router_params_model(function)
     return RpcMethodDefinition(
         name=name,
         handler_name=handler_name,
@@ -132,18 +126,14 @@ def method_definition(
         function=function,
         injected_parameters=injected,
         scope=scope,
-        params_style=params_style,
         params_parameter=params_parameter,
     )
 
 
 def _router_params_model(
     function: Any,
-    *,
-    model_name: str,
 ) -> tuple[
     type[BaseModel] | None,
-    Literal["model", "kwargs"],
     str | None,
     tuple[RpcInjectedParameter, ...],
 ]:
@@ -180,7 +170,7 @@ def _router_params_model(
         injected.append(dependency)
 
     if not wire_parameters:
-        return None, "model", None, tuple(injected)
+        return None, None, tuple(injected)
 
     if len(wire_parameters) == 1:
         parameter = wire_parameters[0]
@@ -190,35 +180,14 @@ def _router_params_model(
         ):
             return (
                 wire_annotation(annotation),
-                "model",
                 parameter.name,
                 tuple(injected),
             )
 
-    unsupported = [
-        parameter.name
-        for parameter in wire_parameters
-        if parameter.kind is not inspect.Parameter.KEYWORD_ONLY
-    ]
-    if unsupported:
-        names = ", ".join(unsupported)
-        raise ProtocolDefinitionError(
-            f"RPC handler {function.__qualname__} must use one positional Pydantic "
-            f"params model or keyword-only fields; unsupported: {names}"
-        )
-
-    fields: dict[str, tuple[Any, Any]] = {}
-    for parameter in wire_parameters:
-        annotation = hints[parameter.name]
-        default = (
-            ... if parameter.default is inspect.Parameter.empty else parameter.default
-        )
-        fields[parameter.name] = (wire_annotation(annotation), default)
-    return (
-        create_model(model_name, __base__=RpcModel, **fields),
-        "kwargs",
-        None,
-        tuple(injected),
+    names = ", ".join(parameter.name for parameter in wire_parameters)
+    raise ProtocolDefinitionError(
+        f"RPC handler {function.__qualname__} must use at most one positional "
+        f"Pydantic params model; unsupported wire parameters: {names}"
     )
 
 

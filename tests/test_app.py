@@ -74,7 +74,7 @@ async def test_router_adapts_plain_models_to_the_rpc_wire_contract() -> None:
     }
 
 
-async def test_keyword_only_parameters_form_a_contract() -> None:
+def test_keyword_only_wire_parameters_are_rejected() -> None:
     router = rpc.RpcRouter(namespace="search")
 
     @router.method()
@@ -83,17 +83,9 @@ async def test_keyword_only_parameters_form_a_contract() -> None:
 
     app = rpc.RpcApp()
     app.include_router(router)
-    response = await app.server().handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "search.run",
-            "params": {"query": "hit", "maxResults": 2},
-        }
-    )
 
-    assert response is not None and not isinstance(response, list)
-    assert response.result == ["hit", "hit"]
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Pydantic params model"):
+        _ = app.protocol
 
 
 def test_explicit_model_aliases_override_wire_names() -> None:
@@ -201,5 +193,5 @@ def test_app_validates_free_function_signatures() -> None:
     app = rpc.RpcApp()
     app.include_router(router)
 
-    with pytest.raises(rpc.ProtocolDefinitionError, match="keyword-only fields"):
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Pydantic params model"):
         _ = app.protocol
