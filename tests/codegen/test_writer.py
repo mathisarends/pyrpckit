@@ -71,6 +71,7 @@ def test_a_legacy_manifest_is_migrated_without_leaving_a_sidecar(
     output = tmp_path / "client"
     output.mkdir()
     (output / "current.py").write_text("current\n", encoding="utf-8")
+    (output / LEGACY_MANIFEST).parent.mkdir()
     (output / LEGACY_MANIFEST).write_text(
         json.dumps({"files": ["current.py", LEGACY_MANIFEST]}),
         encoding="utf-8",

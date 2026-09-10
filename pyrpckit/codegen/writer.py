@@ -2,8 +2,9 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-MANIFEST = ".pyrpckit/manifest.json"
-LEGACY_MANIFEST = ".pyrpckit-generated.json"
+MANIFEST = ".rpcgen/manifest.json"
+LEGACY_MANIFEST = ".pyrpckit/manifest.json"
+LEGACY_ROOT_MANIFEST = ".pyrpckit-generated.json"
 
 
 def write_files(
@@ -49,7 +50,7 @@ def _generated_paths(output_dir: Path) -> set[str]:
     manifest = next(
         (
             output_dir / name
-            for name in (MANIFEST, LEGACY_MANIFEST)
+            for name in (MANIFEST, LEGACY_MANIFEST, LEGACY_ROOT_MANIFEST)
             if (output_dir / name).is_file()
         ),
         None,

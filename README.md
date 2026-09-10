@@ -551,7 +551,7 @@ The generated Python package holds no hand-written code and is meant to be commi
 - `errors.py` — stably named declared remote errors
 - `client.py` — the root facade, notification stream, and transport lifecycle
 - `__init__.py` — a small curated public surface
-- `.pyrpckit-generated.json` — generated-file ownership and contract digest
+- `.rpcgen/manifest.json` — generated-file ownership and contract digest
 
 ```python
 async with GreetingClient(transport) as client:
