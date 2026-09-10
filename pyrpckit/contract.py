@@ -72,6 +72,7 @@ class OpenRpcServer:
                 "OpenRPC server extension keys must start with 'x-': "
                 + ", ".join(map(str, invalid_extensions))
             )
+        _validate_transport(self.name, extensions.get("x-rpckit-transport"))
         _validate_url_variables(self.url, variables)
         object.__setattr__(self, "variables", MappingProxyType(variables))
         object.__setattr__(self, "extensions", MappingProxyType(extensions))
@@ -88,6 +89,36 @@ class OpenRpcServer:
             }
         value.update(self.extensions)
         return value
+
+
+def _validate_transport(server_name: str, value: Any) -> None:
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise ProtocolDefinitionError(
+            f"Server {server_name!r} x-rpckit-transport must be an object"
+        )
+    transport_type = value.get("type")
+    if not isinstance(transport_type, str) or not transport_type:
+        raise ProtocolDefinitionError(
+            f"Server {server_name!r} transport needs a non-empty type"
+        )
+    message_encoding = value.get("messageEncoding")
+    if message_encoding is not None and not isinstance(message_encoding, str):
+        raise ProtocolDefinitionError(
+            f"Server {server_name!r} transport messageEncoding must be a string"
+        )
+    subprotocols = value.get("subprotocols", ())
+    if not isinstance(subprotocols, list | tuple) or any(
+        not isinstance(item, str) for item in subprotocols
+    ):
+        raise ProtocolDefinitionError(
+            f"Server {server_name!r} transport subprotocols must be strings"
+        )
+    if transport_type == "websocket" and message_encoding != "json":
+        raise ProtocolDefinitionError(
+            f"Server {server_name!r} websocket transport must use JSON encoding"
+        )
 
 
 @dataclass(frozen=True, slots=True)

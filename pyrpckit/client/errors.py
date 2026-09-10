@@ -24,3 +24,10 @@ class RpcResponseValidationError(RpcClientError):
         super().__init__(f"Invalid response for RPC method {method!r}: {error}")
         self.method = method
         self.validation_error = error
+
+
+class RpcNotificationValidationError(RpcClientError):
+    def __init__(self, method: str, error: ValidationError) -> None:
+        super().__init__(f"Invalid notification for RPC method {method!r}: {error}")
+        self.method = method
+        self.validation_error = error

@@ -1,0 +1,231 @@
+{
+  "openrpc": "1.4.1",
+  "info": {
+    "title": "Automation",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "name": "production",
+      "url": "wss://{host}/automation/rpc",
+      "variables": {
+        "host": {
+          "default": "api.example.com"
+        }
+      },
+      "x-rpckit-transport": {
+        "type": "websocket",
+        "messageEncoding": "json"
+      }
+    },
+    {
+      "name": "browser",
+      "url": "wss://{host}/browser/rpc",
+      "variables": {
+        "host": {
+          "default": "browser.example.com"
+        }
+      },
+      "x-rpckit-transport": {
+        "type": "websocket",
+        "messageEncoding": "json"
+      }
+    },
+    {
+      "name": "streaming",
+      "url": "wss://{host}/browser/stream",
+      "variables": {
+        "host": {
+          "default": "stream.example.com"
+        }
+      },
+      "x-rpckit-transport": {
+        "type": "websocket",
+        "messageEncoding": "json",
+        "subprotocols": ["pyrpckit.jsonrpc"]
+      }
+    }
+  ],
+  "methods": [
+    {
+      "name": "tasks.list",
+      "summary": "List all tasks.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/TaskList"
+        }
+      },
+      "x-rpc-request-schema": {
+        "$ref": "#/components/schemas/TaskListRequest"
+      },
+      "servers": [{"name": "production"}]
+    },
+    {
+      "name": "tasks.create",
+      "summary": "Create a task.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "title",
+          "required": true,
+          "schema": {"type": "string"}
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {"$ref": "#/components/schemas/Task"}
+      },
+      "x-rpc-request-schema": {
+        "$ref": "#/components/schemas/CreateTaskRequest"
+      },
+      "x-rpc-params-schema": {
+        "$ref": "#/components/schemas/CreateTaskParams"
+      },
+      "servers": [{"name": "production"}]
+    },
+    {
+      "name": "browser.tabs.open",
+      "summary": "Open a browser tab.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "url",
+          "required": true,
+          "schema": {"type": "string"}
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {"$ref": "#/components/schemas/Tab"}
+      },
+      "x-rpc-request-schema": {
+        "$ref": "#/components/schemas/OpenTabRequest"
+      },
+      "x-rpc-params-schema": {
+        "$ref": "#/components/schemas/OpenTabParams"
+      },
+      "servers": [{"name": "browser"}]
+    },
+    {
+      "name": "browser.screencast.start",
+      "summary": "Start the browser screencast.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "quality",
+          "required": false,
+          "schema": {"type": "integer", "default": 80}
+        }
+      ],
+      "result": {"name": "result", "schema": {"type": "null"}},
+      "x-rpc-request-schema": {
+        "$ref": "#/components/schemas/StartScreencastRequest"
+      },
+      "x-rpc-params-schema": {
+        "$ref": "#/components/schemas/StartScreencastParams"
+      },
+      "servers": [{"name": "streaming"}]
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "status": {"type": "string", "enum": ["open", "done"]}
+        },
+        "required": ["id", "title", "status"]
+      },
+      "TaskList": {
+        "type": "array",
+        "items": {"$ref": "#/components/schemas/Task"}
+      },
+      "CreateTaskParams": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"title": {"type": "string"}},
+        "required": ["title"]
+      },
+      "Tab": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "url": {"type": "string"}
+        },
+        "required": ["id", "url"]
+      },
+      "OpenTabParams": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"url": {"type": "string"}},
+        "required": ["url"]
+      },
+      "StartScreencastParams": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"quality": {"type": "integer", "default": 80}}
+      },
+      "TaskUpdated": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task": {"$ref": "#/components/schemas/Task"}
+        },
+        "required": ["task"]
+      },
+      "TaskUpdatedNotification": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "jsonrpc": {"const": "2.0"},
+          "method": {"const": "tasks.updated"},
+          "params": {"$ref": "#/components/schemas/TaskUpdated"}
+        },
+        "required": ["jsonrpc", "method", "params"]
+      },
+      "Frame": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sequence": {"type": "integer"},
+          "data": {"type": "string"}
+        },
+        "required": ["sequence", "data"]
+      },
+      "FrameNotification": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "jsonrpc": {"const": "2.0"},
+          "method": {"const": "browser.screencast.frames"},
+          "params": {"$ref": "#/components/schemas/Frame"}
+        },
+        "required": ["jsonrpc", "method", "params"]
+      }
+    }
+  },
+  "x-rpc-protocol-version": 1,
+  "x-rpc-notifications": [
+    {
+      "name": "tasks.updated",
+      "summary": "Stream task updates.",
+      "payload": {"$ref": "#/components/schemas/TaskUpdated"},
+      "message": {"$ref": "#/components/schemas/TaskUpdatedNotification"},
+      "servers": [{"name": "production"}]
+    },
+    {
+      "name": "browser.screencast.frames",
+      "summary": "Stream screencast frames.",
+      "payload": {"$ref": "#/components/schemas/Frame"},
+      "message": {"$ref": "#/components/schemas/FrameNotification"},
+      "servers": [{"name": "streaming"}]
+    }
+  ]
+}

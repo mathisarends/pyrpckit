@@ -80,6 +80,7 @@ def _generate_one(arguments: argparse.Namespace) -> int:
             api_root=arguments.api_root,
             api_names=dict(arguments.api_name),
             source=arguments.schema.name,
+            with_transport=arguments.with_transport,
         )
         changed = generate_python_client(
             document,
@@ -94,6 +95,7 @@ def _generate_one(arguments: argparse.Namespace) -> int:
             api_root=arguments.api_root,
             api_names=dict(arguments.api_name),
             source=arguments.schema.name,
+            with_transport=arguments.with_transport,
         )
         changed = generate_typescript_client(
             document,
@@ -161,6 +163,7 @@ def _config_arguments(
         api_root=client.get("api_root"),
         api_name=list(api_names.items()),
         check=check,
+        with_transport=client.get("with_transport"),
     )
 
 
@@ -280,6 +283,11 @@ def _add_generate_command(commands: argparse._SubParsersAction) -> None:
         type=_name_mapping,
         metavar="PATH=NAME",
         help="Rename an API path or segment; repeatable.",
+    )
+    generate.add_argument(
+        "--with-transport",
+        choices=("websocket",),
+        help="Generate a ready-to-use transport implementation.",
     )
     generate.add_argument(
         "--check",

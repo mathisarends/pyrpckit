@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pyrpckit.codegen._names import (
-    ApiViewNode,
-    api_view,
+    NamespaceViewNode,
     assert_unique_names,
+    client_view,
     pascal_case,
     snake_case,
 )
@@ -23,9 +23,11 @@ from pyrpckit.codegen.ir import (
     MapType,
     ModelDecl,
     NamedType,
+    NotificationDecl,
     Primitive,
     PrimitiveType,
     RouteDecl,
+    ServerDecl,
     TypeExpr,
     UnionType,
     UnsupportedSchemaError,
@@ -60,24 +62,35 @@ class PythonClientOptions:
     api_root: str | None = None
     api_names: Mapping[str, str] = field(default_factory=dict)
     source: str = "the OpenRPC document"
+    with_transport: str | None = None
 
 
 def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     """Render one generated Python leaf package."""
-    view = api_view(ir, api_root=options.api_root, api_names=options.api_names)
+    view = client_view(ir, api_root=options.api_root, api_names=options.api_names)
     client_name = _client_name(ir, options)
     _validate(ir, view.root_operations, view.nodes, options, client_name)
     files = {
         "__init__.py": _render_package_init(ir, options, client_name),
         "client.py": _render_client(
-            ir, view.root_operations, view.nodes, options, client_name
+            ir,
+            view.root_operations,
+            view.nodes,
+            view.root_notifications,
+            options,
+            client_name,
         ),
-        "errors.py": _render_errors(ir, options),
-        "metadata.py": _render_metadata(ir, options),
-        "models.py": _render_models(ir, options),
     }
+    if ir.declarations:
+        files["models.py"] = _render_models(ir, options)
+    if ir.operations or ir.notifications:
+        files["routes.py"] = _render_routes(ir, options)
+    if _named_errors(ir):
+        files["errors.py"] = _render_errors(ir, options)
     if ir.servers:
         files["endpoints.py"] = _render_endpoints(ir, options)
+    if options.with_transport == "websocket":
+        files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
         files["namespaces/__init__.py"] = _module(options, _Imports(), "")
         for node in _walk(view.nodes):
@@ -105,88 +118,212 @@ def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
     return _module(options, imports, body, future_annotations=True)
 
 
-def _render_metadata(ir: ClientIr, options: PythonClientOptions) -> str:
+def _render_routes(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add(RUNTIME_MODULE, "RpcContractInfo", "RpcRouteInfo")
-    protocol_version = repr(ir.protocol_version)
-    blocks = [
-        "CONTRACT = RpcContractInfo(\n"
-        f"    title={_literal(ir.title)},\n"
-        f"    version={_literal(ir.version)},\n"
-        f"    protocol_version={protocol_version},\n"
-        ")"
-    ]
+    imports.add("pydantic", "TypeAdapter")
+    imports.add(RUNTIME_MODULE, "RpcNotificationInfo", "RpcRouteInfo")
+    blocks: list[str] = []
     for route in ir.operations:
+        imports.add(
+            f"{options.package}.models",
+            *_model_names(route.result),
+        )
+        result = _annotation(route.result, imports)
+        arguments = [
+            f"method={_literal(route.rpc_name)}",
+            f"result_adapter=TypeAdapter({result})",
+        ]
+        if route.server is not None:
+            arguments.append(f"server={_literal(route.server)}")
         blocks.append(
             f"{route.method_member} = RpcRouteInfo(\n"
-            f"    method={_literal(route.rpc_name)},\n"
-            f"    summary={_literal(route.summary)},\n"
-            f"    tags={_tuple_literal(route.tags)},\n"
-            f"    deprecated={route.deprecated!r},\n"
-            f"    error_codes={tuple(error.code for error in route.errors)!r},\n"
-            f"    server_names={_tuple_literal(route.server_names)},\n"
-            ")"
+            + "".join(f"    {argument},\n" for argument in arguments)
+            + ")"
         )
-    return _module(options, imports, "\n\n\n".join(blocks))
+    for event in ir.notifications:
+        imports.add(
+            f"{options.package}.models",
+            *_model_names(event.message),
+            *_model_names(event.payload),
+        )
+        payload = _annotation(event.payload, imports)
+        message = _annotation(event.message, imports)
+        arguments = [
+            f"method={_literal(event.rpc_name)}",
+            f"message_adapter=TypeAdapter({message})",
+        ]
+        if event.server is not None:
+            arguments.append(f"server={_literal(event.server)}")
+        blocks.append(
+            f"{_constant(event.rpc_name)}: RpcNotificationInfo[{payload}] = "
+            "RpcNotificationInfo(\n"
+            + "".join(f"    {argument},\n" for argument in arguments)
+            + ")"
+        )
+    return _module(options, imports, "\n\n".join(blocks))
 
 
 def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add(RUNTIME_MODULE, "RpcServerInfo")
+    imports.add("collections.abc", "Iterable")
+    imports.add("dataclasses", "dataclass")
+    imports.add("enum", "StrEnum")
+    imports.add(RUNTIME_MODULE, "RpcServerInfo", "RpcTransportDescriptor")
     if any(server.variables for server in ir.servers):
         imports.add(RUNTIME_MODULE, "RpcServerVariable")
-    server_blocks: list[str] = []
+    if any(variable.enum for server in ir.servers for variable in server.variables):
+        imports.add("typing", "Literal")
+
+    enum_lines = ["class ServerName(StrEnum):"]
+    enum_lines.extend(
+        f"    {_constant(server.name)} = {_literal(server.name)}"
+        for server in ir.servers
+    )
+    endpoint = (
+        "@dataclass(frozen=True, slots=True)\n"
+        "class Endpoint:\n"
+        "    server: ServerName\n"
+        "    url: str\n"
+        "    subprotocols: tuple[str, ...] = ()"
+    )
+
+    server_lines = ["_SERVERS = {"]
     helper_blocks: list[str] = []
     for server in ir.servers:
-        variables = "\n".join(
-            f"            {_literal(variable.name)}: RpcServerVariable(\n"
-            f"                default={_literal(variable.default)},\n"
-            f"                description={_literal(variable.description)},\n"
-            f"                enum={_tuple_literal(variable.enum)},\n"
-            "            ),"
-            for variable in server.variables
+        server_lines.extend(
+            [
+                f"    ServerName.{_constant(server.name)}: RpcServerInfo(",
+                f"        name={_literal(server.name)},",
+                f"        url={_literal(server.url)},",
+            ]
         )
-        mapping = "{}" if not variables else "{\n" + variables + "\n        }"
-        server_blocks.append(
-            f"    {_constant(server.name)} = RpcServerInfo(\n"
-            f"        name={_literal(server.name)},\n"
-            f"        url={_literal(server.url)},\n"
-            f"        summary={_literal(server.summary)},\n"
-            f"        description={_literal(server.description)},\n"
-            f"        variables={mapping},\n"
-            f"        transport={_literal(server.transport)},\n"
-            "    )"
-        )
+        if server.summary:
+            server_lines.append(f"        summary={_literal(server.summary)},")
+        if server.description:
+            server_lines.append(f"        description={_literal(server.description)},")
+        if server.variables:
+            server_lines.append("        variables={")
+            for variable in server.variables:
+                server_lines.append(
+                    f"            {_literal(variable.name)}: RpcServerVariable("
+                )
+                server_lines.append(
+                    f"                default={_literal(variable.default)},"
+                )
+                if variable.description:
+                    server_lines.append(
+                        f"                description={_literal(variable.description)},"
+                    )
+                if variable.enum:
+                    server_lines.append(
+                        f"                enum={_tuple_literal(variable.enum)},"
+                    )
+                server_lines.append("            ),")
+            server_lines.append("        },")
+        if server.transport is not None:
+            server_lines.append("        transport=RpcTransportDescriptor(")
+            server_lines.append(f"            type={_literal(server.transport.type)},")
+            if server.transport.message_encoding is not None:
+                server_lines.append(
+                    "            message_encoding="
+                    f"{_literal(server.transport.message_encoding)},"
+                )
+            if server.transport.subprotocols:
+                subprotocols = _tuple_literal(server.transport.subprotocols)
+                server_lines.append(f"            subprotocols={subprotocols},")
+            if server.transport.options:
+                server_lines.append(
+                    f"            options={_literal(dict(server.transport.options))},"
+                )
+            server_lines.append("        ),")
+        server_lines.extend(["    ),"])
         helper_blocks.append(_endpoint_helper(server))
-    body = "class Servers:\n" + "\n\n".join(server_blocks)
-    if helper_blocks:
-        body += "\n\n\n" + "\n\n\n".join(helper_blocks)
+    server_lines.append("}")
+    resolver = _endpoint_resolver(ir.servers)
+    body = "\n\n\n".join(
+        [
+            "\n".join(enum_lines),
+            endpoint,
+            "\n".join(server_lines),
+            *helper_blocks,
+            resolver,
+        ]
+    )
     return _module(options, imports, body)
 
 
-def _endpoint_helper(server: Any) -> str:
-    name = f"{_identifier(server.name)}_url"
+def _endpoint_helper(server: ServerDecl) -> str:
+    name = _identifier(server.name)
+    constant = _constant(server.name)
     if not server.variables:
-        constant = _constant(server.name)
-        return f"def {name}() -> str:\n    return Servers.{constant}.resolve()"
+        return (
+            f"def {name}() -> Endpoint:\n"
+            f"    return Endpoint(\n"
+            f"        server=ServerName.{constant},\n"
+            f"        url=_SERVERS[ServerName.{constant}].resolve(),\n"
+            f"        subprotocols={_server_subprotocols(server)},\n"
+            f"    )"
+        )
     lines = [f"def {name}(", "    *,"]
     for variable in server.variables:
+        annotation = "str"
+        if variable.enum:
+            annotation = (
+                "Literal[" + ", ".join(_literal(value) for value in variable.enum) + "]"
+            )
         lines.append(
-            f"    {_identifier(variable.name)}: str = {_literal(variable.default)},"
+            f"    {_identifier(variable.name)}: {annotation} = "
+            f"{_literal(variable.default)},"
         )
     lines.extend(
         [
-            ") -> str:",
-            f"    return Servers.{_constant(server.name)}.resolve(",
-            "        {",
+            ") -> Endpoint:",
+            "    return Endpoint(",
+            f"        server=ServerName.{constant},",
+            f"        url=_SERVERS[ServerName.{constant}].resolve(",
+            "            {",
         ]
     )
     lines.extend(
-        f"            {_literal(variable.name)}: {_identifier(variable.name)},"
+        f"                {_literal(variable.name)}: {_identifier(variable.name)},"
         for variable in server.variables
     )
-    lines.extend(["        }", "    )"])
+    lines.extend(
+        [
+            "            }",
+            "        ),",
+            f"        subprotocols={_server_subprotocols(server)},",
+            "    )",
+        ]
+    )
     return "\n".join(lines)
+
+
+def _endpoint_resolver(servers: tuple[ServerDecl, ...]) -> str:
+    defaults = "\n".join(
+        f"        ServerName.{_constant(server.name)}: {_identifier(server.name)}(),"
+        for server in servers
+    )
+    return (
+        "def _resolve_endpoints(overrides: Iterable[Endpoint]) -> "
+        "tuple[Endpoint, ...]:\n"
+        "    resolved = {\n"
+        f"{defaults}\n"
+        "    }\n"
+        "    supplied: set[ServerName] = set()\n"
+        "    for endpoint in overrides:\n"
+        "        if endpoint.server in supplied:\n"
+        '            raise ValueError(f"Duplicate endpoint for {endpoint.server!r}")\n'
+        "        supplied.add(endpoint.server)\n"
+        "        resolved[endpoint.server] = endpoint\n"
+        "    return tuple(resolved.values())"
+    )
+
+
+def _server_subprotocols(server: ServerDecl) -> str:
+    if server.transport is None:
+        return "()"
+    return _tuple_literal(server.transport.subprotocols)
 
 
 def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
@@ -213,7 +350,29 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
     return _module(options, imports, body)
 
 
-def _render_api(node: ApiViewNode, ir: ClientIr, options: PythonClientOptions) -> str:
+def _event_lines(
+    event: NotificationDecl,
+    imports: _Imports,
+    options: PythonClientOptions,
+) -> list[str]:
+    imports.add("collections.abc", "AsyncIterator")
+    imports.add(f"{options.package}.models", *_model_names(event.payload))
+    result = _annotation(event.payload, imports)
+    imports.add(f"{options.package}.routes", _constant(event.rpc_name))
+    lines = [
+        f"    def {_identifier(event.operation_name)}(self) -> AsyncIterator[{result}]:"
+    ]
+    if event.summary:
+        lines.append(f'        """{_docstring(event.summary)}"""')
+    lines.append(f"        return self._rpc.subscribe({_constant(event.rpc_name)})")
+    return lines
+
+
+def _render_api(
+    node: NamespaceViewNode,
+    ir: ClientIr,
+    options: PythonClientOptions,
+) -> str:
     imports = _Imports()
     imports.add(RUNTIME_MODULE, "RpcClientCore")
     class_name = _api_class(node.path)
@@ -228,8 +387,9 @@ def _render_api(node: ApiViewNode, ir: ClientIr, options: PythonClientOptions) -
         imports.add(f"{options.package}.{_api_module(child)}", child_class)
         lines.append(f"        self.{_identifier(child.segment)} = {child_class}(rpc)")
     for route in node.operations:
-        constants.append(_result_adapter(route, imports, options))
         lines.extend(["", *_operation_lines(route, imports, options)])
+    for event in node.notifications:
+        lines.extend(["", *_event_lines(event, imports, options)])
     body = _constants_and_definition(constants, "\n".join(lines))
     return _module(options, imports, body)
 
@@ -237,7 +397,8 @@ def _render_api(node: ApiViewNode, ir: ClientIr, options: PythonClientOptions) -
 def _render_client(
     ir: ClientIr,
     root_operations: tuple[RouteDecl, ...],
-    nodes: tuple[ApiViewNode, ...],
+    nodes: tuple[NamespaceViewNode, ...],
+    root_events: tuple[NotificationDecl, ...],
     options: PythonClientOptions,
     client_name: str,
 ) -> str:
@@ -245,33 +406,25 @@ def _render_client(
     imports.add("typing", "Self")
     imports.add(RUNTIME_MODULE, "RpcClientCore", "RpcTransport")
     constants: list[str] = []
-    for route in root_operations:
-        constants.append(_result_adapter(route, imports, options))
-    notification_type: TypeExpr | None = None
-    message_type: TypeExpr | None = None
-    if ir.notifications:
-        imports.add("collections.abc", "AsyncIterator")
-        imports.add("pydantic", "TypeAdapter")
-        notification_type = _collapse(
-            UnionType(tuple(item.payload for item in ir.notifications))
-        )
-        message_type = _collapse(
-            UnionType(tuple(item.message for item in ir.notifications))
-        )
+    if ir.servers:
+        imports.add("collections.abc", "Mapping")
+        imports.add(f"{options.package}.endpoints", "ServerName")
+    if options.with_transport == "websocket":
+        imports.add("collections.abc", "Awaitable", "Callable")
+        imports.add("typing", "Protocol")
         imports.add(
-            f"{options.package}.models",
-            *_model_names(notification_type),
-            *_model_names(message_type),
+            f"{options.package}.endpoints",
+            "Endpoint",
+            "_resolve_endpoints",
         )
-        constants.append(
-            "_NOTIFICATION_MESSAGE_ADAPTER = TypeAdapter("
-            f"{_annotation(message_type, imports)})"
-        )
+        imports.add(f"{options.package}.transport", "WebSocketTransport")
     lines = [
         f"class {client_name}:",
         "    def __init__(",
         "        self,",
-        "        transport: RpcTransport,",
+        "        transport: RpcTransport | Mapping[str, RpcTransport],"
+        if ir.servers
+        else "        transport: RpcTransport,",
         "        *,",
         "        close_transport: bool = True,",
         "    ) -> None:",
@@ -283,20 +436,27 @@ def _render_client(
         lines.append(
             f"        self.{_identifier(node.segment)} = {api_class}(self._rpc)"
         )
+    lines.extend(
+        [
+            "",
+            "    @classmethod",
+            "    def from_transport(",
+            "        cls,",
+            "        transport: RpcTransport,",
+            "        *,",
+            "        close_transport: bool = True,",
+            "    ) -> Self:",
+            "        return cls(transport, close_transport=close_transport)",
+        ]
+    )
+    if ir.servers:
+        lines.extend(["", *_from_transports_lines(ir.servers)])
+    if options.with_transport == "websocket":
+        lines.extend(["", *_connection_lines(client_name)])
     for route in root_operations:
         lines.extend(["", *_operation_lines(route, imports, options)])
-    if notification_type is not None:
-        annotation = _annotation(notification_type, imports)
-        lines.extend(
-            [
-                "",
-                f"    async def notifications(self) -> AsyncIterator[{annotation}]:",
-                "        async for message in self._rpc.notifications():",
-                "            notification = "
-                "_NOTIFICATION_MESSAGE_ADAPTER.validate_python(message)",
-                "            yield notification.params",
-            ]
-        )
+    for event in root_events:
+        lines.extend(["", *_event_lines(event, imports, options)])
     lines.extend(
         [
             "",
@@ -311,7 +471,99 @@ def _render_client(
         ]
     )
     body = _constants_and_definition(constants, "\n".join(lines))
+    if options.with_transport == "websocket":
+        context = (
+            "class _Closable(Protocol):\n"
+            "    async def close(self) -> None: ...\n\n\n"
+            "class _ConnectionContext[ClientT: _Closable]:\n"
+            "    def __init__(\n"
+            "        self,\n"
+            "        open_client: Callable[[], Awaitable[ClientT]],\n"
+            "    ) -> None:\n"
+            "        self._open_client = open_client\n"
+            "        self._client: ClientT | None = None\n\n"
+            "    async def __aenter__(self) -> ClientT:\n"
+            "        self._client = await self._open_client()\n"
+            "        return self._client\n\n"
+            "    async def __aexit__(self, *args: object) -> None:\n"
+            "        if self._client is not None:\n"
+            "            await self._client.close()"
+        )
+        body = f"{context}\n\n\n{body}"
     return _module(options, imports, body)
+
+
+def _from_transports_lines(servers: tuple[ServerDecl, ...]) -> list[str]:
+    lines = [
+        "    @classmethod",
+        "    def from_transports(",
+        "        cls,",
+        "        *,",
+    ]
+    lines.extend(
+        f"        {_identifier(server.name)}: RpcTransport," for server in servers
+    )
+    lines.extend(["    ) -> Self:", "        return cls(", "            {"])
+    lines.extend(
+        f"                ServerName.{_constant(server.name)}: "
+        f"{_identifier(server.name)},"
+        for server in servers
+    )
+    lines.extend(
+        [
+            "            }",
+            "        )",
+            "",
+            "    @classmethod",
+            "    def from_transport_map(",
+            "        cls,",
+            "        transports: Mapping[ServerName, RpcTransport],",
+            "    ) -> Self:",
+            "        return cls(transports)",
+        ]
+    )
+    return lines
+
+
+def _connection_lines(client_name: str) -> list[str]:
+    return [
+        "    @classmethod",
+        "    def connect(",
+        "        cls,",
+        "        *endpoint_overrides: Endpoint,",
+        "        request_timeout: float | None = None,",
+        "        notification_queue_size: int = 100,",
+        "    ) -> _ConnectionContext[Self]:",
+        "        return _ConnectionContext(",
+        "            lambda: cls.open(",
+        "                *endpoint_overrides,",
+        "                request_timeout=request_timeout,",
+        "                notification_queue_size=notification_queue_size,",
+        "            )",
+        "        )",
+        "",
+        "    @classmethod",
+        "    async def open(",
+        "        cls,",
+        "        *endpoint_overrides: Endpoint,",
+        "        request_timeout: float | None = None,",
+        "        notification_queue_size: int = 100,",
+        "    ) -> Self:",
+        "        transports: dict[ServerName, RpcTransport] = {}",
+        "        try:",
+        "            for endpoint in _resolve_endpoints(endpoint_overrides):",
+        "                transports[endpoint.server] = await WebSocketTransport.open(",
+        "                    endpoint.url,",
+        "                    subprotocols=endpoint.subprotocols,",
+        "                    request_timeout=request_timeout,",
+        "                    notification_queue_size=notification_queue_size,",
+        "                )",
+        "        except BaseException:",
+        "            for transport in transports.values():",
+        "                await transport.close()",
+        "            raise",
+        "        return cls.from_transport_map(transports)",
+    ]
 
 
 def _render_package_init(
@@ -323,12 +575,12 @@ def _render_package_init(
     imports.add(f"{options.package}.client", client_name)
     exported = [client_name]
     if ir.servers:
-        imports.add(f"{options.package}.endpoints", "Servers")
-        exported.append("Servers")
-        for server in ir.servers:
-            helper = f"{_identifier(server.name)}_url"
-            imports.add(f"{options.package}.endpoints", helper)
-            exported.append(helper)
+        imports.add(options.package, "endpoints")
+        imports.add(f"{options.package}.endpoints", "Endpoint", "ServerName")
+        exported.extend(["Endpoint", "ServerName", "endpoints"])
+    if options.with_transport == "websocket":
+        imports.add(f"{options.package}.transport", "WebSocketTransport")
+        exported.append("WebSocketTransport")
     return _module(options, imports, _exports(exported))
 
 
@@ -338,7 +590,7 @@ def _operation_lines(
     options: PythonClientOptions,
 ) -> list[str]:
     models = f"{options.package}.models"
-    imports.add(f"{options.package}.metadata", route.method_member)
+    imports.add(f"{options.package}.routes", route.method_member)
     if route.params_model is not None:
         imports.add(models, _schema_name(route.params_model))
     for parameter in route.params:
@@ -391,7 +643,8 @@ def _operation_body(route: RouteDecl) -> list[str]:
                         ]
                     )
             lines.append(f"        params = {model_name}.model_validate(values)")
-    lines.append("        return await self._rpc.request(")
+    prefix = "        await" if _is_null(route.result) else "        return await"
+    lines.append(f"{prefix} self._rpc.request(")
     lines.append(f"            {route.method_member},")
     if route.params_model is not None:
         lines.extend(
@@ -400,20 +653,8 @@ def _operation_body(route: RouteDecl) -> list[str]:
                 'mode="json", by_alias=True, exclude_unset=True),',
             ]
         )
-    lines.append(f"            result_adapter=_{route.method_member}_RESULT_ADAPTER,")
     lines.append("        )")
     return lines
-
-
-def _result_adapter(
-    route: RouteDecl,
-    imports: _Imports,
-    options: PythonClientOptions,
-) -> str:
-    imports.add("pydantic", "TypeAdapter")
-    imports.add(f"{options.package}.models", *_model_names(route.result))
-    annotation = _annotation(route.result, imports)
-    return f"_{route.method_member}_RESULT_ADAPTER = TypeAdapter({annotation})"
 
 
 def _declaration_block(
@@ -540,10 +781,38 @@ def _parameter_annotation(parameter: Any, imports: _Imports) -> str:
 def _validate(
     ir: ClientIr,
     root_operations: tuple[RouteDecl, ...],
-    nodes: tuple[ApiViewNode, ...],
+    nodes: tuple[NamespaceViewNode, ...],
     options: PythonClientOptions,
     client_name: str,
 ) -> None:
+    if options.with_transport not in {None, "websocket"}:
+        raise UnsupportedSchemaError("with_transport must be None or 'websocket'")
+    if options.with_transport == "websocket":
+        if not ir.servers:
+            raise UnsupportedSchemaError(
+                "with_transport='websocket' requires at least one OpenRPC server"
+            )
+        invalid = [
+            server.name
+            for server in ir.servers
+            if server.transport is None or server.transport.type != "websocket"
+        ]
+        if invalid:
+            raise UnsupportedSchemaError(
+                "WebSocket generation requires websocket transport descriptors for: "
+                + ", ".join(invalid)
+            )
+        if len(ir.servers) > 1:
+            unassigned = [
+                item.rpc_name
+                for item in (*ir.operations, *ir.notifications)
+                if item.server is None
+            ]
+            if unassigned:
+                raise UnsupportedSchemaError(
+                    "Routes need a server when generating multiple WebSocket "
+                    "connections: " + ", ".join(unassigned)
+                )
     _assert_class_name(client_name, "client_name")
     _assert_class_name(options.base_model_name, "base_model_name")
     assert_unique_names(
@@ -575,14 +844,32 @@ def _validate(
         )
     client_members = [
         ("<client.close>", "close"),
+        ("<client.from_transport>", "from_transport"),
         *((node.source_path[-1], _identifier(node.segment)) for node in nodes),
         *(
             (route.rpc_name, _identifier(route.operation_name))
             for route in root_operations
         ),
+        *(
+            (event.rpc_name, _identifier(event.operation_name))
+            for event in client_view(
+                ir,
+                api_root=options.api_root,
+                api_names=options.api_names,
+            ).root_notifications
+        ),
     ]
-    if ir.notifications:
-        client_members.append(("<client.notifications>", "notifications"))
+    if ir.servers:
+        client_members.extend(
+            [
+                ("<client.from_transports>", "from_transports"),
+                ("<client.from_transport_map>", "from_transport_map"),
+            ]
+        )
+    if options.with_transport == "websocket":
+        client_members.extend(
+            [("<client.connect>", "connect"), ("<client.open>", "open")]
+        )
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     assert_unique_names(
@@ -599,7 +886,7 @@ def _validate(
         )
 
 
-def _validate_nodes(nodes: tuple[ApiViewNode, ...]) -> None:
+def _validate_nodes(nodes: tuple[NamespaceViewNode, ...]) -> None:
     for node in nodes:
         values = [
             (child.segment, _identifier(child.segment)) for child in node.children
@@ -607,6 +894,10 @@ def _validate_nodes(nodes: tuple[ApiViewNode, ...]) -> None:
         values.extend(
             (route.rpc_name, _identifier(route.operation_name))
             for route in node.operations
+        )
+        values.extend(
+            (event.rpc_name, _identifier(event.operation_name))
+            for event in node.notifications
         )
         assert_unique_names(f"API path {'.'.join(node.path)}", values)
         _validate_nodes(node.children)
@@ -656,24 +947,35 @@ def _constant(value: str) -> str:
 
 
 def _api_class(path: tuple[str, ...]) -> str:
-    return f"{''.join(pascal_case(segment) for segment in path)}Api"
+    return "".join(pascal_case(segment) for segment in path)
 
 
-def _api_module(node: ApiViewNode) -> str:
+def _api_module(node: NamespaceViewNode) -> str:
     return "namespaces." + ".".join(_identifier(segment) for segment in node.path)
 
 
-def _api_file(node: ApiViewNode) -> str:
+def _api_file(node: NamespaceViewNode) -> str:
     path = "/".join(_identifier(segment) for segment in node.path)
     return (
         f"namespaces/{path}/__init__.py" if node.children else f"namespaces/{path}.py"
     )
 
 
-def _walk(nodes: tuple[ApiViewNode, ...]) -> Iterable[ApiViewNode]:
+def _walk(nodes: tuple[NamespaceViewNode, ...]) -> Iterable[NamespaceViewNode]:
     for node in nodes:
         yield node
         yield from _walk(node.children)
+
+
+def _named_errors(ir: ClientIr) -> bool:
+    return any(
+        error.name is not None for route in ir.operations for error in route.errors
+    )
+
+
+def _render_websocket_transport(options: PythonClientOptions) -> str:
+    body = render_template("python/transport.py.j2").rstrip()
+    return _module(options, _Imports(), body)
 
 
 def _collapse(expression: UnionType) -> TypeExpr:
@@ -686,6 +988,12 @@ def _allows_none(expression: TypeExpr) -> bool:
     if isinstance(expression, UnionType):
         return any(_allows_none(member) for member in expression.members)
     return False
+
+
+def _is_null(expression: TypeExpr) -> bool:
+    return (
+        isinstance(expression, PrimitiveType) and expression.primitive is Primitive.NULL
+    )
 
 
 def _constants_and_definition(constants: list[str], definition: str) -> str:
@@ -764,7 +1072,15 @@ def _import_line(module: str, names: list[str]) -> str:
 
 def _import_group(module: str) -> int:
     root = module.split(".", 1)[0]
-    if root in {"collections", "datetime", "enum", "typing", "uuid", "__future__"}:
+    if root in {
+        "__future__",
+        "collections",
+        "dataclasses",
+        "datetime",
+        "enum",
+        "typing",
+        "uuid",
+    }:
         return 0
     if root in {"pydantic", "pyrpckit"}:
         return 1

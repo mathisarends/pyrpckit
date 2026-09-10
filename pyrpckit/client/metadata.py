@@ -1,6 +1,9 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Any
+
+from pydantic import TypeAdapter
 
 
 @dataclass(frozen=True, slots=True)
@@ -11,13 +14,17 @@ class RpcContractInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class RpcRouteInfo:
+class RpcRouteInfo[ResultT]:
     method: str
-    summary: str = ""
-    tags: tuple[str, ...] = ()
-    deprecated: bool = False
-    error_codes: tuple[int, ...] = ()
-    server_names: tuple[str, ...] = ()
+    result_adapter: TypeAdapter[ResultT]
+    server: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RpcNotificationInfo[PayloadT]:
+    method: str
+    message_adapter: TypeAdapter[Any]
+    server: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,13 +41,24 @@ class RpcServerVariable:
 
 
 @dataclass(frozen=True, slots=True)
+class RpcTransportDescriptor:
+    type: str
+    message_encoding: str | None = None
+    subprotocols: tuple[str, ...] = ()
+    options: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "options", MappingProxyType(dict(self.options)))
+
+
+@dataclass(frozen=True, slots=True)
 class RpcServerInfo:
     name: str
     url: str
     summary: str = ""
     description: str = ""
     variables: Mapping[str, RpcServerVariable] = field(default_factory=dict)
-    transport: str | None = None
+    transport: RpcTransportDescriptor | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "variables", MappingProxyType(dict(self.variables)))

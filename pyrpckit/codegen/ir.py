@@ -127,7 +127,7 @@ class RouteDecl:
     description: str = ""
     tags: tuple[str, ...] = ()
     errors: tuple[ErrorDecl, ...] = ()
-    server_names: tuple[str, ...] = ()
+    server: str | None = None
     deprecated: bool = False
 
     @property
@@ -152,13 +152,21 @@ class ServerVariableDecl:
 
 
 @dataclass(frozen=True, slots=True)
+class TransportDecl:
+    type: str
+    message_encoding: str | None = None
+    subprotocols: tuple[str, ...] = ()
+    options: tuple[tuple[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ServerDecl:
     name: str
     url: str
     summary: str = ""
     description: str = ""
     variables: tuple[ServerVariableDecl, ...] = ()
-    transport: str | None = None
+    transport: TransportDecl | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,10 +180,12 @@ class ApiNode:
 @dataclass(frozen=True, slots=True)
 class NotificationDecl:
     rpc_name: str
+    operation_name: str
+    path: tuple[str, ...]
     payload: TypeExpr
     message: TypeExpr
     summary: str = ""
-    server_names: tuple[str, ...] = ()
+    server: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +224,8 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     root_operations = tuple(route for route in routes if not route.path)
     api = _api_tree(route for route in routes if route.path)
     notifications = _notifications(document)
+    servers = _servers(document)
+    _validate_server_references(routes, notifications, servers)
     declarations = (
         *discriminator_enums,
         *_schema_declarations(schemas, discriminator_fields),
@@ -222,7 +234,7 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         title=info.get("title", "RPC"),
         version=str(info.get("version", "0.0.0")),
         protocol_version=document.get("x-rpc-protocol-version"),
-        servers=_servers(document),
+        servers=servers,
         declarations=_reachable(
             declarations,
             _roots(routes, notifications),
@@ -445,7 +457,7 @@ def _route(method: dict[str, Any]) -> RouteDecl:
         description=method.get("description", ""),
         tags=tuple(tag["name"] for tag in method.get("tags", ())),
         errors=tuple(_error(error) for error in method.get("errors", ())),
-        server_names=tuple(server["name"] for server in method.get("servers", ())),
+        server=_server_reference(method, owner=f"Method {method['name']!r}"),
         deprecated=bool(method.get("deprecated", False)),
     )
 
@@ -472,18 +484,24 @@ def _error(error: dict[str, Any]) -> ErrorDecl:
 
 
 def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
-    return tuple(
-        NotificationDecl(
-            rpc_name=notification["name"],
-            payload=type_expression(notification["payload"]),
-            message=type_expression(notification["message"]),
-            summary=notification.get("summary", ""),
-            server_names=tuple(
-                server["name"] for server in notification.get("servers", ())
-            ),
+    declarations: list[NotificationDecl] = []
+    for notification in document.get("x-rpc-notifications", ()):
+        *path, operation_name = notification["name"].split(".")
+        declarations.append(
+            NotificationDecl(
+                rpc_name=notification["name"],
+                operation_name=operation_name,
+                path=tuple(path),
+                payload=type_expression(notification["payload"]),
+                message=type_expression(notification["message"]),
+                summary=notification.get("summary", ""),
+                server=_server_reference(
+                    notification,
+                    owner=f"Notification {notification['name']!r}",
+                ),
+            )
         )
-        for notification in document.get("x-rpc-notifications", ())
-    )
+    return tuple(declarations)
 
 
 def _servers(document: dict[str, Any]) -> tuple[ServerDecl, ...]:
@@ -502,9 +520,76 @@ def _servers(document: dict[str, Any]) -> tuple[ServerDecl, ...]:
                 )
                 for name, variable in server.get("variables", {}).items()
             ),
-            transport=server.get("x-rpckit-transport"),
+            transport=_transport(server.get("x-rpckit-transport"), server["name"]),
         )
         for server in document.get("servers", ())
+    )
+
+
+def _validate_server_references(
+    routes: tuple[RouteDecl, ...],
+    notifications: tuple[NotificationDecl, ...],
+    servers: tuple[ServerDecl, ...],
+) -> None:
+    declared = {server.name for server in servers}
+    missing = sorted(
+        {
+            item.server
+            for item in (*routes, *notifications)
+            if item.server is not None and item.server not in declared
+        }
+    )
+    if missing:
+        raise UnsupportedSchemaError(
+            "Routes reference undeclared OpenRPC servers: " + ", ".join(missing)
+        )
+
+
+def _server_reference(document: dict[str, Any], *, owner: str) -> str | None:
+    servers = document.get("servers", ())
+    if len(servers) > 1:
+        raise UnsupportedSchemaError(
+            f"{owner} references multiple servers; pyrpckit routes have one server"
+        )
+    return servers[0]["name"] if servers else None
+
+
+def _transport(value: Any, server_name: str) -> TransportDecl | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise UnsupportedSchemaError(
+            f"Server {server_name!r} x-rpckit-transport must be an object"
+        )
+    transport_type = value.get("type")
+    if not isinstance(transport_type, str) or not transport_type:
+        raise UnsupportedSchemaError(
+            f"Server {server_name!r} transport needs a non-empty type"
+        )
+    message_encoding = value.get("messageEncoding")
+    if message_encoding is not None and not isinstance(message_encoding, str):
+        raise UnsupportedSchemaError(
+            f"Server {server_name!r} transport messageEncoding must be a string"
+        )
+    subprotocols = value.get("subprotocols", ())
+    if not isinstance(subprotocols, list | tuple) or any(
+        not isinstance(item, str) for item in subprotocols
+    ):
+        raise UnsupportedSchemaError(
+            f"Server {server_name!r} transport subprotocols must be strings"
+        )
+    if transport_type == "websocket" and message_encoding != "json":
+        raise UnsupportedSchemaError(
+            f"Server {server_name!r} websocket transport must use JSON encoding"
+        )
+    known = {"type", "messageEncoding", "subprotocols"}
+    return TransportDecl(
+        type=transport_type,
+        message_encoding=message_encoding,
+        subprotocols=tuple(subprotocols),
+        options=tuple(
+            (name, item) for name, item in value.items() if name not in known
+        ),
     )
 
 

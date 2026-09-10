@@ -4,7 +4,13 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
-from pyrpckit.codegen.ir import ApiNode, ClientIr, RouteDecl, UnsupportedSchemaError
+from pyrpckit.codegen.ir import (
+    ApiNode,
+    ClientIr,
+    NotificationDecl,
+    RouteDecl,
+    UnsupportedSchemaError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +28,38 @@ class ApiViewNode:
     children: tuple[ApiViewNode, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class EventView:
+    root_events: tuple[NotificationDecl, ...]
+    nodes: tuple[EventViewNode, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EventViewNode:
+    segment: str
+    path: tuple[str, ...]
+    source_path: tuple[str, ...]
+    events: tuple[NotificationDecl, ...]
+    children: tuple[EventViewNode, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ClientView:
+    root_operations: tuple[RouteDecl, ...]
+    root_notifications: tuple[NotificationDecl, ...]
+    nodes: tuple[NamespaceViewNode, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NamespaceViewNode:
+    segment: str
+    path: tuple[str, ...]
+    source_path: tuple[str, ...]
+    operations: tuple[RouteDecl, ...]
+    notifications: tuple[NotificationDecl, ...]
+    children: tuple[NamespaceViewNode, ...]
+
+
 def api_view(
     ir: ClientIr,
     *,
@@ -29,7 +67,10 @@ def api_view(
     api_names: Mapping[str, str],
 ) -> ApiView:
     root = tuple(api_root.split(".")) if api_root else ()
-    if api_root and (any(not part for part in root) or not _root_exists(ir.api, root)):
+    root_exists = _root_exists(ir.api, root) or any(
+        notification.path[: len(root)] == root for notification in ir.notifications
+    )
+    if api_root and (any(not part for part in root) or not root_exists):
         raise UnsupportedSchemaError(
             f"api_root {api_root!r} does not identify an API path in the contract"
         )
@@ -60,6 +101,7 @@ def api_view(
         else:
             projected.append((visible, route.path, route))
 
+    matched_names.update(_matching_notification_aliases(ir, root, api_names))
     unknown = sorted(set(api_names) - matched_names)
     if unknown:
         rendered = ", ".join(repr(name) for name in unknown)
@@ -81,6 +123,48 @@ def api_view(
                 )
             visible_sources[visible_prefix] = source_prefix
     return ApiView(tuple(root_operations), _view_tree(projected))
+
+
+def event_view(
+    ir: ClientIr,
+    *,
+    api_root: str | None,
+    api_names: Mapping[str, str],
+) -> EventView:
+    root = tuple(api_root.split(".")) if api_root else ()
+    root_events: list[NotificationDecl] = []
+    projected: list[tuple[tuple[str, ...], tuple[str, ...], NotificationDecl]] = []
+    for event in ir.notifications:
+        source_path = event.path
+        visible_source = (
+            source_path[len(root) :]
+            if root and source_path[: len(root)] == root
+            else source_path
+        )
+        visible = tuple(
+            _api_name(source_path, visible_source, index, api_names, set())
+            for index in range(len(visible_source))
+        )
+        if not visible:
+            root_events.append(event)
+        else:
+            projected.append((visible, source_path, event))
+    return EventView(tuple(root_events), _event_tree(projected))
+
+
+def client_view(
+    ir: ClientIr,
+    *,
+    api_root: str | None,
+    api_names: Mapping[str, str],
+) -> ClientView:
+    routes = api_view(ir, api_root=api_root, api_names=api_names)
+    events = event_view(ir, api_root=api_root, api_names=api_names)
+    return ClientView(
+        root_operations=routes.root_operations,
+        root_notifications=events.root_events,
+        nodes=_merge_nodes(routes.nodes, events.nodes),
+    )
 
 
 def assert_unique_names(
@@ -198,3 +282,102 @@ def _view_node(
             for child_segment, child in children.items()
         ),
     )
+
+
+def _matching_notification_aliases(
+    ir: ClientIr,
+    root: tuple[str, ...],
+    aliases: Mapping[str, str],
+) -> set[str]:
+    matched: set[str] = set()
+    for event in ir.notifications:
+        visible = (
+            event.path[len(root) :]
+            if root and event.path[: len(root)] == root
+            else event.path
+        )
+        for index in range(len(visible)):
+            _api_name(event.path, visible, index, aliases, matched)
+    return matched
+
+
+def _event_tree(
+    events: list[tuple[tuple[str, ...], tuple[str, ...], NotificationDecl]],
+) -> tuple[EventViewNode, ...]:
+    tree: dict[str, dict[str, object]] = {}
+    for visible_path, source_path, event in events:
+        cursor = tree
+        for index, segment in enumerate(visible_path):
+            node = cursor.setdefault(
+                segment,
+                {
+                    "source_path": source_path[
+                        : len(source_path) - len(visible_path) + index + 1
+                    ],
+                    "events": [],
+                    "children": {},
+                },
+            )
+            if index == len(visible_path) - 1:
+                node_events = node["events"]
+                assert isinstance(node_events, list)
+                node_events.append(event)
+            children = node["children"]
+            assert isinstance(children, dict)
+            cursor = children
+    return tuple(_event_node(segment, node, ()) for segment, node in tree.items())
+
+
+def _event_node(
+    segment: str,
+    value: dict[str, object],
+    parent: tuple[str, ...],
+) -> EventViewNode:
+    children = value["children"]
+    events = value["events"]
+    source_path = value["source_path"]
+    assert isinstance(children, dict)
+    assert isinstance(events, list)
+    assert isinstance(source_path, tuple)
+    path = (*parent, segment)
+    return EventViewNode(
+        segment=segment,
+        path=path,
+        source_path=source_path,
+        events=tuple(events),
+        children=tuple(
+            _event_node(child_segment, child, path)
+            for child_segment, child in children.items()
+        ),
+    )
+
+
+def _merge_nodes(
+    routes: tuple[ApiViewNode, ...],
+    events: tuple[EventViewNode, ...],
+) -> tuple[NamespaceViewNode, ...]:
+    route_by_segment = {node.segment: node for node in routes}
+    event_by_segment = {node.segment: node for node in events}
+    segments = tuple(dict.fromkeys((*route_by_segment, *event_by_segment)))
+    merged: list[NamespaceViewNode] = []
+    for segment in segments:
+        route = route_by_segment.get(segment)
+        event = event_by_segment.get(segment)
+        path = route.path if route is not None else event.path  # type: ignore[union-attr]
+        source_path = (
+            route.source_path if route is not None else event.source_path  # type: ignore[union-attr]
+        )
+        merged.append(
+            NamespaceViewNode(
+                segment=segment,
+                path=path,
+                source_path=source_path,
+                operations=route.operations if route is not None else (),
+                notifications=event.events if event is not None else (),
+                children=_merge_nodes(
+                    route.children if route is not None else (),
+                    event.children if event is not None else (),
+                ),
+            )
+        )
+    return tuple(merged)
