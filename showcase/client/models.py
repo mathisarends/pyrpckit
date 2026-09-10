@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RpcModel(BaseModel):
-    pass
+    model_config = ConfigDict(validate_by_name=True)
 
 
 class BinaryOperationParams(RpcModel):

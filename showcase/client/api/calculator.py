@@ -22,11 +22,11 @@ class CalculatorApi:
         right: float,
         decimal_places: int | None = None,
     ) -> CalculationResult:
-        values: dict[str, object] = {}
-        values["left"] = left
-        values["right"] = right
-        values["decimalPlaces"] = decimal_places
-        params = BinaryOperationParams.model_validate(values)
+        params = BinaryOperationParams(
+            left=left,
+            right=right,
+            decimal_places=decimal_places,
+        )
         return await self._rpc.request(
             CALCULATOR_ADD,
             params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
@@ -40,11 +40,11 @@ class CalculatorApi:
         right: float,
         decimal_places: int | None = None,
     ) -> CalculationResult:
-        values: dict[str, object] = {}
-        values["left"] = left
-        values["right"] = right
-        values["decimalPlaces"] = decimal_places
-        params = BinaryOperationParams.model_validate(values)
+        params = BinaryOperationParams(
+            left=left,
+            right=right,
+            decimal_places=decimal_places,
+        )
         return await self._rpc.request(
             CALCULATOR_DIVIDE,
             params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),

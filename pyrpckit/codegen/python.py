@@ -89,8 +89,11 @@ def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     blocks: list[str] = []
     if ir.models:
-        imports.add("pydantic", "BaseModel")
-        blocks.append(f"class {options.base_model_name}(BaseModel):\n    pass")
+        imports.add("pydantic", "BaseModel", "ConfigDict")
+        blocks.append(
+            f"class {options.base_model_name}(BaseModel):\n"
+            "    model_config = ConfigDict(validate_by_name=True)"
+        )
     blocks.extend(
         _declaration_block(declaration, options, imports)
         for declaration in ir.declarations
@@ -363,20 +366,31 @@ def _operation_lines(
 def _operation_body(route: RouteDecl) -> list[str]:
     lines: list[str] = []
     if route.params_model is not None:
-        lines.append("        values: dict[str, object] = {}")
-        for parameter in route.params:
-            name = _identifier(parameter.name)
-            if parameter.required or parameter.has_default:
-                lines.append(f"        values[{_literal(parameter.name)}] = {name}")
-            else:
-                lines.extend(
-                    [
-                        f"        if {name} is not UNSET:",
-                        f"            values[{_literal(parameter.name)}] = {name}",
-                    ]
-                )
         model_name = _schema_name(route.params_model)
-        lines.append(f"        params = {model_name}.model_validate(values)")
+        if all(
+            parameter.required or parameter.has_default for parameter in route.params
+        ):
+            lines.append(f"        params = {model_name}(")
+            lines.extend(
+                f"            {_identifier(parameter.name)}="
+                f"{_identifier(parameter.name)},"
+                for parameter in route.params
+            )
+            lines.append("        )")
+        else:
+            lines.append("        values: dict[str, object] = {}")
+            for parameter in route.params:
+                name = _identifier(parameter.name)
+                if parameter.required or parameter.has_default:
+                    lines.append(f"        values[{_literal(parameter.name)}] = {name}")
+                else:
+                    lines.extend(
+                        [
+                            f"        if {name} is not UNSET:",
+                            f"            values[{_literal(parameter.name)}] = {name}",
+                        ]
+                    )
+            lines.append(f"        params = {model_name}.model_validate(values)")
     lines.append("        return await self._rpc.request(")
     lines.append(f"            {route.method_member},")
     if route.params_model is not None:
