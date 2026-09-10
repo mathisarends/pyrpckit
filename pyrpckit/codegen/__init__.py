@@ -13,10 +13,9 @@ from pyrpckit.codegen.typescript import (
 from pyrpckit.codegen.typescript import (
     render_files as render_typescript_files,
 )
-from pyrpckit.codegen.writer import write_files
+from pyrpckit.codegen.writer import MANIFEST, write_files
 
-MANIFEST = ".pyrpckit-generated.json"
-LAYOUT_VERSION = 3
+LAYOUT_VERSION = 4
 
 __all__ = [
     "ClientIr",

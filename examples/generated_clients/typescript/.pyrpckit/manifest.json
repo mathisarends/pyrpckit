@@ -1,11 +1,11 @@
 {
   "generator": "pyrpckit",
   "generatorVersion": "0.2.0",
-  "layoutVersion": 3,
+  "layoutVersion": 4,
   "language": "typescript",
   "contractSha256": "fe2dbed4811014f3aa2a77b9c123b3ba6c96ae0d22b0800da3e955f01afb1743",
   "files": [
-    ".pyrpckit-generated.json",
+    ".pyrpckit/manifest.json",
     "client.ts",
     "core.ts",
     "endpoints.ts",

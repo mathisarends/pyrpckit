@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from pyrpckit.codegen.writer import MANIFEST, write_files
+from pyrpckit.codegen.writer import LEGACY_MANIFEST, MANIFEST, write_files
 
 
 def _manifest(*files: str) -> str:
@@ -63,3 +63,27 @@ def test_an_unsafe_manifest_path_is_rejected_before_writing(tmp_path: Path) -> N
         write_files(output, {"new.py": "new\n", MANIFEST: _manifest("new.py")})
 
     assert not (output / "new.py").exists()
+
+
+def test_a_legacy_manifest_is_migrated_without_leaving_a_sidecar(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "client"
+    output.mkdir()
+    (output / "current.py").write_text("current\n", encoding="utf-8")
+    (output / LEGACY_MANIFEST).write_text(
+        json.dumps({"files": ["current.py", LEGACY_MANIFEST]}),
+        encoding="utf-8",
+    )
+
+    changed = write_files(
+        output,
+        {
+            "current.py": "current\n",
+            MANIFEST: _manifest("current.py"),
+        },
+    )
+
+    assert changed == (output / MANIFEST, output / LEGACY_MANIFEST)
+    assert (output / MANIFEST).is_file()
+    assert not (output / LEGACY_MANIFEST).exists()

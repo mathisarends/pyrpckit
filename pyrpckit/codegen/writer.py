@@ -2,7 +2,8 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-MANIFEST = ".pyrpckit-generated.json"
+MANIFEST = ".pyrpckit/manifest.json"
+LEGACY_MANIFEST = ".pyrpckit-generated.json"
 
 
 def write_files(
@@ -45,8 +46,15 @@ def write_files(
 
 
 def _generated_paths(output_dir: Path) -> set[str]:
-    manifest = output_dir / MANIFEST
-    if not manifest.is_file():
+    manifest = next(
+        (
+            output_dir / name
+            for name in (MANIFEST, LEGACY_MANIFEST)
+            if (output_dir / name).is_file()
+        ),
+        None,
+    )
+    if manifest is None:
         return set()
     try:
         document = json.loads(manifest.read_text(encoding="utf-8"))

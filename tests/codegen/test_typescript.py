@@ -8,6 +8,7 @@ import pytest
 
 from pyrpckit.codegen import generate_typescript_client, render_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from pyrpckit.codegen.writer import MANIFEST
 
 
 def options() -> TypeScriptClientOptions:
@@ -23,7 +24,7 @@ def test_the_generated_package_has_one_module_per_concern(
     files = render_typescript_client(document, options())
 
     assert set(files) == {
-        ".pyrpckit-generated.json",
+        MANIFEST,
         "core.ts",
         "namespaces/greeting.ts",
         "namespaces/index.ts",
@@ -40,7 +41,7 @@ def test_the_generated_package_has_one_module_per_concern(
             "// Regenerate it from the OpenRPC document instead.\n"
         )
         for name, content in files.items()
-        if name != ".pyrpckit-generated.json"
+        if name != MANIFEST
     )
 
 
