@@ -216,7 +216,7 @@ await client.agent.run.steer({
   instruction: "Check the logs first",
 });
 
-for await (const notification of client.notifications()) {
+for await (const notification of client.agent.run.update()) {
   switch (notification.type) {
     case "text.delta":
       renderText(notification.delta);
@@ -552,18 +552,18 @@ export interface RpcTransport {
 The generated Python package holds no hand-written code and is meant to be committed:
 
 - `models.py` — reachable Pydantic models and type aliases
-- `namespaces/<group>.py` — the route hierarchy as small `Api` classes
-- `metadata.py` — exact wire names, tags, errors, and deprecation metadata
+- `namespaces/<group>.py` — the route hierarchy as small domain classes
+- `routes.py` — exact wire names and response and notification adapters
 - `endpoints.py` — server URL templates when the contract declares servers
 - `errors.py` — stably named declared remote errors
-- `client.py` — the root facade, notification stream, and transport lifecycle
+- `client.py` — the root facade and transport lifecycle
 - `__init__.py` — a small curated public surface
 - `.rpcgen/manifest.json` — generated-file ownership and contract digest
 
 ```python
 async with GreetingClient(transport) as client:
     greeting = await client.greeting.say(name="Mathis")  # -> SayResult
-    async for notification in client.notifications():  # -> GreetingUpdate
+    async for notification in client.greeting.changed():  # -> GreetingUpdate
         print(notification)
 ```
 

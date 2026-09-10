@@ -16,7 +16,7 @@ from .models import RpcModel
 from .router import RpcRouter
 from .server import RpcErrorMapper, RpcServer
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "ProtocolDefinitionError",
