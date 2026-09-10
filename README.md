@@ -75,13 +75,13 @@ library into a web framework.
 
 ## What you can build
 
-| Use case | Methods flowing in | Notifications flowing out |
-| --- | --- | --- |
-| Agent gateway | start, steer, approve, cancel | text deltas, tool calls, tool results, completion |
-| Automation control plane | launch, pause, retry | progress, logs, state transitions |
-| Remote browser or device control | navigate, click, inspect | DOM changes, screenshots, telemetry |
-| Developer tooling | run, debug, stop | diagnostics, output, test results |
-| Realtime application backend | commands and queries | domain notifications and live updates |
+| Use case                         | Methods flowing in            | Notifications flowing out                         |
+| -------------------------------- | ----------------------------- | ------------------------------------------------- |
+| Agent gateway                    | start, steer, approve, cancel | text deltas, tool calls, tool results, completion |
+| Automation control plane         | launch, pause, retry          | progress, logs, state transitions                 |
+| Remote browser or device control | navigate, click, inspect      | DOM changes, screenshots, telemetry               |
+| Developer tooling                | run, debug, stop              | diagnostics, output, test results                 |
+| Realtime application backend     | commands and queries          | domain notifications and live updates             |
 
 These are architectural patterns, not bundled transports or domain-specific
 implementations. `pyrpckit` supplies the typed protocol layer between them.
@@ -167,7 +167,6 @@ class ToolResult(RpcModel):
 
 
 type AgentUpdate = TextDelta | ToolCall | ToolResult
-
 agent = RpcRouter(namespace="agent", tags=("agent",))
 
 
