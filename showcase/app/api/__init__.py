@@ -4,7 +4,10 @@ from showcase.app.api.errors import DivisionByZero
 from showcase.app.api.handler import CalculatorRpc, router
 from showcase.app.api.models import (
     BinaryOperationParams,
+    CalculationCompleted,
     CalculationResult,
+    CalculationStarted,
+    CalculationUpdate,
 )
 
 CALCULATOR_RPC = RpcApp(version=1)
@@ -20,7 +23,10 @@ __all__ = [
     "CALCULATOR_RPC",
     "CALCULATOR_RPC_CONTRACT",
     "BinaryOperationParams",
+    "CalculationCompleted",
     "CalculationResult",
+    "CalculationStarted",
+    "CalculationUpdate",
     "CalculatorRpc",
     "DivisionByZero",
 ]

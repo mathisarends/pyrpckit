@@ -163,6 +163,34 @@
         "title": "BinaryOperationParams",
         "type": "object"
       },
+      "CalculationCompleted": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "calculation.completed",
+            "default": "calculation.completed",
+            "title": "Type",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "add",
+              "divide"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CalculationResult"
+          }
+        },
+        "required": [
+          "operation",
+          "result"
+        ],
+        "title": "CalculationCompleted",
+        "type": "object"
+      },
       "CalculationResult": {
         "additionalProperties": false,
         "properties": {
@@ -176,6 +204,40 @@
         ],
         "title": "CalculationResult",
         "type": "object"
+      },
+      "CalculationStarted": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "calculation.started",
+            "default": "calculation.started",
+            "title": "Type",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "add",
+              "divide"
+            ],
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "title": "CalculationStarted",
+        "type": "object"
+      },
+      "CalculationUpdate": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/CalculationStarted"
+          },
+          {
+            "$ref": "#/components/schemas/CalculationCompleted"
+          }
+        ]
       },
       "AddRequest": {
         "additionalProperties": false,
@@ -250,10 +312,58 @@
           "method",
           "params"
         ]
+      },
+      "CalculatorUpdatedNotification": {
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CalculatorUpdatedNotification",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "type": "string"
+          },
+          "method": {
+            "const": "calculator.updated",
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/CalculationUpdate"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params"
+        ],
+        "description": "Publish calculation lifecycle updates."
       }
     }
   },
   "x-rpc-protocol-version": 1,
-  "x-rpc-notifications": [],
-  "x-rpc-notification-types": []
+  "x-rpc-notifications": [
+    {
+      "name": "calculator.updated",
+      "payload": {
+        "$ref": "#/components/schemas/CalculationUpdate"
+      },
+      "message": {
+        "$ref": "#/components/schemas/CalculatorUpdatedNotification"
+      },
+      "summary": "Publish calculation lifecycle updates."
+    }
+  ],
+  "x-rpc-notification-types": [
+    {
+      "name": "calculation.started",
+      "payload": {
+        "$ref": "#/components/schemas/CalculationStarted"
+      }
+    },
+    {
+      "name": "calculation.completed",
+      "payload": {
+        "$ref": "#/components/schemas/CalculationCompleted"
+      }
+    }
+  ]
 }

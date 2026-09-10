@@ -22,6 +22,10 @@ class CalculatorRpc:
     @router.method
     async def add(self, params: BinaryOperationParams) -> CalculationResult:
         return CalculationResult(value=params.left + params.right)
+
+
+@router.notification("updated")
+def calculation_updated() -> CalculationUpdate: ...
 ```
 
 ## 2. Attach a transport
@@ -67,11 +71,19 @@ The useful part of the generated surface is intentionally small:
 async with CalculatorClient(transport) as client:
     result = await client.calculator.divide(left=84, right=2, decimal_places=2)
     print(result.value)  # 42.0
+
+    async for update in client.notifications():
+        print(update.type)
 ```
 
 [`client/transport.py`](../client/transport.py) is the only hand-written client
 integration. It implements the small `RpcTransport` protocol with HTTPX; generated
 code is not tied to FastAPI or HTTP.
+
+The generated `notifications()` method validates notification envelopes and yields
+the typed `CalculationStarted | CalculationCompleted` payload. This HTTP transport
+does not provide a streaming channel, so its notification iterator is empty; a
+WebSocket or queue transport can feed that same generated API.
 
 With the server running, execute the complete client call:
 

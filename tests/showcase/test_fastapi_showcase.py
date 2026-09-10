@@ -54,6 +54,13 @@ def test_the_committed_contract_matches_the_declared_api() -> None:
         "calculator.add",
         "calculator.divide",
     ]
+    assert [item["name"] for item in committed["x-rpc-notifications"]] == [
+        "calculator.updated"
+    ]
+    assert [item["name"] for item in committed["x-rpc-notification-types"]] == [
+        "calculation.started",
+        "calculation.completed",
+    ]
 
 
 def test_the_committed_client_matches_the_committed_contract() -> None:

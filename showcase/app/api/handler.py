@@ -4,6 +4,7 @@ from showcase.app.api.errors import DivisionByZero
 from showcase.app.api.models import (
     BinaryOperationParams,
     CalculationResult,
+    CalculationUpdate,
 )
 
 router = RpcRouter(namespace="calculator", tags=("calculator",))
@@ -19,6 +20,10 @@ class CalculatorRpc:
         if params.right == 0:
             raise DivisionByZero()
         return CalculationResult(value=_rounded(params.left / params.right, params))
+
+
+@router.notification("updated", summary="Publish calculation lifecycle updates.")
+def calculation_updated() -> CalculationUpdate: ...
 
 
 def _rounded(value: float, params: BinaryOperationParams) -> float:
