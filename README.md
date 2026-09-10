@@ -300,7 +300,11 @@ The core package has no FastAPI or Dishka dependency.
 For contracts, declare matching subprotocols with
 `RpcContract.from_channels(..., subprotocols={"control": "jsonrpc"})`.
 Contract export freezes channel definitions; all channels must share a protocol
-version. Configure tags and version directly on each `RpcChannel`.
+version. For static composition, pass `modules=(navigation, clipboard, tabs)` to
+`RpcChannel`; `include()` remains available for dynamic assembly. Calling
+`channel.freeze()` makes materialization explicit and returns the same immutable
+protocol as `channel.protocol`. No methods, events, or modules can be added
+after either form materializes the protocol.
 
 Migrating from `RpcAPIRouter`: replace it with `APIRouter`, create channels with
 `RpcChannel`, and register explicit endpoints calling `serve()`. Replace

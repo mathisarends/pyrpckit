@@ -38,6 +38,7 @@ class RpcChannel:
         name: str = "default",
         namespace: str = "",
         tags: Iterable[str] = (),
+        modules: Iterable[RpcModule] = (),
         resolver_scope: RpcResolverScope = call_scope,
         version: int = 1,
     ) -> None:
@@ -54,6 +55,8 @@ class RpcChannel:
         self._events: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
         self._protocol: RpcProtocol | None = None
+        for module in modules:
+            self.include(module)
 
     @property
     def name(self) -> str:
@@ -163,6 +166,11 @@ class RpcChannel:
 
     @property
     def protocol(self) -> RpcProtocol:
+        """Return the immutable protocol, freezing this channel if needed."""
+        return self.freeze()
+
+    def freeze(self) -> RpcProtocol:
+        """Materialize the protocol and prevent further route registration."""
         if self._protocol is None:
             self._reserve(
                 *(route.name for route in self._operations.routes),
@@ -214,7 +222,8 @@ class RpcChannel:
     def _ensure_mutable(self) -> None:
         if self._protocol is not None:
             raise ProtocolDefinitionError(
-                "RpcChannel is frozen after its protocol has been accessed"
+                f"RpcChannel {self.name!r} is frozen because its protocol was already "
+                "materialized (directly or by RpcContract.from_channels())"
             )
 
 

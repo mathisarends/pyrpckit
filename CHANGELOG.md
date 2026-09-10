@@ -14,3 +14,6 @@
 - Let generated TypeScript WebSocket transports and endpoint overrides accept
   `URL` objects. Endpoint `subprotocols` are optional and inherit their contract
   default; single-server clients also accept `connect({ url })`.
+- Support declarative `modules=` composition in `RpcChannel` and add an explicit,
+  idempotent `freeze()` method. Freeze errors now identify the channel and
+  explain that contract generation may have materialized its protocol.

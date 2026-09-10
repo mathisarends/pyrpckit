@@ -122,6 +122,24 @@ def test_app_composes_namespaces_tags_and_a_router_snapshot() -> None:
     assert app.protocol.methods[0].tags == ("browser", "control", "admin")
 
 
+def test_modules_can_be_composed_in_the_channel_constructor() -> None:
+    first = rpc.RpcModule(namespace="first")
+    second = rpc.RpcModule(namespace="second")
+
+    @first.method()
+    async def one() -> None: ...
+
+    @second.method()
+    async def two() -> None: ...
+
+    app = rpc.RpcChannel(name="composed", modules=(first, second))
+
+    assert [method.name for method in app.protocol.methods] == [
+        "first.one",
+        "second.two",
+    ]
+
+
 async def test_include_can_override_a_router_resolver_scope() -> None:
     entered: list[str] = []
 
@@ -155,10 +173,14 @@ async def test_include_can_override_a_router_resolver_scope() -> None:
 
 
 def test_an_app_freezes_after_protocol_access() -> None:
-    app = rpc.RpcChannel()
-    _ = app.protocol
+    app = rpc.RpcChannel(name="browser-control")
+    assert app.freeze() is app.freeze()
+    assert app.protocol is app.freeze()
 
-    with pytest.raises(rpc.ProtocolDefinitionError, match="frozen"):
+    with pytest.raises(
+        rpc.ProtocolDefinitionError,
+        match="RpcChannel 'browser-control' is frozen.*RpcContract.from_channels",
+    ):
         app.include(rpc.RpcModule())
 
 

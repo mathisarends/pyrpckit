@@ -23,14 +23,13 @@ async def profile() -> ProfileResult:
     return ProfileResult(name="Mathis")
 
 
-APP = RpcChannel(version=2)
-APP.include(system)
-APP.include(account)
+APP = RpcChannel(version=2, modules=(system, account))
 
 
 def main() -> None:
-    print(f"Protocol version: {APP.protocol.version}")
-    for method in APP.protocol.methods:
+    protocol = APP.freeze()
+    print(f"Protocol version: {protocol.version}")
+    for method in protocol.methods:
         print(f"{method.tags[0]}: {method.name}")
 
 
