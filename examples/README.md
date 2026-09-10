@@ -33,6 +33,3 @@ uv run python examples/notifications.py
 uv run python examples/schemas.py
 uv run python examples/typescript_codegen.py
 ```
-
-For a complete FastAPI integration and generated client, see the
-[`showcase/`](../showcase/README.md).

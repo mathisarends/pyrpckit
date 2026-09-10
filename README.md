@@ -585,9 +585,7 @@ batch without writing.
 
 ## Development
 
-Small, direct library examples live in [`examples/`](examples/). For a complete,
-runnable server-to-generated-client walkthrough, see the
-[FastAPI showcase](showcase/README.md).
+Small, direct library examples live in [`examples/`](examples/).
 
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
 
