@@ -15,9 +15,9 @@ from typing import (
 
 from pydantic import BaseModel, create_model
 
-from pyrpckit._wire import wire_annotation
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
 from pyrpckit.models import RpcModel
+from pyrpckit.wire import wire_annotation
 
 
 @dataclass(frozen=True, slots=True)

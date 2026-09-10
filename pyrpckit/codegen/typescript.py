@@ -3,14 +3,6 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
-from pyrpckit.codegen._names import (
-    NamespaceViewNode,
-    assert_unique_names,
-    camel_case,
-    client_view,
-    pascal_case,
-)
-from pyrpckit.codegen._templating import render_template
 from pyrpckit.codegen.ir import (
     AliasDecl,
     ClientIr,
@@ -33,6 +25,14 @@ from pyrpckit.codegen.ir import (
     UnsupportedSchemaError,
     named_types,
 )
+from pyrpckit.codegen.names import (
+    NamespaceViewNode,
+    assert_unique_names,
+    camel_case,
+    client_view,
+    pascal_case,
+)
+from pyrpckit.codegen.templating import render_template
 
 
 @dataclass(frozen=True, slots=True)

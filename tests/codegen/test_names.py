@@ -4,8 +4,8 @@ from typing import Any
 import pytest
 
 from pyrpckit.codegen import render_python_client
-from pyrpckit.codegen._names import camel_case, pascal_case, snake_case
 from pyrpckit.codegen.ir import UnsupportedSchemaError
+from pyrpckit.codegen.names import camel_case, pascal_case, snake_case
 from pyrpckit.codegen.python import PythonClientOptions
 
 
