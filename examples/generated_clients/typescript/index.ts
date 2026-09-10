@@ -9,4 +9,4 @@ export { endpoints, servers } from "./endpoints";
 export type { Endpoint, ServerName } from "./endpoints";
 export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
-export type { Frame, TaskUpdated } from "./models";
+export type * from "./models";

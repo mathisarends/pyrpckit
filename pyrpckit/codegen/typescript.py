@@ -258,12 +258,6 @@ class _Renderer:
         )
 
     def index(self) -> str:
-        notification_type = _notification_type(self.ir)
-        notification_export = (
-            _type_export(_model_names(notification_type), "./models")
-            if notification_type is not None
-            else ""
-        )
         body = self.template(
             "index",
             client_name=self.client_name,
@@ -271,7 +265,6 @@ class _Renderer:
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
             named_errors=_named_errors(self.ir),
-            notification_export=notification_export,
         )
         return self.module(body)
 

@@ -172,11 +172,11 @@ def test_servers_generate_endpoint_metadata(document: dict[str, Any]) -> None:
     assert 'from "./endpoints"' in files["index.ts"]
 
 
-def test_the_index_keeps_a_small_public_surface(document: dict[str, Any]) -> None:
+def test_the_index_exports_all_public_models(document: dict[str, Any]) -> None:
     index = render_typescript_client(document, options())["index.ts"]
 
     assert 'export { GreetingClient } from "./client";' in index
-    assert 'export type { GreetingUpdate } from "./models";' in index
+    assert 'export type * from "./models";' in index
     assert "GreetingApi" not in index
     assert "RpcClientCore" not in index
 

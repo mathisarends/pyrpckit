@@ -6,5 +6,4 @@ export type { Endpoint, ServerName } from "./endpoints";
 {% endif %}{% if with_websocket %}export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
 {% endif %}{% if named_errors %}export * from "./errors";
-{% endif %}{% if notification_export %}{{ notification_export }}
-{% endif %}
+{% endif %}export type * from "./models";

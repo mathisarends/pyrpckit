@@ -192,7 +192,9 @@ pyrpckit generate schema/browser.openrpc.json \
 ```
 
 Use `--language typescript` to generate a TypeScript client from the same
-document.
+document. Every generated request, response, and event model is exported from
+the package root, so consumers can import all public types from the generated
+package entry point.
 
 ## FastAPI and Dishka
 
