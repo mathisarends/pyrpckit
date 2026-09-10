@@ -3,11 +3,23 @@
 from automation_client import endpoints
 from automation_client.client import AutomationClient
 from automation_client.endpoints import Endpoint, ServerName
+from automation_client.internal import (
+    RpcClientError,
+    RpcNotificationValidationError,
+    RpcRemoteError,
+    RpcResponseValidationError,
+    RpcTransportError,
+)
 from automation_client.transport import WebSocketTransport
 
 __all__ = [
     "AutomationClient",
     "Endpoint",
+    "RpcClientError",
+    "RpcNotificationValidationError",
+    "RpcRemoteError",
+    "RpcResponseValidationError",
+    "RpcTransportError",
     "ServerName",
     "WebSocketTransport",
     "endpoints",

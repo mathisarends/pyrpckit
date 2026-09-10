@@ -4,7 +4,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pyrpckit.client import RpcServerInfo, RpcServerVariable, RpcTransportDescriptor
+from automation_client.internal import (
+    RpcServerInfo,
+    RpcServerVariable,
+    RpcTransportDescriptor,
+)
 
 
 class ServerName(StrEnum):

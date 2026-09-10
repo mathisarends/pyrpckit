@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncIterator, Awaitable
 from typing import Any, Protocol, Self
 
-from pyrpckit.client import RpcRemoteError, RpcTransportError
+from automation_client.internal import RpcRemoteError, RpcTransportError
 
 type JsonObject = dict[str, Any]
 _STREAM_ENDED = object()

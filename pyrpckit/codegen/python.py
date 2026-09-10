@@ -34,8 +34,6 @@ from pyrpckit.codegen.ir import (
     named_types,
 )
 
-RUNTIME_MODULE = "pyrpckit.client"
-
 
 class _Imports:
     def __init__(self) -> None:
@@ -49,7 +47,13 @@ class _Imports:
         groups: dict[int, list[str]] = {}
         for module in sorted(self._modules):
             groups.setdefault(_import_group(module), []).append(
-                _import_line(module, sorted(self._modules[module]))
+                _import_line(
+                    module,
+                    sorted(
+                        self._modules[module],
+                        key=_import_name_key,
+                    ),
+                )
             )
         return "\n\n".join("\n".join(groups[rank]) for rank in sorted(groups))
 
@@ -72,6 +76,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     _validate(ir, view.root_operations, view.nodes, options, client_name)
     files = {
         "__init__.py": _render_package_init(ir, options, client_name),
+        **_render_runtime(options),
         "client.py": _render_client(
             ir,
             view.root_operations,
@@ -92,10 +97,82 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
-        files["namespaces/__init__.py"] = _module(options, _Imports(), "")
         for node in _walk(view.nodes):
             files[_api_file(node)] = _render_api(node, ir, options)
     return files
+
+
+def _render_runtime(options: PythonClientOptions) -> dict[str, str]:
+    files = {
+        "internal/__init__.py": _render_runtime_init(options),
+        "internal/core.py": _render_runtime_module(options, "core"),
+        "internal/errors.py": _render_runtime_module(options, "errors"),
+        "internal/metadata.py": _render_runtime_module(options, "metadata"),
+        "internal/transport.py": _render_runtime_module(options, "transport"),
+        "internal/unset.py": _render_runtime_module(options, "unset"),
+    }
+    if options.with_transport == "websocket":
+        files["internal/connection.py"] = _render_runtime_module(
+            options,
+            "connection",
+        )
+    return files
+
+
+def _render_runtime_init(options: PythonClientOptions) -> str:
+    imports = _Imports()
+    exported = ["UNSET", "RpcClientCore", "RpcClientHook", "UnsetType"]
+    if options.with_transport == "websocket":
+        imports.add(".connection", "ClientConnection")
+        exported.append("ClientConnection")
+    imports.add(".core", "RpcClientCore", "RpcClientHook")
+    imports.add(
+        ".errors",
+        "RpcClientError",
+        "RpcNotificationValidationError",
+        "RpcRemoteError",
+        "RpcResponseValidationError",
+        "RpcTransportError",
+    )
+    imports.add(
+        ".metadata",
+        "JsonValue",
+        "RpcContractInfo",
+        "RpcNotificationInfo",
+        "RpcRouteInfo",
+        "RpcServerInfo",
+        "RpcServerVariable",
+        "RpcTransportDescriptor",
+    )
+    imports.add(".transport", "RpcTransport")
+    imports.add(".unset", "UNSET", "UnsetType")
+    exported.extend(
+        [
+            "JsonValue",
+            "RpcClientError",
+            "RpcContractInfo",
+            "RpcNotificationInfo",
+            "RpcNotificationValidationError",
+            "RpcRemoteError",
+            "RpcResponseValidationError",
+            "RpcRouteInfo",
+            "RpcServerInfo",
+            "RpcServerVariable",
+            "RpcTransport",
+            "RpcTransportDescriptor",
+            "RpcTransportError",
+        ]
+    )
+    return _module(options, imports, _exports(exported))
+
+
+def _render_runtime_module(options: PythonClientOptions, name: str) -> str:
+    body = render_template(f"python/runtime/{name}.py.j2").rstrip()
+    return _module(options, _Imports(), body)
+
+
+def _runtime_module(options: PythonClientOptions) -> str:
+    return f"{options.package}.internal"
 
 
 def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
@@ -121,7 +198,7 @@ def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
 def _render_routes(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     imports.add("pydantic", "TypeAdapter")
-    imports.add(RUNTIME_MODULE, "RpcNotificationInfo", "RpcRouteInfo")
+    imports.add(_runtime_module(options), "RpcNotificationInfo", "RpcRouteInfo")
     blocks: list[str] = []
     for route in ir.operations:
         imports.add(
@@ -168,9 +245,13 @@ def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
     imports.add("collections.abc", "Iterable")
     imports.add("dataclasses", "dataclass")
     imports.add("enum", "StrEnum")
-    imports.add(RUNTIME_MODULE, "RpcServerInfo", "RpcTransportDescriptor")
+    imports.add(
+        _runtime_module(options),
+        "RpcServerInfo",
+        "RpcTransportDescriptor",
+    )
     if any(server.variables for server in ir.servers):
-        imports.add(RUNTIME_MODULE, "RpcServerVariable")
+        imports.add(_runtime_module(options), "RpcServerVariable")
     if any(variable.enum for server in ir.servers for variable in server.variables):
         imports.add("typing", "Literal")
 
@@ -336,7 +417,7 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
                 continue
             seen.add(error.name)
             imports.add("typing", "ClassVar")
-            imports.add(RUNTIME_MODULE, "RpcRemoteError")
+            imports.add(_runtime_module(options), "RpcRemoteError")
             if error.data is not None:
                 imports.add(f"{options.package}.models", *_model_names(error.data))
             lines = [
@@ -374,7 +455,7 @@ def _render_api(
     options: PythonClientOptions,
 ) -> str:
     imports = _Imports()
-    imports.add(RUNTIME_MODULE, "RpcClientCore")
+    imports.add(_runtime_module(options), "RpcClientCore")
     class_name = _api_class(node.path)
     constants: list[str] = []
     lines = [
@@ -404,14 +485,13 @@ def _render_client(
 ) -> str:
     imports = _Imports()
     imports.add("typing", "Self")
-    imports.add(RUNTIME_MODULE, "RpcClientCore", "RpcTransport")
+    imports.add(_runtime_module(options), "RpcClientCore", "RpcTransport")
     constants: list[str] = []
     if ir.servers:
         imports.add("collections.abc", "Mapping")
         imports.add(f"{options.package}.endpoints", "ServerName")
     if options.with_transport == "websocket":
-        imports.add("collections.abc", "Awaitable", "Callable")
-        imports.add("typing", "Protocol")
+        imports.add(_runtime_module(options), "ClientConnection")
         imports.add(
             f"{options.package}.endpoints",
             "Endpoint",
@@ -452,7 +532,7 @@ def _render_client(
     if ir.servers:
         lines.extend(["", *_from_transports_lines(ir.servers)])
     if options.with_transport == "websocket":
-        lines.extend(["", *_connection_lines(client_name)])
+        lines.extend(["", *_connection_lines()])
     for route in root_operations:
         lines.extend(["", *_operation_lines(route, imports, options)])
     for event in root_events:
@@ -471,25 +551,6 @@ def _render_client(
         ]
     )
     body = _constants_and_definition(constants, "\n".join(lines))
-    if options.with_transport == "websocket":
-        context = (
-            "class _Closable(Protocol):\n"
-            "    async def close(self) -> None: ...\n\n\n"
-            "class _ConnectionContext[ClientT: _Closable]:\n"
-            "    def __init__(\n"
-            "        self,\n"
-            "        open_client: Callable[[], Awaitable[ClientT]],\n"
-            "    ) -> None:\n"
-            "        self._open_client = open_client\n"
-            "        self._client: ClientT | None = None\n\n"
-            "    async def __aenter__(self) -> ClientT:\n"
-            "        self._client = await self._open_client()\n"
-            "        return self._client\n\n"
-            "    async def __aexit__(self, *args: object) -> None:\n"
-            "        if self._client is not None:\n"
-            "            await self._client.close()"
-        )
-        body = f"{context}\n\n\n{body}"
     return _module(options, imports, body)
 
 
@@ -525,7 +586,7 @@ def _from_transports_lines(servers: tuple[ServerDecl, ...]) -> list[str]:
     return lines
 
 
-def _connection_lines(client_name: str) -> list[str]:
+def _connection_lines() -> list[str]:
     return [
         "    @classmethod",
         "    def connect(",
@@ -533,36 +594,14 @@ def _connection_lines(client_name: str) -> list[str]:
         "        *endpoint_overrides: Endpoint,",
         "        request_timeout: float | None = None,",
         "        notification_queue_size: int = 100,",
-        "    ) -> _ConnectionContext[Self]:",
-        "        return _ConnectionContext(",
-        "            lambda: cls.open(",
-        "                *endpoint_overrides,",
-        "                request_timeout=request_timeout,",
-        "                notification_queue_size=notification_queue_size,",
-        "            )",
+        "    ) -> ClientConnection[Self, ServerName]:",
+        "        return ClientConnection(",
+        "            client_factory=cls.from_transport_map,",
+        "            endpoints=resolve_endpoints(endpoint_overrides),",
+        "            transport_factory=WebSocketTransport.open,",
+        "            request_timeout=request_timeout,",
+        "            notification_queue_size=notification_queue_size,",
         "        )",
-        "",
-        "    @classmethod",
-        "    async def open(",
-        "        cls,",
-        "        *endpoint_overrides: Endpoint,",
-        "        request_timeout: float | None = None,",
-        "        notification_queue_size: int = 100,",
-        "    ) -> Self:",
-        "        transports: dict[ServerName, RpcTransport] = {}",
-        "        try:",
-        "            for endpoint in resolve_endpoints(endpoint_overrides):",
-        "                transports[endpoint.server] = await WebSocketTransport.open(",
-        "                    endpoint.url,",
-        "                    subprotocols=endpoint.subprotocols,",
-        "                    request_timeout=request_timeout,",
-        "                    notification_queue_size=notification_queue_size,",
-        "                )",
-        "        except BaseException:",
-        "            for transport in transports.values():",
-        "                await transport.close()",
-        "            raise",
-        "        return cls.from_transport_map(transports)",
     ]
 
 
@@ -572,8 +611,23 @@ def _render_package_init(
     client_name: str,
 ) -> str:
     imports = _Imports()
+    imports.add(
+        _runtime_module(options),
+        "RpcClientError",
+        "RpcNotificationValidationError",
+        "RpcRemoteError",
+        "RpcResponseValidationError",
+        "RpcTransportError",
+    )
     imports.add(f"{options.package}.client", client_name)
-    exported = [client_name]
+    exported = [
+        client_name,
+        "RpcClientError",
+        "RpcNotificationValidationError",
+        "RpcRemoteError",
+        "RpcResponseValidationError",
+        "RpcTransportError",
+    ]
     if ir.servers:
         imports.add(options.package, "endpoints")
         imports.add(f"{options.package}.endpoints", "Endpoint", "ServerName")
@@ -602,7 +656,7 @@ def _operation_lines(
         lines = [f"    async def {name}(", "        self,", "        *,"]
         lines.extend(
             f"        {_identifier(parameter.name)}: "
-            f"{_parameter_annotation(parameter, imports)},"
+            f"{_parameter_annotation(parameter, imports, options)},"
             for parameter in route.params
         )
         lines.append(f"    ) -> {result}:")
@@ -768,13 +822,17 @@ def _primitive_annotation(primitive: Primitive, imports: _Imports) -> str:
     }[primitive]
 
 
-def _parameter_annotation(parameter: Any, imports: _Imports) -> str:
+def _parameter_annotation(
+    parameter: Any,
+    imports: _Imports,
+    options: PythonClientOptions,
+) -> str:
     annotation = _annotation(parameter.type, imports)
     if parameter.required:
         return annotation
     if parameter.has_default:
         return f"{annotation} = {_literal(parameter.default)}"
-    imports.add(RUNTIME_MODULE, "UNSET", "UnsetType")
+    imports.add(_runtime_module(options), "UNSET", "UnsetType")
     return f"{_union((annotation, 'UnsetType'))} = UNSET"
 
 
@@ -867,9 +925,7 @@ def _validate(
             ]
         )
     if options.with_transport == "websocket":
-        client_members.extend(
-            [("<client.connect>", "connect"), ("<client.open>", "open")]
-        )
+        client_members.append(("<client.connect>", "connect"))
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     assert_unique_names(
@@ -974,7 +1030,10 @@ def _named_errors(ir: ClientIr) -> bool:
 
 
 def _render_websocket_transport(options: PythonClientOptions) -> str:
-    body = render_template("python/transport.py.j2").rstrip()
+    body = render_template(
+        "python/transport.py.j2",
+        runtime_module=_runtime_module(options),
+    ).rstrip()
     return _module(options, _Imports(), body)
 
 
@@ -1068,6 +1127,16 @@ def _import_line(module: str, names: list[str]) -> str:
         return inline
     values = "".join(f"    {name},\n" for name in names)
     return f"from {module} import (\n{values})"
+
+
+def _import_name_key(name: str) -> tuple[int, str]:
+    if name.isupper():
+        group = 0
+    elif name[0].isupper():
+        group = 1
+    else:
+        group = 2
+    return group, name.casefold()
 
 
 def _import_group(module: str) -> int:

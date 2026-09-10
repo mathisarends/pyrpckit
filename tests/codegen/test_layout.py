@@ -15,6 +15,7 @@ def test_nested_typescript_api_files_mirror_the_python_package_structure(
     first["name"] = "tasks.list"
     second["name"] = "tasks.status.set"
     nested["methods"] = [first, second]
+    nested["x-rpc-notifications"] = []
 
     python_files = render_python_client(
         nested,
@@ -26,7 +27,6 @@ def test_nested_typescript_api_files_mirror_the_python_package_structure(
     )
 
     assert {name for name in python_files if name.startswith("namespaces/")} == {
-        "namespaces/__init__.py",
         "namespaces/tasks/__init__.py",
         "namespaces/tasks/status.py",
     }

@@ -1,0 +1,76 @@
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import AsyncExitStack
+from typing import Protocol
+
+from .transport import RpcTransport
+
+
+class _Closable(Protocol):
+    async def close(self) -> None: ...
+
+
+class _ConnectionEndpoint[ServerT: str](Protocol):
+    @property
+    def server(self) -> ServerT: ...
+
+    @property
+    def url(self) -> str: ...
+
+    @property
+    def subprotocols(self) -> tuple[str, ...]: ...
+
+
+class _TransportFactory(Protocol):
+    def __call__(
+        self,
+        url: str,
+        *,
+        subprotocols: tuple[str, ...],
+        request_timeout: float | None,
+        notification_queue_size: int,
+    ) -> Awaitable[RpcTransport]: ...
+
+
+class ClientConnection[ClientT: _Closable, ServerT: str]:
+    def __init__(
+        self,
+        *,
+        client_factory: Callable[[Mapping[ServerT, RpcTransport]], ClientT],
+        endpoints: Iterable[_ConnectionEndpoint[ServerT]],
+        transport_factory: _TransportFactory,
+        request_timeout: float | None,
+        notification_queue_size: int,
+    ) -> None:
+        self._client_factory = client_factory
+        self._endpoints = tuple(endpoints)
+        self._transport_factory = transport_factory
+        self._request_timeout = request_timeout
+        self._notification_queue_size = notification_queue_size
+        self._entered = False
+        self._client: ClientT | None = None
+
+    async def __aenter__(self) -> ClientT:
+        if self._entered:
+            raise RuntimeError("A client connection cannot be entered more than once")
+        self._entered = True
+
+        async with AsyncExitStack() as cleanup:
+            transports: dict[ServerT, RpcTransport] = {}
+            for endpoint in self._endpoints:
+                transport = await self._transport_factory(
+                    endpoint.url,
+                    subprotocols=endpoint.subprotocols,
+                    request_timeout=self._request_timeout,
+                    notification_queue_size=self._notification_queue_size,
+                )
+                cleanup.push_async_callback(transport.close)
+                transports[endpoint.server] = transport
+            client = self._client_factory(transports)
+            cleanup.pop_all()
+
+        self._client = client
+        return client
+
+    async def __aexit__(self, *args: object) -> None:
+        if self._client is not None:
+            await self._client.close()

@@ -22,14 +22,63 @@ def test_the_generated_package_has_one_module_per_concern(
 
     assert set(files) == {
         MANIFEST,
+        "internal/__init__.py",
+        "internal/core.py",
+        "internal/errors.py",
+        "internal/metadata.py",
+        "internal/transport.py",
+        "internal/unset.py",
         "__init__.py",
-        "namespaces/__init__.py",
         "namespaces/greeting.py",
         "client.py",
         "errors.py",
-        "metadata.py",
+        "routes.py",
         "models.py",
     }
+
+
+def test_the_generated_package_embeds_its_runtime(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    files = render_python_client(document, options)
+
+    assert all("from pyrpckit" not in content for content in files.values())
+    assert (
+        "from greeting_client.internal import RpcClientCore"
+        in files["namespaces/greeting.py"]
+    )
+
+
+def test_websocket_lifecycle_stays_out_of_the_public_client(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "production",
+            "url": "wss://api.example.com/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = PythonClientOptions(
+        package=options.package,
+        client_name=options.client_name,
+        source=options.source,
+        with_transport="websocket",
+    )
+
+    files = render_python_client(deployed, configured)
+    client = files["client.py"]
+
+    assert "internal/connection.py" in files
+    assert "return ClientConnection(" in client
+    assert "async def open(" not in client
+    assert "_ConnectionContext" not in client
 
 
 def test_every_file_names_its_source(
@@ -275,7 +324,7 @@ def test_writing_is_idempotent_and_check_does_not_write(
 ) -> None:
     output = tmp_path / PACKAGE
 
-    assert len(generate_python_client(document, output, options)) == 8
+    assert len(generate_python_client(document, output, options)) == 13
     assert generate_python_client(document, output, options) == ()
     (output / "client.py").write_text("stale\n", encoding="utf-8")
 
