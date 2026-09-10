@@ -4,7 +4,7 @@ from pydantic import create_model
 import pyrpckit as rpc
 from pyrpckit import ProtocolDefinitionError
 from pyrpckit.schema import render_openrpc
-from pyrpckit.schema._components import type_name
+from pyrpckit.schema.components import type_name
 
 
 def test_type_name_requires_an_annotation_with_a_stable_name() -> None:

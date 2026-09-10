@@ -5,7 +5,7 @@ from pydantic import TypeAdapter
 
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
-from pyrpckit.schema._components import (
+from pyrpckit.schema.components import (
     components,
     described,
     notification_schema_name,
