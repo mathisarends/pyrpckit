@@ -60,7 +60,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     if ir.servers:
         files["endpoints.ts"] = renderer.endpoints()
     if view.nodes:
-        files["api/index.ts"] = renderer.module("")
+        files["namespaces/index.ts"] = renderer.module("")
         for node in _walk(view.nodes):
             files[_api_file(node)] = renderer.api(node)
     return files
@@ -551,12 +551,12 @@ def _api_class(path: tuple[str, ...]) -> str:
 
 
 def _api_module(node: ApiViewNode) -> str:
-    return "api/" + "/".join(_identifier(segment) for segment in node.path)
+    return "namespaces/" + "/".join(_identifier(segment) for segment in node.path)
 
 
 def _api_file(node: ApiViewNode) -> str:
     path = "/".join(_identifier(segment) for segment in node.path)
-    return f"api/{path}/index.ts" if node.children else f"api/{path}.ts"
+    return f"namespaces/{path}/index.ts" if node.children else f"namespaces/{path}.ts"
 
 
 def _root_prefix(node: ApiViewNode) -> str:

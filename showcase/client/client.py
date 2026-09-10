@@ -4,7 +4,7 @@ from typing import Self
 
 from pyrpckit.client import RpcClientCore, RpcTransport
 
-from showcase.client.api.calculator import CalculatorApi
+from showcase.client.namespaces.calculator import CalculatorApi
 
 
 class CalculatorClient:

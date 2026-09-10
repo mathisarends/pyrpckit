@@ -22,8 +22,8 @@ def test_the_generated_package_has_one_module_per_concern(
     assert set(files) == {
         ".pyrpckit-generated.json",
         "__init__.py",
-        "api/__init__.py",
-        "api/greeting.py",
+        "namespaces/__init__.py",
+        "namespaces/greeting.py",
         "client.py",
         "errors.py",
         "metadata.py",
@@ -64,7 +64,7 @@ def test_operations_are_typed_methods_on_api_groups(
     document: dict[str, Any],
     options: PythonClientOptions,
 ) -> None:
-    api = render_python_client(document, options)["api/greeting.py"]
+    api = render_python_client(document, options)["namespaces/greeting.py"]
 
     assert "class GreetingApi:" in api
     assert "    async def say(\n        self,\n        *,\n        name: str," in api
@@ -77,7 +77,7 @@ def test_void_and_parameterless_operations_stay_small(
     document: dict[str, Any],
     options: PythonClientOptions,
 ) -> None:
-    api = render_python_client(document, options)["api/greeting.py"]
+    api = render_python_client(document, options)["namespaces/greeting.py"]
     clear = api.split("    async def clear(", 1)[1]
 
     assert clear.startswith("self) -> None:")
@@ -130,8 +130,8 @@ def test_api_root_and_names_create_a_non_stuttering_tree(
 
     files = render_python_client(nested, options)
 
-    assert "api/navigation.py" in files
-    assert "class NavigationApi:" in files["api/navigation.py"]
+    assert "namespaces/navigation.py" in files
+    assert "class NavigationApi:" in files["namespaces/navigation.py"]
     assert "self.navigation = NavigationApi(self._rpc)" in files["client.py"]
     assert 'method="browser.nav.navigate"' in files["metadata.py"]
 
@@ -177,7 +177,7 @@ def test_optional_nullable_params_use_unset_instead_of_dropping_none(
     params["properties"] = {"title": schema}
     params["required"] = []
 
-    api = render_python_client(optional, options)["api/greeting.py"]
+    api = render_python_client(optional, options)["namespaces/greeting.py"]
 
     assert "title: str | None | UnsetType = UNSET" in api
     assert "if title is not UNSET:" in api
@@ -201,12 +201,12 @@ def test_camel_case_wire_fields_become_snake_case_python_names(
 
     assert 'project_id: str = Field(alias="projectId")' in files["models.py"]
     assert "model_config = ConfigDict(validate_by_name=True)" in files["models.py"]
-    assert "        project_id: str," in files["api/greeting.py"]
+    assert "        project_id: str," in files["namespaces/greeting.py"]
     assert (
         "        params = SayParams(\n            project_id=project_id,"
-        in files["api/greeting.py"]
+        in files["namespaces/greeting.py"]
     )
-    assert "values:" not in files["api/greeting.py"]
+    assert "values:" not in files["namespaces/greeting.py"]
 
 
 def test_servers_generate_resolvable_endpoint_helpers(

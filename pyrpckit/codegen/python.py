@@ -79,7 +79,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     if ir.servers:
         files["endpoints.py"] = _render_endpoints(ir, options)
     if view.nodes:
-        files["api/__init__.py"] = _module(options, _Imports(), "")
+        files["namespaces/__init__.py"] = _module(options, _Imports(), "")
         for node in _walk(view.nodes):
             files[_api_file(node)] = _render_api(node, ir, options)
     return files
@@ -660,12 +660,14 @@ def _api_class(path: tuple[str, ...]) -> str:
 
 
 def _api_module(node: ApiViewNode) -> str:
-    return "api." + ".".join(_identifier(segment) for segment in node.path)
+    return "namespaces." + ".".join(_identifier(segment) for segment in node.path)
 
 
 def _api_file(node: ApiViewNode) -> str:
     path = "/".join(_identifier(segment) for segment in node.path)
-    return f"api/{path}/__init__.py" if node.children else f"api/{path}.py"
+    return (
+        f"namespaces/{path}/__init__.py" if node.children else f"namespaces/{path}.py"
+    )
 
 
 def _walk(nodes: tuple[ApiViewNode, ...]) -> Iterable[ApiViewNode]:

@@ -25,8 +25,8 @@ def test_the_generated_package_has_one_module_per_concern(
     assert set(files) == {
         ".pyrpckit-generated.json",
         "core.ts",
-        "api/greeting.ts",
-        "api/index.ts",
+        "namespaces/greeting.ts",
+        "namespaces/index.ts",
         "client.ts",
         "errors.ts",
         "index.ts",
@@ -46,7 +46,7 @@ def test_the_generated_package_has_one_module_per_concern(
 
 def test_renders_typed_api_groups_and_notifications(document: dict[str, Any]) -> None:
     files = render_typescript_client(document, options())
-    api = files["api/greeting.ts"]
+    api = files["namespaces/greeting.ts"]
     client = files["client.ts"]
 
     assert "export class GreetingApi {" in api
@@ -117,8 +117,8 @@ def test_api_root_and_names_are_shared_with_the_python_layout(
 
     files = render_typescript_client(nested, configured)
 
-    assert "api/navigation.ts" in files
-    assert "export class NavigationApi" in files["api/navigation.ts"]
+    assert "namespaces/navigation.ts" in files
+    assert "export class NavigationApi" in files["namespaces/navigation.ts"]
     assert "readonly navigation: NavigationApi;" in files["client.ts"]
     assert 'method: "browser.nav.navigate"' in files["metadata.ts"]
 
@@ -130,7 +130,7 @@ def test_all_optional_params_default_to_an_empty_object(
     optional["methods"][0]["params"][0]["required"] = False
     optional["components"]["schemas"]["SayParams"]["required"] = []
 
-    api = render_typescript_client(optional, options())["api/greeting.ts"]
+    api = render_typescript_client(optional, options())["namespaces/greeting.ts"]
 
     assert "say(params: SayParams = {}): Promise<SayResult>" in api
 

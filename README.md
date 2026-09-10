@@ -530,7 +530,7 @@ pyrpckit generate schema/greeting.openrpc.json \
   --transport-module ../transport
 ```
 
-This writes a small root client, domain-oriented files under `api/`, models,
+This writes a small root client, domain-oriented files under `namespaces/`, models,
 route metadata, declared errors, and a private client core. The transport module
 stays outside the generated directory and exports this transport-agnostic
 contract:
@@ -546,7 +546,7 @@ export interface RpcTransport {
 The generated Python package holds no hand-written code and is meant to be committed:
 
 - `models.py` — reachable Pydantic models and type aliases
-- `api/<group>.py` — the route hierarchy as small `Api` classes
+- `namespaces/<group>.py` — the route hierarchy as small `Api` classes
 - `metadata.py` — exact wire names, tags, errors, and deprecation metadata
 - `endpoints.py` — server URL templates when the contract declares servers
 - `errors.py` — stably named declared remote errors

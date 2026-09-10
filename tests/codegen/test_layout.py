@@ -25,13 +25,13 @@ def test_nested_typescript_api_files_mirror_the_python_package_structure(
         TypeScriptClientOptions(client_name="TaskClient"),
     )
 
-    assert {name for name in python_files if name.startswith("api/")} == {
-        "api/__init__.py",
-        "api/tasks/__init__.py",
-        "api/tasks/status.py",
+    assert {name for name in python_files if name.startswith("namespaces/")} == {
+        "namespaces/__init__.py",
+        "namespaces/tasks/__init__.py",
+        "namespaces/tasks/status.py",
     }
-    assert {name for name in typescript_files if name.startswith("api/")} == {
-        "api/index.ts",
-        "api/tasks/index.ts",
-        "api/tasks/status.ts",
+    assert {name for name in typescript_files if name.startswith("namespaces/")} == {
+        "namespaces/index.ts",
+        "namespaces/tasks/index.ts",
+        "namespaces/tasks/status.ts",
     }

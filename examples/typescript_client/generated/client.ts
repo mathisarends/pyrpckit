@@ -5,7 +5,7 @@
 import type { RpcTransport } from "../transport";
 import { RpcClientCore } from "./core";
 import type { TaskUpdate } from "./models";
-import { TasksApi } from "./api/tasks";
+import { TasksApi } from "./namespaces/tasks";
 
 export class TaskClient {
   readonly tasks: TasksApi;

@@ -33,7 +33,7 @@ def test_generate_writes_the_package(schema: Path, tmp_path: Path) -> None:
         == 0
     )
     assert (output / "client.py").exists()
-    assert (output / "api" / "greeting.py").exists()
+    assert (output / "namespaces" / "greeting.py").exists()
 
 
 def test_the_package_name_defaults_to_the_output_directory(
@@ -53,7 +53,7 @@ def test_the_package_name_defaults_to_the_output_directory(
     )
 
     assert f"from {PACKAGE}.models import" in (
-        output / "api" / "greeting.py"
+        output / "namespaces" / "greeting.py"
     ).read_text(encoding="utf-8")
 
 
@@ -214,4 +214,4 @@ def test_generate_passes_api_tree_options_to_both_emitters(
             )
             == 0
         )
-        assert (output / "api" / leaf).exists()
+        assert (output / "namespaces" / leaf).exists()
