@@ -48,8 +48,6 @@ class RpcChannel:
         self._events: list[RpcNotificationDefinition] = []
         self._names: set[str] = set()
         self._protocol: RpcProtocol | None = None
-        self._connection_factory: Callable[..., Any] | None = None
-        self._change_callback: Callable[[], None] | None = None
 
     @property
     def name(self) -> str:
@@ -75,10 +73,6 @@ class RpcChannel:
     def events(self) -> tuple[RpcNotificationDefinition, ...]:
         return (*self._events, *self._operations.events)
 
-    @property
-    def connection_factory(self) -> Callable[..., Any] | None:
-        return self._connection_factory
-
     def method(
         self,
         name: str | None = None,
@@ -96,7 +90,6 @@ class RpcChannel:
         def register(function: FunctionType) -> FunctionType:
             self._ensure_mutable()
             result = decorate(function)
-            self._changed()
             return result
 
         return register
@@ -114,28 +107,9 @@ class RpcChannel:
         def register(function: FunctionType) -> FunctionType:
             self._ensure_mutable()
             result = decorate(function)
-            self._changed()
             return result
 
         return register
-
-    def connection(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        """Declare the factory for this channel's connection context."""
-        self._ensure_mutable()
-
-        def decorate(function: Callable[..., Any]) -> Callable[..., Any]:
-            self._ensure_mutable()
-            if not callable(function):
-                raise ProtocolDefinitionError("RPC connection factory must be callable")
-            if self._connection_factory is not None:
-                raise ProtocolDefinitionError(
-                    f"RPC channel {self.name!r} already has a connection factory"
-                )
-            self._connection_factory = function
-            self._changed()
-            return function
-
-        return decorate
 
     def include(
         self,
@@ -180,7 +154,6 @@ class RpcChannel:
         )
         self._routes.extend(routes)
         self._events.extend(events)
-        self._changed()
 
     @property
     def protocol(self) -> RpcProtocol:
@@ -229,13 +202,6 @@ class RpcChannel:
             raise ProtocolDefinitionError(
                 "RpcChannel is frozen after its protocol has been accessed"
             )
-
-    def _changed(self) -> None:
-        if self._change_callback is not None:
-            self._change_callback()
-
-    def _set_change_callback(self, callback: Callable[[], None]) -> None:
-        self._change_callback = callback
 
 
 def _method_definitions(routes: list[RpcRoute]) -> tuple[RpcMethodDefinition, ...]:

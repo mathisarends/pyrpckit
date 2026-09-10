@@ -10,31 +10,32 @@ from pyrpckit.codegen import render_python_client, render_typescript_client
 from pyrpckit.codegen.cli import main
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
-from pyrpckit.fastapi import RpcAPIRouter
 from pyrpckit.schema.export import (
     load_contract_source,
     load_protocol,
     render_contract,
 )
 
-ROUTER = RpcAPIRouter(prefix="/projects/{project_id}", version=2, tags=("system",))
-APP = ROUTER.websocket("/health", name="health-control", namespace="health")
+APP = rpc.RpcChannel(
+    name="health-control", namespace="health", version=2, tags=("system",)
+)
 
 
 @APP.method("ping")
 async def ping() -> None: ...
 
 
-CONTRACT = ROUTER.contract(
+CONTRACT = rpc.RpcContract.from_channels(
+    channels=[APP],
     title="Health API",
     description="Service health over WebSocket.",
-    public_base_url="wss://{host}",
+    server_urls={"health-control": "wss://{host}/projects/{projectId}/health"},
     variables={
         "host": rpc.ServerVariable(
             default="api.example.com",
             enum=("api.example.com", "staging.example.com"),
         ),
-        "project_id": rpc.ServerVariable(
+        "projectId": rpc.ServerVariable(
             default="00000000-0000-0000-0000-000000000000",
             description="Project selected by the caller.",
         ),
@@ -42,7 +43,7 @@ CONTRACT = ROUTER.contract(
 )
 
 
-def test_router_contract_derives_typed_server_metadata_from_the_fastapi_path() -> None:
+def test_channel_contract_preserves_explicit_server_metadata() -> None:
     document = json.loads(render_contract(CONTRACT))
 
     assert document["info"] == {
@@ -79,9 +80,8 @@ def test_contract_assigns_each_channel_to_its_own_server() -> None:
     class Changed(rpc.RpcModel):
         type: Literal["browser.changed"] = "browser.changed"
 
-    router = RpcAPIRouter(prefix="/browser")
-    control = router.websocket("/control", name="control", namespace="browser")
-    stream = router.websocket("/stream", name="stream", namespace="stream")
+    control = rpc.RpcChannel(name="control", namespace="browser")
+    stream = rpc.RpcChannel(name="stream", namespace="stream")
 
     @control.method("navigate")
     async def navigate() -> None: ...
@@ -92,7 +92,14 @@ def test_contract_assigns_each_channel_to_its_own_server() -> None:
 
     document = json.loads(
         render_contract(
-            router.contract(title="Browser", public_base_url="wss://example.com")
+            rpc.RpcContract.from_channels(
+                channels=[control, stream],
+                title="Browser",
+                server_urls={
+                    "control": "wss://example.com/browser/control",
+                    "stream": "wss://example.com/browser/stream",
+                },
+            )
         )
     )
 
@@ -210,3 +217,91 @@ def test_contract_rejects_duplicate_server_names() -> None:
 def test_server_variable_defaults_must_belong_to_the_enum() -> None:
     with pytest.raises(rpc.ProtocolDefinitionError, match="one of its enum"):
         rpc.ServerVariable(default="production", enum=("staging",))
+
+
+@pytest.mark.parametrize(
+    ("urls", "variables", "subprotocols", "message"),
+    [
+        ({}, None, None, "match channel names"),
+        (
+            {
+                "api": "",
+            },
+            None,
+            None,
+            "non-empty",
+        ),
+        (
+            {"api": "wss://host"},
+            {"unused": rpc.ServerVariable("x")},
+            None,
+            "not present",
+        ),
+        ({"api": "wss://host"}, {"host": "invalid"}, None, "ServerVariable"),
+        ({"api": "wss://host"}, None, {"unknown": "rpc"}, "subprotocols"),
+    ],
+)
+def test_channel_contract_rejects_invalid_metadata(
+    urls, variables, subprotocols, message
+) -> None:
+    with pytest.raises(rpc.ProtocolDefinitionError, match=message):
+        rpc.RpcContract.from_channels(
+            channels=[rpc.RpcChannel(name="api")],
+            title="API",
+            server_urls=urls,
+            variables=variables,
+            subprotocols=subprotocols,
+        )
+
+
+def test_channel_contract_requires_unique_names_and_matching_versions() -> None:
+    for channels, urls, message in [
+        ([], {}, "at least one"),
+        (
+            [rpc.RpcChannel(name="api"), rpc.RpcChannel(name="api")],
+            {"api": "wss://host"},
+            "Duplicate",
+        ),
+        (
+            [rpc.RpcChannel(name="one"), rpc.RpcChannel(name="two", version=2)],
+            {"one": "wss://host/one", "two": "wss://host/two"},
+            "protocol version",
+        ),
+    ]:
+        with pytest.raises(rpc.ProtocolDefinitionError, match=message):
+            rpc.RpcContract.from_channels(
+                channels=channels, title="API", server_urls=urls
+            )
+
+
+def test_channel_contract_preserves_url_variables_and_subprotocols() -> None:
+    channel = rpc.RpcChannel(name="api")
+    contract = rpc.RpcContract.from_channels(
+        channels=[channel],
+        title="API",
+        server_urls={"api": "wss://host/external/{session_id}"},
+        subprotocols={"api": "jsonrpc"},
+    )
+    server = contract.servers[0]
+    assert server["url"] == "wss://host/external/{session_id}"
+    assert server["variables"] == {"session_id": {"default": "{session_id}"}}
+    assert server["x-rpckit-transport"]["subprotocols"] == ["jsonrpc"]
+
+
+def test_channel_contract_disambiguates_request_types() -> None:
+    one = rpc.RpcChannel(name="one", namespace="one")
+    two = rpc.RpcChannel(name="two", namespace="two")
+
+    @one.method("ping")
+    async def ping() -> None: ...
+
+    two.method("ping")(ping)
+    contract = rpc.RpcContract.from_channels(
+        channels=[one, two],
+        title="API",
+        server_urls={"one": "wss://host/one", "two": "wss://host/two"},
+    )
+    assert {method.request_name for method in contract.protocol.methods} == {
+        "OnePingRequest",
+        "TwoPingRequest",
+    }
