@@ -208,6 +208,25 @@ async def test_dependencies_are_injected_and_absent_from_openrpc() -> None:
     assert [parameter["name"] for parameter in method["params"]] == ["value"]
 
 
+async def test_server_accepts_typed_context_without_a_custom_resolver() -> None:
+    @dataclass
+    class Service:
+        suffix: str
+
+    app = rpc.RpcChannel()
+
+    @app.method()
+    async def get(service: rpc.Inject[Service]) -> str:
+        return "value" + service.suffix
+
+    response = await app.server(context={Service: Service("!")}).handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "get"}
+    )
+
+    assert response is not None and not isinstance(response, list)
+    assert response.result == "value!"
+
+
 def test_class_handlers_are_rejected_at_declaration() -> None:
     router = rpc.RpcModule()
 

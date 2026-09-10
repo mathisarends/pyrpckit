@@ -1,10 +1,16 @@
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from types import FunctionType
 from typing import Any
 
-from pyrpckit.dependencies import RpcResolver, RpcResolverScope, call_scope
+from pyrpckit.dependencies import (
+    ContextResolver,
+    EmptyResolver,
+    RpcResolver,
+    RpcResolverScope,
+    call_scope,
+)
 from pyrpckit.errors import ProtocolDefinitionError, RpcError
 from pyrpckit.protocol import (
     RpcMethodDefinition,
@@ -179,10 +185,18 @@ class RpcChannel:
     def server(
         self,
         *,
+        context: object | Mapping[type[Any], object] | None = None,
         resolver: RpcResolver | None = None,
         error_mapper: RpcErrorMapper | None = None,
     ) -> RpcServer:
         """Create a transport-agnostic runtime for this channel."""
+        if context is not None:
+            values = (
+                dict(context)
+                if isinstance(context, Mapping)
+                else {type(context): context}
+            )
+            resolver = ContextResolver(resolver or EmptyResolver(), values)
         return RpcServer._from_channel(
             self.protocol,
             resolver=resolver,

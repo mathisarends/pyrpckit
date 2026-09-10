@@ -1,6 +1,7 @@
 import asyncio
+from dataclasses import dataclass
 
-from pyrpckit import RpcChannel, RpcModel, RpcModule
+from pyrpckit import Inject, RpcChannel, RpcModel, RpcModule
 
 
 class GreetParams(RpcModel):
@@ -11,18 +12,23 @@ class Greeting(RpcModel):
     text: str
 
 
+@dataclass(frozen=True)
+class Greeter:
+    salutation: str
+
+
 router = RpcModule(namespace="greeting", tags=("greeting",))
 
 
 @router.method()
-async def say(params: GreetParams) -> Greeting:
-    return Greeting(text=f"Hello, {params.name}!")
+async def say(params: GreetParams, greeter: Inject[Greeter]) -> Greeting:
+    return Greeting(text=f"{greeter.salutation}, {params.name}!")
 
 
 async def main() -> None:
     app = RpcChannel()
     app.include(router)
-    server = app.server()
+    server = app.server(context={Greeter: Greeter("Hello")})
     response = await server.handle(
         {
             "jsonrpc": "2.0",

@@ -104,9 +104,9 @@ async def go_back(navigation: Inject[BrowserNavigation]) -> None:
 
 ## Use it from your application
 
-For a custom transport, create the same channel directly and give its server a
-resolver for your own services. The core library does not prescribe a web
-framework or DI container.
+For a custom transport, create the same channel directly. Pass known services
+as typed `context`; add a `resolver` when dependencies need dynamic or scoped
+resolution. The core library does not prescribe a web framework or DI container.
 
 ```python
 from pyrpckit import RpcChannel
@@ -120,7 +120,7 @@ async def ping() -> str:
     return "pong"
 
 
-server = channel.server(resolver=resolver)
+server = channel.server(context={BrowserNavigation: navigation})
 response = await server.handle_json(request_body)
 ```
 
