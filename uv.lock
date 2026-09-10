@@ -395,12 +395,17 @@ name = "pyrpckit"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "jinja2" },
     { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+codegen = [
+    { name = "jinja2" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "jinja2" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -410,12 +415,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "jinja2", specifier = ">=3.1" },
+    { name = "jinja2", marker = "extra == 'codegen'", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.11" },
 ]
+provides-extras = ["codegen"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "jinja2", specifier = ">=3.1" },
     { name = "pre-commit", specifier = ">=3.7" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

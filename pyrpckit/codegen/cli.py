@@ -6,8 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pyrpckit.codegen import generate_python_client, generate_typescript_client
-from pyrpckit.codegen.python import PythonClientOptions
-from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from pyrpckit.codegen.options import PythonClientOptions, TypeScriptClientOptions
 from pyrpckit.codegen.writer import write_files
 from pyrpckit.schema.export import (
     ProtocolReferenceError,

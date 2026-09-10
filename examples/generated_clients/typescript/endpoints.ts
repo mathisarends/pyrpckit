@@ -79,9 +79,11 @@ export const servers = {
   },
 } as const satisfies Record<string, RpcServerInfo>;
 
-function production(variables: {
-  host?: string;
-} = {}): Endpoint {
+function production(
+  variables: {
+    host?: string;
+  } = {},
+): Endpoint {
   return {
     server: "production",
     url: resolveUrl(servers.production, variables),
@@ -89,9 +91,11 @@ function production(variables: {
   };
 }
 
-function browser(variables: {
-  host?: string;
-} = {}): Endpoint {
+function browser(
+  variables: {
+    host?: string;
+  } = {},
+): Endpoint {
   return {
     server: "browser",
     url: resolveUrl(servers.browser, variables),
@@ -99,9 +103,11 @@ function browser(variables: {
   };
 }
 
-function streaming(variables: {
-  host?: string;
-} = {}): Endpoint {
+function streaming(
+  variables: {
+    host?: string;
+  } = {},
+): Endpoint {
   return {
     server: "streaming",
     url: resolveUrl(servers.streaming, variables),
@@ -139,17 +145,10 @@ function resolveUrl(
   values: Readonly<Record<string, string>>,
 ): string {
   let url = server.url;
-  for (const [name, variable] of Object.entries(
-    server.variables ?? {},
-  )) {
+  for (const [name, variable] of Object.entries(server.variables ?? {})) {
     const value = values[name] ?? variable.default;
-    if (
-      variable.enum !== undefined &&
-      !variable.enum.includes(value)
-    ) {
-      throw new Error(
-        `Invalid value for server variable ${name}: ${value}`,
-      );
+    if (variable.enum !== undefined && !variable.enum.includes(value)) {
+      throw new Error(`Invalid value for server variable ${name}: ${value}`);
     }
     url = url.replaceAll(`{${name}}`, value);
   }

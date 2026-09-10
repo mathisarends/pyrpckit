@@ -118,8 +118,15 @@ With `pip`:
 python -m pip install pyrpckit
 ```
 
-The dependencies on Pydantic and Jinja2 are installed automatically. No web
-framework or transport dependency is included.
+Pydantic is installed automatically. Client generation additionally needs the
+optional `codegen` extra:
+
+```bash
+uv add "pyrpckit[codegen]"
+# or: python -m pip install "pyrpckit[codegen]"
+```
+
+No web framework or transport dependency is included.
 
 ## A bidirectional gateway in one protocol
 

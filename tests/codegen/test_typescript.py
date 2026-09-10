@@ -31,7 +31,7 @@ def test_the_generated_package_has_one_module_per_concern(
         "client.ts",
         "errors.ts",
         "index.ts",
-        "metadata.ts",
+        "routes.ts",
         "models.ts",
     }
     assert all(
@@ -50,12 +50,12 @@ def test_renders_typed_api_groups_and_notifications(document: dict[str, Any]) ->
     api = files["namespaces/greeting.ts"]
     client = files["client.ts"]
 
-    assert "export class GreetingApi {" in api
+    assert "export class Greeting {" in api
     assert "say(params: SayParams): Promise<SayResult>" in api
     assert "async forget(params: ForgetParams): Promise<void>" in api
     assert "greeted(): Promise<GreetedResult>" in api
-    assert "readonly greeting: GreetingApi;" in client
-    assert "notifications(): AsyncIterable<GreetingUpdate>" in client
+    assert "readonly greeting: Greeting;" in client
+    assert "changed(): AsyncIterable<GreetingUpdate>" in api
     assert "events()" not in client
 
 
@@ -75,15 +75,13 @@ def test_renders_models_as_types_and_literal_unions(
     assert 'type: "greeting.said";' in models
 
 
-def test_route_metadata_keeps_tags_errors_and_wire_names(
+def test_route_definitions_keep_wire_names(
     document: dict[str, Any],
 ) -> None:
-    metadata = render_typescript_client(document, options())["metadata.ts"]
+    routes = render_typescript_client(document, options())["routes.ts"]
 
-    assert 'method: "greeting.forget"' in metadata
-    assert 'tags: ["greeting"]' in metadata
-    assert "errorCodes: [-32001]" in metadata
-    assert "deprecated: false" in metadata
+    assert 'method: "greeting.forget"' in routes
+    assert "greetingForget:" in routes
 
 
 def test_stably_named_remote_errors_get_their_own_module(
@@ -100,7 +98,6 @@ def test_transport_module_can_be_configured(document: dict[str, Any]) -> None:
 
     files = render_typescript_client(document, configured)
 
-    assert 'import type { RpcTransport } from "@example/rpc";' in files["client.ts"]
     assert 'import type { RpcTransport } from "@example/rpc";' in files["core.ts"]
 
 
@@ -119,9 +116,9 @@ def test_api_root_and_names_are_shared_with_the_python_layout(
     files = render_typescript_client(nested, configured)
 
     assert "namespaces/navigation.ts" in files
-    assert "export class NavigationApi" in files["namespaces/navigation.ts"]
-    assert "readonly navigation: NavigationApi;" in files["client.ts"]
-    assert 'method: "browser.nav.navigate"' in files["metadata.ts"]
+    assert "export class Navigation" in files["namespaces/navigation.ts"]
+    assert "readonly navigation: Navigation;" in files["client.ts"]
+    assert 'method: "browser.nav.navigate"' in files["routes.ts"]
 
 
 def test_all_optional_params_default_to_an_empty_object(
@@ -159,16 +156,19 @@ def test_servers_generate_endpoint_metadata(document: dict[str, Any]) -> None:
                 "host": {"default": "api.example.com"},
                 "projectId": {"default": "demo"},
             },
-            "x-rpckit-transport": "websocket",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
         }
     ]
 
     files = render_typescript_client(deployed, options())
 
     assert "endpoints.ts" in files
-    assert "greetingApi: defineRpcServer" in files["endpoints.ts"]
-    assert "export function greetingApiUrl" in files["endpoints.ts"]
-    assert 'transport: "websocket"' in files["endpoints.ts"]
+    assert "greetingApi: {" in files["endpoints.ts"]
+    assert "function greetingApi(" in files["endpoints.ts"]
+    assert 'type: "websocket"' in files["endpoints.ts"]
     assert 'from "./endpoints"' in files["index.ts"]
 
 

@@ -1,0 +1,11 @@
+{% if not errors %}export {};
+{% else %}import { RpcRemoteError } from "./core";
+{% if model_import %}{{ model_import }}
+{% endif %}
+{% for error in errors %}export class {{ error.name | schema_name }}Error extends RpcRemoteError {
+  static readonly code = {{ error.code }};
+{% if error.data is not none %}
+  declare readonly data: {{ error.data | type }};
+{% endif %}}
+{% if not loop.last %}
+{% endif %}{% endfor %}{% endif %}

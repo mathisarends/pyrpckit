@@ -1,0 +1,24 @@
+{% macro operation(route) %}    async def {{ route.operation_name | identifier }}({% if not route.params %}self{% else %}
+        self,
+        *,
+{% for parameter in route.params %}        {{ parameter.name | identifier }}: {{ parameter | parameter_annotation }},
+{% endfor %}    {% endif %}) -> {{ route.result | annotation }}:
+{% set description = route.summary or route.description %}{% if description %}        """{{ description | docstring }}"""
+{% endif %}{% if route.params_model is not none %}{% if route.params | direct_params %}        params = {{ route.params_model | schema_name }}(
+{% for parameter in route.params %}            {{ parameter.name | identifier }}={{ parameter.name | identifier }},
+{% endfor %}        )
+{% else %}        values: dict[str, object] = {}
+{% for parameter in route.params %}{% if parameter.required or parameter.has_default %}        values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
+{% else %}        if {{ parameter.name | identifier }} is not UNSET:
+            values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
+{% endif %}{% endfor %}        params = {{ route.params_model | schema_name }}.model_validate(values)
+{% endif %}{% endif %}        {{ "await" if route.result | null_type else "return await" }} self._rpc.request(
+            {{ route.method_member }},
+{% if route.params_model is not none %}            params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+{% endif %}        )
+{% endmacro %}
+
+{% macro notification(event) %}    def {{ event.operation_name | identifier }}(self) -> AsyncIterator[{{ event.payload | annotation }}]:
+{% if event.summary %}        """{{ event.summary | docstring }}"""
+{% endif %}        return self._rpc.subscribe({{ event.rpc_name | constant }})
+{% endmacro %}

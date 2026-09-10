@@ -116,11 +116,11 @@ def test_operations_are_typed_methods_on_api_groups(
 ) -> None:
     api = render_python_client(document, options)["namespaces/greeting.py"]
 
-    assert "class GreetingApi:" in api
+    assert "class Greeting:" in api
     assert "    async def say(\n        self,\n        *,\n        name: str," in api
     assert "    ) -> SayResult:" in api
     assert '        """Greet someone by name."""' in api
-    assert "result_adapter=_GREETING_SAY_RESULT_ADAPTER" in api
+    assert "self._rpc.request(\n            GREETING_SAY," in api
 
 
 def test_void_and_parameterless_operations_stay_small(
@@ -132,19 +132,18 @@ def test_void_and_parameterless_operations_stay_small(
 
     assert clear.startswith("self) -> None:")
     assert "params=" not in clear
-    assert "return await self._rpc.request(" in clear
+    assert "await self._rpc.request(" in clear
 
 
-def test_route_metadata_preserves_the_wire_contract(
+def test_route_definitions_preserve_the_wire_contract(
     document: dict[str, Any],
     options: PythonClientOptions,
 ) -> None:
-    metadata = render_python_client(document, options)["metadata.py"]
+    routes = render_python_client(document, options)["routes.py"]
 
-    assert 'method="greeting.say"' in metadata
-    assert 'tags=("greeting",)' in metadata
-    assert "deprecated=False" in metadata
-    assert "error_codes=(-32001,)" in metadata
+    assert 'method="greeting.say"' in routes
+    assert "result_adapter=TypeAdapter(SayResult)" in routes
+    assert 'method="greeting.changed"' in routes
 
 
 def test_stably_named_remote_errors_get_their_own_module(
@@ -181,9 +180,9 @@ def test_api_root_and_names_create_a_non_stuttering_tree(
     files = render_python_client(nested, options)
 
     assert "namespaces/navigation.py" in files
-    assert "class NavigationApi:" in files["namespaces/navigation.py"]
-    assert "self.navigation = NavigationApi(self._rpc)" in files["client.py"]
-    assert 'method="browser.nav.navigate"' in files["metadata.py"]
+    assert "class Navigation:" in files["namespaces/navigation.py"]
+    assert "self.navigation = Navigation(self._rpc)" in files["client.py"]
+    assert 'method="browser.nav.navigate"' in files["routes.py"]
 
 
 def test_unknown_api_configuration_is_rejected(
@@ -203,15 +202,10 @@ def test_notifications_expose_payloads_in_domain_language(
     document: dict[str, Any],
     options: PythonClientOptions,
 ) -> None:
-    client = render_python_client(document, options)["client.py"]
+    api = render_python_client(document, options)["namespaces/greeting.py"]
 
-    assert "async def notifications(self) -> AsyncIterator[GreetingUpdate]:" in client
-    assert (
-        "notification = _NOTIFICATION_MESSAGE_ADAPTER.validate_python(message)"
-        in client
-    )
-    assert "yield notification.params" in client
-    assert "async def events(" not in client
+    assert "def changed(self) -> AsyncIterator[GreetingUpdate]:" in api
+    assert "return self._rpc.subscribe(GREETING_CHANGED)" in api
 
 
 def test_optional_nullable_params_use_unset_instead_of_dropping_none(
@@ -272,18 +266,21 @@ def test_servers_generate_resolvable_endpoint_helpers(
                 "host": {"default": "api.example.com"},
                 "projectId": {"default": "demo"},
             },
-            "x-rpckit-transport": "websocket",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
         }
     ]
 
     files = render_python_client(deployed, options)
 
     assert "endpoints.py" in files
-    assert "class Servers:" in files["endpoints.py"]
-    assert "def greeting_api_url(" in files["endpoints.py"]
+    assert "class ServerName(StrEnum):" in files["endpoints.py"]
+    assert "def greeting_api(" in files["endpoints.py"]
     assert "project_id: str" in files["endpoints.py"]
-    assert 'transport="websocket"' in files["endpoints.py"]
-    assert "Servers" in files["__init__.py"]
+    assert 'type="websocket"' in files["endpoints.py"]
+    assert "ServerName" in files["__init__.py"]
 
 
 def test_servers_without_variables_do_not_import_variable_metadata(

@@ -1,15 +1,11 @@
 import json
 import re
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable
 
 from pyrpckit.codegen.ir import (
-    AliasDecl,
     ClientIr,
-    Declaration,
     EnumDecl,
     EnumLiteralType,
-    FieldDecl,
     ListType,
     LiteralType,
     MapType,
@@ -20,6 +16,7 @@ from pyrpckit.codegen.ir import (
     PrimitiveType,
     RouteDecl,
     ServerDecl,
+    ServerVariableDecl,
     TypeExpr,
     UnionType,
     UnsupportedSchemaError,
@@ -32,17 +29,8 @@ from pyrpckit.codegen.names import (
     client_view,
     pascal_case,
 )
+from pyrpckit.codegen.options import TypeScriptClientOptions
 from pyrpckit.codegen.templating import render_template
-
-
-@dataclass(frozen=True, slots=True)
-class TypeScriptClientOptions:
-    client_name: str | None = None
-    transport_module: str = "../transport"
-    api_root: str | None = None
-    api_names: Mapping[str, str] = field(default_factory=dict)
-    source: str = "the OpenRPC document"
-    with_transport: str | None = None
 
 
 def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, str]:
@@ -104,42 +92,62 @@ class _Renderer:
             body=body,
         )
 
-    def models(self) -> str:
-        return self.module(
-            "\n\n".join(self._declaration(item) for item in self.ir.declarations)
+    def template(self, name: str, **context: object) -> str:
+        return render_template(
+            f"typescript/{name}.ts.j2",
+            filters=self._filters(),
+            **context,
+        ).rstrip()
+
+    def _filters(self) -> dict[str, object]:
+        return {
+            "all_optional": lambda parameters: (
+                not any(parameter.required for parameter in parameters)
+            ),
+            "api_class": _api_class,
+            "array": _array,
+            "comment": _comment,
+            "compact_notification": self._compact_notification,
+            "enum_decl": lambda declaration: isinstance(declaration, EnumDecl),
+            "identifier": _identifier,
+            "literal": _ts_literal,
+            "model_decl": lambda declaration: isinstance(declaration, ModelDecl),
+            "null_type": _is_null,
+            "optional_field": lambda field: (
+                not field.required and not _is_discriminator(field.name, field.type)
+            ),
+            "property": _property,
+            "route_access": lambda route: f"routes.{_route_key(route)}",
+            "route_key": _route_key,
+            "schema_name": _schema_name,
+            "server_variable_type": _server_variable_type,
+            "subprotocols": _server_subprotocols,
+            "type": self._type,
+        }
+
+    def _compact_notification(
+        self,
+        event: NotificationDecl,
+        root: bool,
+    ) -> bool:
+        receiver = "this.#rpc" if root else "this.rpc"
+        arguments = _ts_literal(event.rpc_name)
+        if event.server is not None:
+            arguments += f", {_ts_literal(event.server)}"
+        call = (
+            f"    return {receiver}.notifications<{self._type(event.payload)}>"
+            f"({arguments});"
         )
+        return len(call) <= 80
+
+    def models(self) -> str:
+        return self.module(self.template("models", declarations=self.ir.declarations))
 
     def namespaces_index(self) -> str:
-        return self.module(
-            "\n".join(
-                f'export {{ {_api_class(node.path)} }} from "./'
-                f'{_identifier(node.segment)}";'
-                for node in self.nodes
-            )
-        )
+        return self.module(self.template("namespace_index", nodes=self.nodes))
 
     def routes(self) -> str:
-        route_lines: list[str] = []
-        for route in self.ir.operations:
-            route_lines.extend(
-                [
-                    f"  {_route_key(route)}: {{",
-                    f"    method: {json.dumps(route.rpc_name)},",
-                    *(
-                        [f"    server: {json.dumps(route.server)},"]
-                        if route.server is not None
-                        else []
-                    ),
-                    "  },",
-                ]
-            )
-        body = (
-            'import type { RpcRouteInfo } from "./core";\n\n'
-            "export const routes = {\n"
-            f"{'\n'.join(route_lines)}\n"
-            "} as const satisfies Record<string, RpcRouteInfo>;"
-        )
-        return self.module(body)
+        return self.module(self.template("routes", routes=self.ir.operations))
 
     def core(self) -> str:
         body = render_template(
@@ -167,37 +175,12 @@ class _Renderer:
             )
         if model_names:
             imports.append(_type_import(model_names, f"{root}models"))
-        blocks = [self._api_block(node) for node in _walk_postorder((root_node,))]
-        return self.module("\n".join(imports) + "\n\n" + "\n\n".join(blocks))
-
-    def _api_block(self, node: NamespaceViewNode) -> str:
-        lines = [f"export class {_api_class(node.path)} {{"]
-        for child in node.children:
-            lines.append(
-                f"  readonly {_identifier(child.segment)}: {_api_class(child.path)};"
-            )
-        if node.children:
-            lines.append("")
-        if node.children:
-            lines.extend(
-                [
-                    "  constructor(private readonly rpc: RpcClientCore) {",
-                    *(
-                        f"    this.{_identifier(child.segment)} = "
-                        f"new {_api_class(child.path)}(rpc);"
-                        for child in node.children
-                    ),
-                    "  }",
-                ]
-            )
-        else:
-            lines.append("  constructor(private readonly rpc: RpcClientCore) {}")
-        for route in node.operations:
-            lines.extend(["", *self._operation(route, root=False)])
-        for event in node.notifications:
-            lines.extend(["", *self._notification(event, root=False)])
-        lines.append("}")
-        return "\n".join(lines)
+        body = self.template(
+            "api",
+            imports=imports,
+            nodes=tuple(_walk_postorder((root_node,))),
+        )
+        return self.module(body)
 
     def client(self) -> str:
         imports = [
@@ -227,123 +210,22 @@ class _Renderer:
         if self.nodes:
             namespace_classes = ", ".join(_api_class(node.path) for node in self.nodes)
             imports.append(f'import {{ {namespace_classes} }} from "./namespaces";')
-        prelude: list[str] = []
-        if self.ir.servers:
-            prelude.extend(
-                [
-                    f"export type {transports_name} = {{",
-                    *(
-                        f"  readonly {_property(server.name)}: RpcTransport;"
-                        for server in self.ir.servers
-                    ),
-                    "};",
-                ]
-            )
-        if self.options.with_transport == "websocket":
-            prelude.extend(
-                [
-                    "",
-                    "export type ConnectOptions = {",
-                    "  readonly endpoints?: readonly Endpoint[];",
-                    "  readonly requestTimeoutMs?: number;",
-                    "  readonly notificationQueueSize?: number;",
-                    "  readonly socketFactory?: WebSocketFactory;",
-                    "};",
-                ]
-            )
-        lines = [*prelude, "" if prelude else "", f"export class {self.client_name} {{"]
-        for node in self.nodes:
-            lines.append(
-                f"  readonly {_identifier(node.segment)}: {_api_class(node.path)};"
-            )
-        if self.nodes:
-            lines.append("")
         transport_type = (
             f"RpcTransport | {transports_name}" if self.ir.servers else "RpcTransport"
         )
-        lines.extend(
-            [
-                "  readonly #rpc: RpcClientCore;",
-                "",
-                "  constructor(",
-                f"    transport: {transport_type},",
-                "    options?: { readonly closeTransport?: boolean },",
-                "  ) {",
-                "    this.#rpc = new RpcClientCore(transport, options);",
-            ]
+        body = self.template(
+            "client",
+            imports=imports,
+            client_name=self.client_name,
+            transports_name=transports_name,
+            transport_type=transport_type,
+            servers=self.ir.servers,
+            nodes=self.nodes,
+            operations=self.root_operations,
+            notifications=self.root_events,
+            with_websocket=self.options.with_transport == "websocket",
         )
-        for node in self.nodes:
-            lines.append(
-                f"    this.{_identifier(node.segment)} = "
-                f"new {_api_class(node.path)}(this.#rpc);"
-            )
-        lines.append("  }")
-        lines.extend(
-            [
-                "",
-                f"  static fromTransport(transport: RpcTransport): "
-                f"{self.client_name} {{",
-                f"    return new {self.client_name}(transport);",
-                "  }",
-            ]
-        )
-        if self.ir.servers:
-            lines.extend(
-                [
-                    "",
-                    "  static fromTransports(",
-                    f"    transports: {transports_name},",
-                    f"  ): {self.client_name} {{",
-                    f"    return new {self.client_name}(transports);",
-                    "  }",
-                ]
-            )
-        if self.options.with_transport == "websocket":
-            lines.extend(["", *self._connect_method(transports_name)])
-        for route in self.root_operations:
-            lines.extend(["", *self._operation(route, root=True)])
-        for event in self.root_events:
-            lines.extend(["", *self._notification(event, root=True)])
-        lines.extend(
-            [
-                "",
-                "  close(): Promise<void> {",
-                "    return this.#rpc.close();",
-                "  }",
-                "}",
-            ]
-        )
-        return self.module("\n".join(imports) + "\n\n" + "\n".join(lines))
-
-    def _connect_method(self, transports_name: str) -> list[str]:
-        return [
-            "  static async connect(options: ConnectOptions = {}): "
-            f"Promise<{self.client_name}> {{",
-            "    const transports: Partial<Record<ServerName, RpcTransport>> = {};",
-            "    try {",
-            "      for (const endpoint of resolveEndpoints(",
-            "        options.endpoints ?? [],",
-            "      )) {",
-            "        transports[endpoint.server] = await WebSocketTransport.open(",
-            "          endpoint.url,",
-            "          {",
-            "            subprotocols: endpoint.subprotocols,",
-            "            requestTimeoutMs: options.requestTimeoutMs,",
-            "            notificationQueueSize: options.notificationQueueSize,",
-            "            socketFactory: options.socketFactory,",
-            "          },",
-            "        );",
-            "      }",
-            "    } catch (error) {",
-            "      await Promise.all(",
-            "        Object.values(transports).map((transport) => transport.close()),",
-            "      );",
-            "      throw error;",
-            "    }",
-            f"    return {self.client_name}.fromTransports(transports as "
-            f"{transports_name});",
-            "  }",
-        ]
+        return self.module(body)
 
     def _transport_module(self) -> str:
         if self.options.with_transport == "websocket":
@@ -351,189 +233,7 @@ class _Renderer:
         return self.options.transport_module
 
     def endpoints(self) -> str:
-        blocks = [
-            "export type RpcTransportDescriptor =",
-            "  | {",
-            '      readonly type: "websocket";',
-            '      readonly messageEncoding: "json";',
-            "      readonly subprotocols?: readonly string[];",
-            "    }",
-            "  | {",
-            "      readonly type: string;",
-            "      readonly [option: string]: unknown;",
-            "    };",
-            "",
-            "type RpcServerVariable = {",
-            "  readonly default: string;",
-            "  readonly description?: string;",
-            "  readonly enum?: readonly string[];",
-            "};",
-            "",
-            "type RpcServerInfo = {",
-            "  readonly name: string;",
-            "  readonly url: string;",
-            "  readonly summary?: string;",
-            "  readonly description?: string;",
-            "  readonly variables?: Readonly<Record<string, RpcServerVariable>>;",
-            "  readonly transport?: RpcTransportDescriptor;",
-            "};",
-            "",
-            "export type ServerName = "
-            + " | ".join(json.dumps(server.name) for server in self.ir.servers)
-            + ";",
-            "",
-            "export type Endpoint = {",
-            "  readonly server: ServerName;",
-            "  readonly url: string;",
-            "  readonly subprotocols: readonly string[];",
-            "};",
-            "",
-            "export const servers = {",
-        ]
-        for server in self.ir.servers:
-            blocks.extend(
-                [
-                    f"  {_identifier(server.name)}: {{",
-                    f"    name: {json.dumps(server.name)},",
-                    f"    url: {json.dumps(server.url)},",
-                ]
-            )
-            if server.summary:
-                blocks.append(f"    summary: {json.dumps(server.summary)},")
-            if server.description:
-                blocks.append(f"    description: {json.dumps(server.description)},")
-            if server.transport is not None:
-                blocks.extend(
-                    [
-                        "    transport: {",
-                        f"      type: {json.dumps(server.transport.type)},",
-                    ]
-                )
-                if server.transport.message_encoding is not None:
-                    blocks.append(
-                        "      messageEncoding: "
-                        f"{json.dumps(server.transport.message_encoding)},"
-                    )
-                if server.transport.subprotocols:
-                    blocks.append(
-                        f"      subprotocols: {_array(server.transport.subprotocols)},"
-                    )
-                blocks.extend(
-                    f"      {_property(name)}: {json.dumps(value)},"
-                    for name, value in server.transport.options
-                )
-                blocks.append("    },")
-            if server.variables:
-                blocks.append("    variables: {")
-            for variable in server.variables:
-                blocks.append(f"      {_property(variable.name)}: {{")
-                blocks.append(f"        default: {json.dumps(variable.default)},")
-                if variable.description:
-                    blocks.append(
-                        f"        description: {json.dumps(variable.description)},"
-                    )
-                if variable.enum:
-                    blocks.append(f"        enum: {_array(variable.enum)},")
-                blocks.append("      },")
-            if server.variables:
-                blocks.append("    },")
-            blocks.append("  },")
-        blocks.extend(["} as const satisfies Record<string, RpcServerInfo>;", ""])
-        for server in self.ir.servers:
-            blocks.extend(self._endpoint_helper(server))
-            blocks.append("")
-        blocks.extend(
-            [
-                "export const endpoints = {",
-                *(f"  {_identifier(server.name)}," for server in self.ir.servers),
-                "} as const;",
-                "",
-                "export function resolveEndpoints(",
-                "  overrides: readonly Endpoint[],",
-                "): readonly Endpoint[] {",
-                "  const resolved = new Map<ServerName, Endpoint>([",
-                *(
-                    f"    [{json.dumps(server.name)}, {_identifier(server.name)}()],"
-                    for server in self.ir.servers
-                ),
-                "  ]);",
-                "  const supplied = new Set<ServerName>();",
-                "  for (const endpoint of overrides) {",
-                "    if (supplied.has(endpoint.server)) {",
-                "      throw new Error(`Duplicate endpoint for ${endpoint.server}`);",
-                "    }",
-                "    supplied.add(endpoint.server);",
-                "    resolved.set(endpoint.server, endpoint);",
-                "  }",
-                "  return [...resolved.values()];",
-                "}",
-                "",
-                "function resolveUrl(",
-                "  server: RpcServerInfo,",
-                "  values: Readonly<Record<string, string>>,",
-                "): string {",
-                "  let url = server.url;",
-                "  for (const [name, variable] of Object.entries(",
-                "    server.variables ?? {},",
-                "  )) {",
-                "    const value = values[name] ?? variable.default;",
-                "    if (",
-                "      variable.enum !== undefined &&",
-                "      !variable.enum.includes(value)",
-                "    ) {",
-                "      throw new Error(",
-                "        `Invalid value for server variable ${name}: ${value}`,",
-                "      );",
-                "    }",
-                "    url = url.replaceAll(`{${name}}`, value);",
-                "  }",
-                "  return url;",
-                "}",
-            ]
-        )
-        return self.module("\n".join(blocks).rstrip())
-
-    def _endpoint_helper(self, server: ServerDecl) -> list[str]:
-        variables = server.variables
-        name = _identifier(server.name)
-        subprotocols = (
-            _array(server.transport.subprotocols)
-            if server.transport is not None
-            else "[]"
-        )
-        if not variables:
-            return [
-                f"function {name}(): Endpoint {{",
-                "  return {",
-                f"    server: {json.dumps(server.name)},",
-                f"    url: servers.{_identifier(server.name)}.url,",
-                f"    subprotocols: {subprotocols},",
-                "  };",
-                "}",
-            ]
-        lines = [f"function {name}(variables: {{"]
-        lines.extend(
-            f"  {_property(variable.name)}?: "
-            + (
-                " | ".join(json.dumps(value) for value in variable.enum)
-                if variable.enum
-                else "string"
-            )
-            + ";"
-            for variable in variables
-        )
-        lines.extend(
-            [
-                "} = {}): Endpoint {",
-                "  return {",
-                f"    server: {json.dumps(server.name)},",
-                f"    url: resolveUrl(servers.{_identifier(server.name)}, variables),",
-                f"    subprotocols: {subprotocols},",
-                "  };",
-                "}",
-            ]
-        )
-        return lines
+        return self.module(self.template("endpoints", servers=self.ir.servers))
 
     def errors(self) -> str:
         named = {
@@ -542,153 +242,38 @@ class _Renderer:
             for error in route.errors
             if error.name is not None
         }
-        if not named:
-            return self.module("export {};")
         model_names = {
             name
             for error in named.values()
             if error.data is not None
             for name in _model_names(error.data)
         }
-        imports = ['import { RpcRemoteError } from "./core";']
-        if model_names:
-            imports.append(_type_import(model_names, "./models"))
-        blocks: list[str] = []
-        for name, error in named.items():
-            lines = [
-                f"export class {_schema_name(name)}Error extends RpcRemoteError {{",
-                f"  static readonly code = {error.code};",
-            ]
-            if error.data is not None:
-                lines.extend(
-                    [
-                        "",
-                        f"  declare readonly data: {self._type(error.data)};",
-                    ]
-                )
-            lines.append("}")
-            blocks.append("\n".join(lines))
-        return self.module("\n".join(imports) + "\n\n" + "\n\n".join(blocks))
+        model_import = _type_import(model_names, "./models") if model_names else ""
+        return self.module(
+            self.template(
+                "errors",
+                errors=tuple(named.values()),
+                model_import=model_import,
+            )
+        )
 
     def index(self) -> str:
-        lines = [f'export {{ {self.client_name} }} from "./client";']
-        if self.ir.servers:
-            lines.append(
-                f"export type {{ {_transports_name(self.client_name)} }} "
-                'from "./client";'
-            )
-        if self.options.with_transport == "websocket":
-            lines.append('export type { ConnectOptions } from "./client";')
-        if self.ir.servers:
-            lines.append('export { endpoints, servers } from "./endpoints";')
-            lines.append('export type { Endpoint, ServerName } from "./endpoints";')
-        if self.options.with_transport == "websocket":
-            lines.append('export { WebSocketTransport } from "./transport";')
-            lines.append(
-                'export type { WebSocketFactory, WebSocketOptions } from "./transport";'
-            )
-        if _named_errors(self.ir):
-            lines.append('export * from "./errors";')
         notification_type = _notification_type(self.ir)
-        if notification_type is not None:
-            lines.append(_type_export(_model_names(notification_type), "./models"))
-        return self.module("\n".join(lines))
-
-    def _operation(self, route: RouteDecl, *, root: bool) -> list[str]:
-        params = ""
-        if route.params:
-            optional = (
-                " = {}" if not any(param.required for param in route.params) else ""
-            )
-            params = f"params: {route.params_model}{optional}"
-        wire_type = self._type(route.result)
-        return_type = "void" if _is_null(route.result) else wire_type
-        lines: list[str] = []
-        if route.summary:
-            lines.append(f"  /** {_comment(route.summary)} */")
-        prefix = "async " if _is_null(route.result) else ""
-        method_name = _identifier(route.operation_name)
-        lines.append(f"  {prefix}{method_name}({params}): Promise<{return_type}> {{")
-        call = (
-            f"this.rpc.request<{wire_type}>"
-            if not root
-            else f"this.#rpc.request<{wire_type}>"
+        notification_export = (
+            _type_export(_model_names(notification_type), "./models")
+            if notification_type is not None
+            else ""
         )
-        arguments = f"routes.{_route_key(route)}"
-        if params:
-            arguments += ", params"
-        statement = f"{call}({arguments})"
-        if _is_null(route.result):
-            lines.append(f"    await {statement};")
-        else:
-            lines.append(f"    return {statement};")
-        lines.append("  }")
-        return lines
-
-    def _notification(
-        self,
-        event: NotificationDecl,
-        *,
-        root: bool,
-    ) -> list[str]:
-        result = self._type(event.payload)
-        lines: list[str] = []
-        if event.summary:
-            lines.append(f"  /** {_comment(event.summary)} */")
-        lines.extend(
-            [
-                f"  {_identifier(event.operation_name)}(): AsyncIterable<{result}> {{",
-                f"    return {'this.#rpc' if root else 'this.rpc'}"
-                f".notifications<{result}>(",
-                f"      {json.dumps(event.rpc_name)},",
-                *(
-                    [f"      {json.dumps(event.server)},"]
-                    if event.server is not None
-                    else []
-                ),
-                "    );",
-                "  }",
-            ]
+        body = self.template(
+            "index",
+            client_name=self.client_name,
+            transports_name=_transports_name(self.client_name),
+            servers=self.ir.servers,
+            with_websocket=self.options.with_transport == "websocket",
+            named_errors=_named_errors(self.ir),
+            notification_export=notification_export,
         )
-        return lines
-
-    def _declaration(self, declaration: Declaration) -> str:
-        if isinstance(declaration, EnumDecl):
-            return self._enum(declaration)
-        if isinstance(declaration, ModelDecl):
-            return self._model(declaration)
-        if isinstance(declaration, AliasDecl):
-            return (
-                f"export type {_schema_name(declaration.name)} = "
-                f"{self._type(declaration.target)};"
-            )
-        raise TypeError(f"Unsupported declaration: {type(declaration).__name__}")
-
-    def _enum(self, declaration: EnumDecl) -> str:
-        members = "\n".join(
-            f"  {member.name}: {json.dumps(member.value)},"
-            for member in declaration.members
-        )
-        return (
-            f"export const {_schema_name(declaration.name)} = "
-            f"{{\n{members}\n}} as const;\n\n"
-            f"export type {_schema_name(declaration.name)} = "
-            f"(typeof {_schema_name(declaration.name)})"
-            f"[keyof typeof {_schema_name(declaration.name)}];"
-        )
-
-    def _model(self, declaration: ModelDecl) -> str:
-        if not declaration.fields:
-            return (
-                f"export type {_schema_name(declaration.name)} = Record<string, never>;"
-            )
-        fields = "\n".join(self._field(field) for field in declaration.fields)
-        return f"export type {_schema_name(declaration.name)} = {{\n{fields}\n}};"
-
-    def _field(self, field: FieldDecl) -> str:
-        optional = not field.required and not _is_discriminator(field.name, field.type)
-        suffix = "?" if optional else ""
-        return f"  {_property(field.name)}{suffix}: {self._type(field.type)};"
+        return self.module(body)
 
     def _type(self, expression: TypeExpr) -> str:
         if isinstance(expression, PrimitiveType):
@@ -912,6 +497,18 @@ def _type_export(names: Iterable[str], module: str) -> str:
 
 def _array(values: Iterable[object]) -> str:
     return "[" + ", ".join(_ts_literal(value) for value in values) + "]"
+
+
+def _server_variable_type(variable: ServerVariableDecl) -> str:
+    if variable.enum:
+        return " | ".join(_ts_literal(value) for value in variable.enum)
+    return "string"
+
+
+def _server_subprotocols(server: ServerDecl) -> str:
+    if server.transport is None:
+        return "[]"
+    return _array(server.transport.subprotocols)
 
 
 def _ts_literal(value: object) -> str:

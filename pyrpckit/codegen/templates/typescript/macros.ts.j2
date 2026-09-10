@@ -1,0 +1,15 @@
+{% macro operation(route, root) %}{% if route.summary %}  /** {{ route.summary | comment }} */
+{% endif %}  {{ "async " if route.result | null_type else "" }}{{ route.operation_name | identifier }}({% if route.params %}params: {{ route.params_model }}{{ " = {}" if route.params | all_optional else "" }}{% endif %}): Promise<{{ "void" if route.result | null_type else route.result | type }}> {
+{% if route.result | null_type %}    await {% else %}    return {% endif %}{{ "this.#rpc" if root else "this.rpc" }}.request<{{ route.result | type }}>({{ route | route_access }}{% if route.params %}, params{% endif %});
+  }
+{% endmacro %}
+
+{% macro notification(event, root) %}{% if event.summary %}  /** {{ event.summary | comment }} */
+{% endif %}  {{ event.operation_name | identifier }}(): AsyncIterable<{{ event.payload | type }}> {
+{% if event | compact_notification(root) %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>({{ event.rpc_name | literal }}{% if event.server is not none %}, {{ event.server | literal }}{% endif %});
+{% else %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>(
+      {{ event.rpc_name | literal }},
+{% if event.server is not none %}      {{ event.server | literal }},
+{% endif %}    );
+{% endif %}  }
+{% endmacro %}

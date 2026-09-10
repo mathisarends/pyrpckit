@@ -39,18 +39,16 @@ export class AutomationClient {
     return new AutomationClient(transport);
   }
 
-  static fromTransports(
-    transports: AutomationTransports,
-  ): AutomationClient {
+  static fromTransports(transports: AutomationTransports): AutomationClient {
     return new AutomationClient(transports);
   }
 
-  static async connect(options: ConnectOptions = {}): Promise<AutomationClient> {
+  static async connect(
+    options: ConnectOptions = {},
+  ): Promise<AutomationClient> {
     const transports: Partial<Record<ServerName, RpcTransport>> = {};
     try {
-      for (const endpoint of resolveEndpoints(
-        options.endpoints ?? [],
-      )) {
+      for (const endpoint of resolveEndpoints(options.endpoints ?? [])) {
         transports[endpoint.server] = await WebSocketTransport.open(
           endpoint.url,
           {

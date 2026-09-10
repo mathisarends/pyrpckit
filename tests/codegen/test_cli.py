@@ -150,9 +150,7 @@ def test_generate_writes_a_typescript_client(schema: Path, tmp_path: Path) -> No
     assert "export class GreetingClient" in (output / "client.ts").read_text(
         encoding="utf-8"
     )
-    assert 'from "../rpc-transport"' in (output / "client.ts").read_text(
-        encoding="utf-8"
-    )
+    assert 'from "../rpc-transport"' in (output / "core.ts").read_text(encoding="utf-8")
 
 
 def test_generate_config_builds_independent_sibling_clients(

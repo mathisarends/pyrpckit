@@ -26,7 +26,10 @@ type WebSocketSocket = {
   readonly readyState: number;
   send(data: string): void;
   close(): void;
-  addEventListener(type: "open" | "close" | "error", listener: () => void): void;
+  addEventListener(
+    type: "open" | "close" | "error",
+    listener: () => void,
+  ): void;
   addEventListener(
     type: "message",
     listener: (event: { readonly data: unknown }) => void,
@@ -74,7 +77,8 @@ export class WebSocketTransport implements RpcTransport {
   }
 
   request(method: string, params?: object): Promise<unknown> {
-    if (this.#closed) return Promise.reject(new Error("The WebSocket is closed"));
+    if (this.#closed)
+      return Promise.reject(new Error("The WebSocket is closed"));
     const id = this.#nextRequestId++;
     const message: JsonObject = { jsonrpc: "2.0", id, method };
     if (params !== undefined) message.params = params;
@@ -112,7 +116,8 @@ export class WebSocketTransport implements RpcTransport {
     try {
       const message = decodeMessage(raw);
       if ("id" in message) this.#resolveResponse(message);
-      else if (typeof message.method === "string") this.#notifications.push(message);
+      else if (typeof message.method === "string")
+        this.#notifications.push(message);
       else throw new Error("Invalid JSON-RPC message");
     } catch (error) {
       this.#fail(error);
@@ -126,7 +131,8 @@ export class WebSocketTransport implements RpcTransport {
       throw new Error("JSON-RPC response IDs must be integers");
     }
     const pending = this.#pending.get(id);
-    if (pending === undefined) throw new Error(`Unknown JSON-RPC response ID: ${id}`);
+    if (pending === undefined)
+      throw new Error(`Unknown JSON-RPC response ID: ${id}`);
     this.#pending.delete(id);
     if (pending.timeout !== undefined) clearTimeout(pending.timeout);
     if (isObject(message.error)) {
@@ -176,7 +182,9 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
     const value = this.#values.shift();
     if (value !== undefined) return Promise.resolve({ value, done: false });
     if (this.#failure !== undefined) return Promise.reject(this.#failure);
-    return new Promise((resolve, reject) => this.#waiters.push({ resolve, reject }));
+    return new Promise((resolve, reject) =>
+      this.#waiters.push({ resolve, reject }),
+    );
   }
 
   push(value: Value): void {
@@ -222,13 +230,18 @@ function waitForOpen(socket: WebSocketSocket): Promise<void> {
   if (socket.readyState === 1) return Promise.resolve();
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve);
-    socket.addEventListener("error", () => reject(new Error("WebSocket open failed")));
-    socket.addEventListener("close", () => reject(new Error("WebSocket closed")));
+    socket.addEventListener("error", () =>
+      reject(new Error("WebSocket open failed")),
+    );
+    socket.addEventListener("close", () =>
+      reject(new Error("WebSocket closed")),
+    );
   });
 }
 
 function decodeMessage(raw: unknown): JsonObject {
-  if (typeof raw !== "string") throw new Error("WebSocket messages must be text");
+  if (typeof raw !== "string")
+    throw new Error("WebSocket messages must be text");
   const message: unknown = JSON.parse(raw);
   if (!isObject(message) || message.jsonrpc !== "2.0") {
     throw new Error("Invalid JSON-RPC message");

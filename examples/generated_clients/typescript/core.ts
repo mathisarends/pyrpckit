@@ -7,12 +7,7 @@ import type { RpcTransport } from "./transport";
 export type { RpcTransport } from "./transport";
 
 export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export type RpcRouteInfo = {
   readonly method: string;
@@ -116,10 +111,13 @@ export class RpcClientCore {
     try {
       for await (const message of transport.notifications()) {
         if (!isNotification(message)) {
-          throw new Error("The transport returned an invalid JSON-RPC notification");
+          throw new Error(
+            "The transport returned an invalid JSON-RPC notification",
+          );
         }
         for (const subscriber of subscribers) {
-          if (subscriber.method === message.method) subscriber.queue.push(message);
+          if (subscriber.method === message.method)
+            subscriber.queue.push(message);
         }
       }
       for (const subscriber of subscribers) subscriber.queue.end();
@@ -212,6 +210,7 @@ function withoutUndefined(value: object): Record<string, unknown> {
 
 function normalizeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeValue);
-  if (value !== null && typeof value === "object") return withoutUndefined(value);
+  if (value !== null && typeof value === "object")
+    return withoutUndefined(value);
   return value;
 }

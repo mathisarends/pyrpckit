@@ -6,13 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from pyrpckit.codegen.ir import ClientIr, UnsupportedSchemaError, build_ir
-from pyrpckit.codegen.python import PythonClientOptions, render_files
-from pyrpckit.codegen.typescript import (
-    TypeScriptClientOptions,
-)
-from pyrpckit.codegen.typescript import (
-    render_files as render_typescript_files,
-)
+from pyrpckit.codegen.options import PythonClientOptions, TypeScriptClientOptions
 from pyrpckit.codegen.writer import MANIFEST, write_files
 
 LAYOUT_VERSION = 7
@@ -36,6 +30,8 @@ def render_python_client(
     options: PythonClientOptions,
 ) -> Mapping[str, str]:
     """Render a Python client package as relative path to file content."""
+    from pyrpckit.codegen.python import render_files
+
     files = render_files(build_ir(document), options)
     return _with_manifest(files, document, language="python")
 
@@ -56,6 +52,8 @@ def render_typescript_client(
     options: TypeScriptClientOptions,
 ) -> Mapping[str, str]:
     """Render a TypeScript client package as relative path to file content."""
+    from pyrpckit.codegen.typescript import render_files as render_typescript_files
+
     files = render_typescript_files(build_ir(document), options)
     return _with_manifest(files, document, language="typescript")
 

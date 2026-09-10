@@ -95,10 +95,11 @@ def test_notification_server_metadata_is_preserved(
     deployed["x-rpc-notifications"][0]["servers"] = [
         {"name": "updates", "url": "wss://example.com/updates"}
     ]
+    deployed["servers"] = [{"name": "updates", "url": "wss://example.com/updates"}]
 
     notification = build_ir(deployed).notifications[0]
 
-    assert notification.server_names == ("updates",)
+    assert notification.server == "updates"
 
 
 def test_nested_routes_form_nested_api_nodes(document: dict[str, Any]) -> None:
@@ -139,13 +140,14 @@ def test_route_metadata_is_preserved(document: dict[str, Any]) -> None:
         "properties": {"name": {"type": "string"}},
         "required": ["name"],
     }
+    enriched["servers"] = [{"name": "secondary", "url": "wss://secondary"}]
 
     route = build_ir(enriched).operations[0]
 
     assert route.description == "A longer explanation."
     assert route.deprecated is True
     assert route.tags == ("greeting",)
-    assert route.server_names == ("secondary",)
+    assert route.server == "secondary"
     assert route.errors[0].name == "GreetingMissing"
     assert route.errors[0].data == NamedType("MissingData")
 
@@ -164,7 +166,10 @@ def test_contract_servers_are_lowered(document: dict[str, Any]) -> None:
                     "enum": ["demo", "production"],
                 },
             },
-            "x-rpckit-transport": "websocket",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
         }
     ]
 
@@ -172,7 +177,9 @@ def test_contract_servers_are_lowered(document: dict[str, Any]) -> None:
 
     assert ir.protocol_version == 1
     assert ir.servers[0].name == "greeting-api"
-    assert ir.servers[0].transport == "websocket"
+    assert ir.servers[0].transport is not None
+    assert ir.servers[0].transport.type == "websocket"
+    assert ir.servers[0].transport.message_encoding == "json"
     assert [variable.name for variable in ir.servers[0].variables] == [
         "host",
         "tenantId",

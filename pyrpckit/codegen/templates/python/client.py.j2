@@ -1,0 +1,63 @@
+{% from "python/macros.py.j2" import operation, notification with context %}class {{ client_name }}:
+    def __init__(
+        self,
+        transport: {{ "RpcTransport | Mapping[str, RpcTransport]" if servers else "RpcTransport" }},
+        *,
+        close_transport: bool = True,
+    ) -> None:
+        self._rpc = RpcClientCore(transport, close_transport=close_transport)
+{% for node in nodes %}        self.{{ node.segment | identifier }} = {{ node.path | api_class }}(self._rpc)
+{% endfor %}
+    @classmethod
+    def from_transport(
+        cls,
+        transport: RpcTransport,
+        *,
+        close_transport: bool = True,
+    ) -> Self:
+        return cls(transport, close_transport=close_transport)
+{% if servers %}
+    @classmethod
+    def from_transports(
+        cls,
+        *,
+{% for server in servers %}        {{ server.name | identifier }}: RpcTransport,
+{% endfor %}    ) -> Self:
+        return cls(
+            {
+{% for server in servers %}                ServerName.{{ server.name | constant }}: {{ server.name | identifier }},
+{% endfor %}            }
+        )
+
+    @classmethod
+    def from_transport_map(
+        cls,
+        transports: Mapping[ServerName, RpcTransport],
+    ) -> Self:
+        return cls(transports)
+{% endif %}{% if with_websocket %}
+    @classmethod
+    def connect(
+        cls,
+        *endpoint_overrides: Endpoint,
+        request_timeout: float | None = None,
+        notification_queue_size: int = 100,
+    ) -> ClientConnection[Self, ServerName]:
+        return ClientConnection(
+            client_factory=cls.from_transport_map,
+            endpoints=resolve_endpoints(endpoint_overrides),
+            transport_factory=WebSocketTransport.open,
+            request_timeout=request_timeout,
+            notification_queue_size=notification_queue_size,
+        )
+{% endif %}{% for route in operations %}
+{{ operation(route) }}{% endfor %}{% for event in notifications %}
+{{ notification(event) }}{% endfor %}
+    async def close(self) -> None:
+        await self._rpc.close()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()

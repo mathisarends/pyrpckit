@@ -1,0 +1,8 @@
+{% if not errors %}__all__: list[str] = []
+{% else %}{% for error in errors %}class {{ error.name | schema_name }}Error(RpcRemoteError):
+    code: ClassVar[int] = {{ error.code }}
+{% if error.data is not none %}    data: {{ error.data | annotation }}
+{% endif %}{% if not loop.last %}
+
+
+{% endif %}{% endfor %}{% endif %}

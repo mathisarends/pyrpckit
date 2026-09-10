@@ -44,6 +44,7 @@ CONTRACT = rpc.OpenRpcContract(
             extensions={
                 "x-rpckit-transport": {
                     "type": "websocket",
+                    "messageEncoding": "json",
                     "frameType": "text",
                 }
             },
@@ -77,6 +78,7 @@ def test_contract_renders_typed_server_metadata() -> None:
             },
             "x-rpckit-transport": {
                 "type": "websocket",
+                "messageEncoding": "json",
                 "frameType": "text",
             },
         }

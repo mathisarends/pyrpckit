@@ -1,0 +1,65 @@
+{% from "typescript/macros.ts.j2" import operation, notification with context %}{% for line in imports %}{{ line }}
+{% endfor %}{% if servers %}
+export type {{ transports_name }} = {
+{% for server in servers %}  readonly {{ server.name | property }}: RpcTransport;
+{% endfor %}};
+{% endif %}{% if with_websocket %}
+export type ConnectOptions = {
+  readonly endpoints?: readonly Endpoint[];
+  readonly requestTimeoutMs?: number;
+  readonly notificationQueueSize?: number;
+  readonly socketFactory?: WebSocketFactory;
+};
+{% endif %}
+export class {{ client_name }} {
+{% for node in nodes %}  readonly {{ node.segment | identifier }}: {{ node.path | api_class }};
+{% endfor %}{% if nodes %}
+{% endif %}  readonly #rpc: RpcClientCore;
+
+  constructor(
+    transport: {{ transport_type }},
+    options?: { readonly closeTransport?: boolean },
+  ) {
+    this.#rpc = new RpcClientCore(transport, options);
+{% for node in nodes %}    this.{{ node.segment | identifier }} = new {{ node.path | api_class }}(this.#rpc);
+{% endfor %}  }
+
+  static fromTransport(transport: RpcTransport): {{ client_name }} {
+    return new {{ client_name }}(transport);
+  }
+{% if servers %}
+  static fromTransports(transports: {{ transports_name }}): {{ client_name }} {
+    return new {{ client_name }}(transports);
+  }
+{% endif %}{% if with_websocket %}
+  static async connect(
+    options: ConnectOptions = {},
+  ): Promise<{{ client_name }}> {
+    const transports: Partial<Record<ServerName, RpcTransport>> = {};
+    try {
+      for (const endpoint of resolveEndpoints(options.endpoints ?? [])) {
+        transports[endpoint.server] = await WebSocketTransport.open(
+          endpoint.url,
+          {
+            subprotocols: endpoint.subprotocols,
+            requestTimeoutMs: options.requestTimeoutMs,
+            notificationQueueSize: options.notificationQueueSize,
+            socketFactory: options.socketFactory,
+          },
+        );
+      }
+    } catch (error) {
+      await Promise.all(
+        Object.values(transports).map((transport) => transport.close()),
+      );
+      throw error;
+    }
+    return {{ client_name }}.fromTransports(transports as {{ transports_name }});
+  }
+{% endif %}{% for route in operations %}
+{{ operation(route, true) }}{% endfor %}{% for event in notifications %}
+{{ notification(event, true) }}{% endfor %}
+  close(): Promise<void> {
+    return this.#rpc.close();
+  }
+}

@@ -1,0 +1,13 @@
+{% for route in routes %}{{ route.method_member }} = RpcRouteInfo(
+    method={{ route.rpc_name | literal }},
+    result_adapter=TypeAdapter({{ route.result | annotation }}),
+{% if route.server is not none %}    server={{ route.server | literal }},
+{% endif %})
+{% if not loop.last or notifications %}
+{% endif %}{% endfor %}{% for event in notifications %}{{ event.rpc_name | constant }}: RpcNotificationInfo[{{ event.payload | annotation }}] = RpcNotificationInfo(
+    method={{ event.rpc_name | literal }},
+    message_adapter=TypeAdapter({{ event.message | annotation }}),
+{% if event.server is not none %}    server={{ event.server | literal }},
+{% endif %})
+{% if not loop.last %}
+{% endif %}{% endfor %}

@@ -1,0 +1,8 @@
+import type { RpcRouteInfo } from "./core";
+
+export const routes = {
+{% for route in routes %}  {{ route | route_key }}: {
+    method: {{ route.rpc_name | literal }},
+{% if route.server is not none %}    server: {{ route.server | literal }},
+{% endif %}  },
+{% endfor %}} as const satisfies Record<string, RpcRouteInfo>;

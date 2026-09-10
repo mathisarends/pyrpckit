@@ -124,7 +124,7 @@ async def test_notifications_are_parsed_into_typed_payloads(
         }
     )
 
-    notification = await anext(client.notifications())
+    notification = await anext(client.greeting.changed())
 
     assert notification.text == "Hello!"
     assert type(notification).__name__ == "GreetingSaid"

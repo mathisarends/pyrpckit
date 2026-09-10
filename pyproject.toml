@@ -7,9 +7,11 @@ requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Mathis Arends", email = "mathisarends27@gmail.com" }]
 dependencies = [
-    "jinja2>=3.1",
     "pydantic>=2.11",
 ]
+
+[project.optional-dependencies]
+codegen = ["jinja2>=3.1"]
 
 [project.scripts]
 pyrpckit = "pyrpckit.codegen.cli:main"
@@ -23,6 +25,7 @@ packages = ["pyrpckit"]
 
 [dependency-groups]
 dev = [
+    "jinja2>=3.1",
     "ruff>=0.6",
     "pre-commit>=3.7",
     "pytest>=8.0",

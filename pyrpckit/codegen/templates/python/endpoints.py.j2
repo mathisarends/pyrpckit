@@ -1,0 +1,62 @@
+class ServerName(StrEnum):
+{% for server in servers %}    {{ server.name | constant }} = {{ server.name | literal }}
+{% endfor %}
+
+
+@dataclass(frozen=True, slots=True)
+class Endpoint:
+    server: ServerName
+    url: str
+    subprotocols: tuple[str, ...] = ()
+
+
+_SERVERS = {
+{% for server in servers %}    ServerName.{{ server.name | constant }}: RpcServerInfo(
+        name={{ server.name | literal }},
+        url={{ server.url | literal }},
+{% if server.summary %}        summary={{ server.summary | literal }},
+{% endif %}{% if server.description %}        description={{ server.description | literal }},
+{% endif %}{% if server.variables %}        variables={
+{% for variable in server.variables %}            {{ variable.name | literal }}: RpcServerVariable(
+                default={{ variable.default | literal }},
+{% if variable.description %}                description={{ variable.description | literal }},
+{% endif %}{% if variable.enum %}                enum={{ variable.enum | tuple_literal }},
+{% endif %}            ),
+{% endfor %}        },
+{% endif %}{% if server.transport is not none %}        transport=RpcTransportDescriptor(
+            type={{ server.transport.type | literal }},
+{% if server.transport.message_encoding is not none %}            message_encoding={{ server.transport.message_encoding | literal }},
+{% endif %}{% if server.transport.subprotocols %}            subprotocols={{ server.transport.subprotocols | tuple_literal }},
+{% endif %}{% if server.transport.options %}            options={{ server.transport.options | options_literal }},
+{% endif %}        ),
+{% endif %}    ),
+{% endfor %}}
+{% for server in servers %}
+
+def {{ server.name | identifier }}(
+{% if server.variables %}    *,
+{% for variable in server.variables %}    {{ variable.name | identifier }}: {{ variable | variable_annotation }} = {{ variable.default | literal }},
+{% endfor %}{% endif %}) -> Endpoint:
+    return Endpoint(
+        server=ServerName.{{ server.name | constant }},
+{% if server.variables %}        url=_SERVERS[ServerName.{{ server.name | constant }}].resolve(
+            {
+{% for variable in server.variables %}                {{ variable.name | literal }}: {{ variable.name | identifier }},
+{% endfor %}            }
+        ),
+{% else %}        url=_SERVERS[ServerName.{{ server.name | constant }}].resolve(),
+{% endif %}        subprotocols={{ server | server_subprotocols }},
+    )
+{% endfor %}
+
+def resolve_endpoints(overrides: Iterable[Endpoint]) -> tuple[Endpoint, ...]:
+    resolved = {
+{% for server in servers %}        ServerName.{{ server.name | constant }}: {{ server.name | identifier }}(),
+{% endfor %}    }
+    supplied: set[ServerName] = set()
+    for endpoint in overrides:
+        if endpoint.server in supplied:
+            raise ValueError(f"Duplicate endpoint for {endpoint.server!r}")
+        supplied.add(endpoint.server)
+        resolved[endpoint.server] = endpoint
+    return tuple(resolved.values())

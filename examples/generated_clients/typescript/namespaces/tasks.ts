@@ -21,9 +21,6 @@ export class Tasks {
 
   /** Stream task updates. */
   updated(): AsyncIterable<TaskUpdated> {
-    return this.rpc.notifications<TaskUpdated>(
-      "tasks.updated",
-      "production",
-    );
+    return this.rpc.notifications<TaskUpdated>("tasks.updated", "production");
   }
 }
