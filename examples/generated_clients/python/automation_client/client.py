@@ -5,7 +5,7 @@ from typing import Protocol, Self
 
 from pyrpckit.client import RpcClientCore, RpcTransport
 
-from automation_client.endpoints import Endpoint, ServerName, _resolve_endpoints
+from automation_client.endpoints import Endpoint, ServerName, resolve_endpoints
 from automation_client.namespaces.browser import Browser
 from automation_client.namespaces.tasks import Tasks
 from automation_client.transport import WebSocketTransport
@@ -99,7 +99,7 @@ class AutomationClient:
     ) -> Self:
         transports: dict[ServerName, RpcTransport] = {}
         try:
-            for endpoint in _resolve_endpoints(endpoint_overrides):
+            for endpoint in resolve_endpoints(endpoint_overrides):
                 transports[endpoint.server] = await WebSocketTransport.open(
                     endpoint.url,
                     subprotocols=endpoint.subprotocols,

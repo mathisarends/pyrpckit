@@ -109,7 +109,7 @@ def streaming(
     )
 
 
-def _resolve_endpoints(overrides: Iterable[Endpoint]) -> tuple[Endpoint, ...]:
+def resolve_endpoints(overrides: Iterable[Endpoint]) -> tuple[Endpoint, ...]:
     resolved = {
         ServerName.PRODUCTION: production(),
         ServerName.BROWSER: browser(),

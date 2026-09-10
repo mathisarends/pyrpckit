@@ -305,7 +305,7 @@ def _endpoint_resolver(servers: tuple[ServerDecl, ...]) -> str:
         for server in servers
     )
     return (
-        "def _resolve_endpoints(overrides: Iterable[Endpoint]) -> "
+        "def resolve_endpoints(overrides: Iterable[Endpoint]) -> "
         "tuple[Endpoint, ...]:\n"
         "    resolved = {\n"
         f"{defaults}\n"
@@ -415,7 +415,7 @@ def _render_client(
         imports.add(
             f"{options.package}.endpoints",
             "Endpoint",
-            "_resolve_endpoints",
+            "resolve_endpoints",
         )
         imports.add(f"{options.package}.transport", "WebSocketTransport")
     lines = [
@@ -551,7 +551,7 @@ def _connection_lines(client_name: str) -> list[str]:
         "    ) -> Self:",
         "        transports: dict[ServerName, RpcTransport] = {}",
         "        try:",
-        "            for endpoint in _resolve_endpoints(endpoint_overrides):",
+        "            for endpoint in resolve_endpoints(endpoint_overrides):",
         "                transports[endpoint.server] = await WebSocketTransport.open(",
         "                    endpoint.url,",
         "                    subprotocols=endpoint.subprotocols,",
