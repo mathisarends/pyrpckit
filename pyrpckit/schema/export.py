@@ -76,5 +76,10 @@ def render_contract(
         title=resolved_title,
         description=resolved_description,
         servers=resolved_servers,
+        binary_streams=(
+            (stream.document() for stream in source.binary_streams)
+            if isinstance(source, RpcContract)
+            else ()
+        ),
     )
     return json.dumps(document, indent=2) + "\n"

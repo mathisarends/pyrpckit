@@ -186,6 +186,29 @@ def test_contract_servers_are_lowered(document: dict[str, Any]) -> None:
     ]
 
 
+def test_binary_stream_extensions_are_lowered(document: dict[str, Any]) -> None:
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media/{sessionId}",
+            "direction": "bidirectional",
+            "contentType": "audio/pcm;rate=24000",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+            "subprotocols": ["voice.v1"],
+        }
+    ]
+
+    stream = build_ir(deployed).binary_streams[0]
+
+    assert stream.name == "voice"
+    assert stream.direction == "bidirectional"
+    assert stream.content_type == "audio/pcm;rate=24000"
+    assert stream.variables[0].name == "sessionId"
+    assert stream.subprotocols == ("voice.v1",)
+
+
 def test_a_foreign_openrpc_document_is_rejected(document: dict[str, Any]) -> None:
     foreign = {**document, "methods": [{"name": "a.b", "params": [], "result": {}}]}
 

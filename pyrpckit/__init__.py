@@ -1,6 +1,6 @@
 from .app import RpcChannel
 from .codec import RpcCodec
-from .contract import RpcContract, ServerVariable
+from .contract import BinaryStream, BinaryStreamDirection, RpcContract, ServerVariable
 from .dependencies import Inject, RpcResolver, RpcResolverScope, call_scope
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
@@ -18,9 +18,11 @@ from .models import RpcModel
 from .router import RpcModule
 from .server import RpcErrorMapper, RpcServer
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
+    "BinaryStream",
+    "BinaryStreamDirection",
     "ProtocolDefinitionError",
     "Inject",
     "RpcChannel",

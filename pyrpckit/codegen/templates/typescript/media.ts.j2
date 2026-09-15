@@ -1,0 +1,265 @@
+export type BinaryStreamDirection =
+  "client-to-server" | "server-to-client" | "bidirectional";
+
+export type BinaryStreamName = {% for stream in streams %}{{ " | " if not loop.first else "" }}{{ stream.name | literal }}{% endfor %};
+
+export type BinaryStreamEndpoint = {
+  readonly name: BinaryStreamName;
+  readonly url: string | URL;
+  readonly direction: BinaryStreamDirection;
+  readonly contentType: string;
+  readonly subprotocols?: readonly string[];
+};
+
+export type BinaryStreamTransport = {
+  send(frame: ArrayBuffer | ArrayBufferView): Promise<void>;
+  receive(): Promise<ArrayBuffer>;
+  close(): Promise<void>;
+};
+
+type BinaryStreamInfo = {
+  readonly name: BinaryStreamName;
+  readonly url: string;
+  readonly direction: BinaryStreamDirection;
+  readonly contentType: string;
+  readonly subprotocols?: readonly string[];
+  readonly variables?: Readonly<
+    Record<
+      string,
+      {
+        readonly default: string;
+        readonly enum?: readonly string[];
+      }
+    >
+  >;
+};
+
+export const binaryStreams = {
+{% for stream in streams %}  {{ stream.name | identifier }}: {
+    name: {{ stream.name | literal }},
+    url: {{ stream.url | literal }},
+    direction: {{ stream.direction | literal }},
+    contentType: {{ stream.content_type | literal }},
+{% if stream.subprotocols %}    subprotocols: {{ stream.subprotocols | array }},
+{% endif %}{% if stream.variables %}    variables: {
+{% for variable in stream.variables %}      {{ variable.name | property }}: {
+        default: {{ variable.default | literal }},
+{% if variable.enum %}        enum: {{ variable.enum | array }},
+{% endif %}      },
+{% endfor %}    },
+{% endif %}  },
+{% endfor %}} as const satisfies Record<BinaryStreamName, BinaryStreamInfo>;
+
+{% for stream in streams %}function {{ stream.name | identifier }}({% if stream.variables %}
+  variables: {
+{% for variable in stream.variables %}    {{ variable.name | property }}?: {{ variable | server_variable_type }};
+{% endfor %}  } = {},
+{% endif %}): BinaryStreamEndpoint {
+  return {
+    name: {{ stream.name | literal }},
+    url: {% if stream.variables %}resolveUrl(binaryStreams.{{ stream.name | identifier }}, variables){% else %}binaryStreams.{{ stream.name | identifier }}.url{% endif %},
+    direction: {{ stream.direction | literal }},
+    contentType: {{ stream.content_type | literal }},
+    subprotocols: {{ stream.subprotocols | array }},
+  };
+}
+
+{% endfor %}export const media = {
+{% for stream in streams %}  {{ stream.name | identifier }},
+{% endfor %}} as const;
+
+function resolveUrl(
+  stream: BinaryStreamInfo,
+  values: Readonly<Record<string, string>>,
+): string {
+  let url = stream.url;
+  for (const [name, variable] of Object.entries(stream.variables ?? {})) {
+    const value = values[name] ?? variable.default;
+    if (variable.enum !== undefined && !variable.enum.includes(value)) {
+      throw new Error(
+        `Invalid value for binary stream variable ${name}: ${value}`,
+      );
+    }
+    url = url.replaceAll(`{${name}}`, value);
+  }
+  return url;
+}
+{% if with_websocket %}export type BinaryWebSocketFactory = (
+  url: string | URL,
+  protocols?: readonly string[],
+) => BinaryWebSocket;
+
+export type BinaryWebSocketOptions = {
+  readonly incomingQueueSize?: number;
+  readonly socketFactory?: BinaryWebSocketFactory;
+};
+
+type BinaryWebSocket = {
+  binaryType: string;
+  readonly readyState: number;
+  send(data: ArrayBuffer | ArrayBufferView): void;
+  close(): void;
+  addEventListener(
+    type: "open" | "close" | "error",
+    listener: () => void,
+  ): void;
+  addEventListener(
+    type: "message",
+    listener: (event: { readonly data: unknown }) => void,
+  ): void;
+};
+
+export class BinaryWebSocketStream implements BinaryStreamTransport {
+  readonly endpoint: BinaryStreamEndpoint;
+  readonly #socket: BinaryWebSocket;
+  readonly #frames: BinaryFrameQueue;
+  #closed = false;
+
+  private constructor(
+    socket: BinaryWebSocket,
+    endpoint: BinaryStreamEndpoint,
+    incomingQueueSize: number,
+  ) {
+    this.#socket = socket;
+    this.endpoint = endpoint;
+    this.#frames = new BinaryFrameQueue(incomingQueueSize);
+    socket.binaryType = "arraybuffer";
+    socket.addEventListener("message", (event) => {
+      try {
+        if (event.data instanceof ArrayBuffer) this.#frames.push(event.data);
+        else throw new Error("The binary WebSocket returned a text frame");
+      } catch (error) {
+        this.#fail(
+          error instanceof Error ? error : new Error("Invalid binary frame"),
+        );
+        socket.close();
+      }
+    });
+    socket.addEventListener("error", () =>
+      this.#fail(new Error("The binary WebSocket connection failed")),
+    );
+    socket.addEventListener("close", () =>
+      this.#fail(new Error("The binary WebSocket connection closed")),
+    );
+  }
+
+  static async open(
+    endpoint: BinaryStreamEndpoint,
+    options: BinaryWebSocketOptions = {},
+  ): Promise<BinaryWebSocketStream> {
+    const socketFactory =
+      options.socketFactory ?? defaultBinaryWebSocketFactory;
+    const incomingQueueSize = options.incomingQueueSize ?? 100;
+    if (!Number.isInteger(incomingQueueSize) || incomingQueueSize <= 0) {
+      throw new Error("incomingQueueSize must be a positive integer");
+    }
+    const socket = socketFactory(endpoint.url, endpoint.subprotocols);
+    socket.binaryType = "arraybuffer";
+    await waitForOpen(socket);
+    return new BinaryWebSocketStream(socket, endpoint, incomingQueueSize);
+  }
+
+  async send(frame: ArrayBuffer | ArrayBufferView): Promise<void> {
+    if (this.#closed) throw new Error("The binary WebSocket stream is closed");
+    if (this.endpoint.direction === "server-to-client") {
+      throw new Error("This binary stream is receive-only");
+    }
+    this.#socket.send(frame);
+  }
+
+  receive(): Promise<ArrayBuffer> {
+    if (this.#closed)
+      return Promise.reject(new Error("The binary WebSocket stream is closed"));
+    if (this.endpoint.direction === "client-to-server") {
+      return Promise.reject(new Error("This binary stream is send-only"));
+    }
+    return this.#frames.receive();
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#socket.close();
+    this.#frames.fail(new Error("The binary WebSocket stream was closed"));
+  }
+
+  #fail(error: Error): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#frames.fail(error);
+  }
+}
+
+class BinaryFrameQueue {
+  readonly #capacity: number;
+  readonly #values: ArrayBuffer[] = [];
+  readonly #waiters: Array<{
+    readonly resolve: (value: ArrayBuffer) => void;
+    readonly reject: (error: unknown) => void;
+  }> = [];
+  #failure?: unknown;
+
+  constructor(capacity: number) {
+    this.#capacity = capacity;
+  }
+
+  receive(): Promise<ArrayBuffer> {
+    const value = this.#values.shift();
+    if (value !== undefined) return Promise.resolve(value);
+    if (this.#failure !== undefined) return Promise.reject(this.#failure);
+    return new Promise((resolve, reject) =>
+      this.#waiters.push({ resolve, reject }),
+    );
+  }
+
+  push(value: ArrayBuffer): void {
+    const waiter = this.#waiters.shift();
+    if (waiter !== undefined) waiter.resolve(value);
+    else {
+      if (this.#values.length === this.#capacity) {
+        throw new Error("The binary WebSocket frame queue overflowed");
+      }
+      this.#values.push(value);
+    }
+  }
+
+  fail(error: unknown): void {
+    if (this.#failure !== undefined) return;
+    this.#failure = error;
+    for (const waiter of this.#waiters.splice(0)) waiter.reject(error);
+  }
+}
+
+function defaultBinaryWebSocketFactory(
+  url: string | URL,
+  protocols?: readonly string[],
+): BinaryWebSocket {
+  const constructor = (
+    globalThis as unknown as {
+      readonly WebSocket?: new (
+        url: string | URL,
+        protocols?: readonly string[],
+      ) => BinaryWebSocket;
+    }
+  ).WebSocket;
+  if (constructor === undefined) {
+    throw new Error(
+      "No global WebSocket implementation is available; provide socketFactory",
+    );
+  }
+  return new constructor(url, protocols);
+}
+
+function waitForOpen(socket: BinaryWebSocket): Promise<void> {
+  if (socket.readyState === 1) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve);
+    socket.addEventListener("error", () =>
+      reject(new Error("Binary WebSocket open failed")),
+    );
+    socket.addEventListener("close", () =>
+      reject(new Error("Binary WebSocket closed")),
+    );
+  });
+}
+{% endif %}

@@ -23,13 +23,14 @@ def render_openrpc(
     title: str,
     description: str = "Typed JSON-RPC API.",
     servers: Iterable[Server] = (),
+    binary_streams: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Render the protocol as an OpenRPC 1.4.1 document."""
     server_documents = tuple(dict(server) for server in servers)
     server_lookup = _server_lookup(server_documents)
     _validate_server_references(protocol, server_lookup)
     schemas = _rewrite_refs(components(protocol))
-    return {
+    document = {
         "openrpc": OPENRPC_VERSION,
         "info": {
             "title": title,
@@ -62,6 +63,10 @@ def render_openrpc(
             for item in protocol.notification_types
         ],
     }
+    streams = [dict(stream) for stream in binary_streams]
+    if streams:
+        document["x-rpckit-binary-streams"] = streams
+    return document
 
 
 def _method(

@@ -288,6 +288,56 @@ def test_channel_contract_preserves_url_variables_and_subprotocols() -> None:
     assert server["x-rpckit-transport"]["subprotocols"] == ["jsonrpc"]
 
 
+def test_contract_exports_binary_streams_beside_the_control_plane() -> None:
+    contract = rpc.RpcContract.from_channels(
+        channels=[APP],
+        title="Voice Gateway",
+        server_urls={"health-control": "wss://api.example.com/rpc"},
+        binary_streams=[
+            rpc.BinaryStream(
+                name="voice",
+                url="wss://media.example.com/sessions/{sessionId}",
+                content_type="audio/pcm;rate=24000",
+                summary="Full-duplex voice audio.",
+                variables={"sessionId": rpc.ServerVariable("demo")},
+                subprotocols=("voice.v1",),
+            )
+        ],
+    )
+
+    document = json.loads(render_contract(contract))
+
+    assert document["x-rpckit-binary-streams"] == [
+        {
+            "name": "voice",
+            "url": "wss://media.example.com/sessions/{sessionId}",
+            "direction": "bidirectional",
+            "contentType": "audio/pcm;rate=24000",
+            "frameType": "binary",
+            "summary": "Full-duplex voice audio.",
+            "variables": {"sessionId": {"default": "demo"}},
+            "subprotocols": ["voice.v1"],
+        }
+    ]
+    assert document["servers"][0]["x-rpckit-transport"]["frameType"] == "text"
+
+
+def test_binary_streams_validate_direction_variables_and_names() -> None:
+    with pytest.raises(rpc.ProtocolDefinitionError, match="direction"):
+        rpc.BinaryStream(name="voice", url="wss://media", direction="both")  # type: ignore[arg-type]
+    with pytest.raises(rpc.ProtocolDefinitionError, match="match URL"):
+        rpc.BinaryStream(name="voice", url="wss://media/{turn}")
+    with pytest.raises(rpc.ProtocolDefinitionError, match="Duplicate binary"):
+        rpc.RpcContract(
+            protocol=APP.protocol,
+            title="Voice",
+            binary_streams=(
+                rpc.BinaryStream(name="voice", url="wss://one"),
+                rpc.BinaryStream(name="voice", url="wss://two"),
+            ),
+        )
+
+
 def test_channel_contract_disambiguates_request_types() -> None:
     one = rpc.RpcChannel(name="one", namespace="one")
     two = rpc.RpcChannel(name="two", namespace="two")

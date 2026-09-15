@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 - 2026-09-15
+
+### Added
+
+- Describe raw binary WebSocket media channels with the
+  `x-rpckit-binary-streams` OpenRPC extension and the public `BinaryStream`
+  contract type.
+- Generate typed binary-stream endpoint helpers and transport interfaces for
+  Python and TypeScript. Bundled WebSocket clients exchange native binary
+  frames, enforce stream direction, and keep media traffic separate from the
+  JSON-RPC control connection.
+
 ## 0.5.0 - 2026-09-10
 
 ### Added

@@ -167,7 +167,7 @@ WebSocket URLs explicitly, including any deployment prefixes. Keep them in sync
 with your FastAPI endpoints; URL variable names are preserved exactly.
 
 ```python
-from pyrpckit import RpcContract, ServerVariable
+from pyrpckit import BinaryStream, RpcContract, ServerVariable
 
 
 contract = RpcContract.from_channels(
@@ -179,8 +179,24 @@ contract = RpcContract.from_channels(
     variables={
         "sessionId": ServerVariable(default="demo-session"),
     },
+    binary_streams=[
+        BinaryStream(
+            name="voice",
+            url="wss://api.example.com/sessions/{sessionId}/media",
+            variables={
+                "sessionId": ServerVariable(default="demo-session"),
+            },
+            content_type="audio/pcm;rate=24000",
+            subprotocols=("voice.v1",),
+        ),
+    ],
 )
 ```
+
+Binary streams are emitted as the top-level `x-rpckit-binary-streams`
+extension. They are separate from the OpenRPC `servers` used by JSON-RPC, so
+audio frames never pass through JSON serialization, model validation, or
+request/response dispatch.
 
 Put the contract source and every generated client in one repository-relative
 configuration:
@@ -198,6 +214,7 @@ language = "python"
 output = "src/browser_client"
 package = "browser_client"
 client_name = "BrowserClient"
+with_transport = "websocket"
 
 [[clients]]
 language = "typescript"
@@ -223,7 +240,31 @@ with a string or `URL`. Declared WebSocket subprotocols remain in effect:
 
 ```typescript
 const client = await BrowserClient.connect({ url: socketUrl(session.path) });
+
+const voice = await BinaryWebSocketStream.open(
+  media.voice({ sessionId: session.id }),
+  { incomingQueueSize: 100 },
+);
+await voice.send(microphoneFrame);
+const assistantFrame = await voice.receive();
 ```
+
+Python clients expose the same contract-native endpoint helper:
+
+```python
+from browser_client import BinaryWebSocketStream, media
+
+
+async with await BinaryWebSocketStream.open(
+    media.voice(session_id=session.id)
+) as voice:
+    await voice.send(microphone_frame)
+    assistant_frame = await voice.receive()
+```
+
+Use `direction="client-to-server"` or `"server-to-client"` for one-way
+streams. The generated transports reject operations that contradict the
+declared direction.
 
 For multi-server contracts, pass `endpoints`. Each override needs only
 `server` and `url`; `subprotocols` is optional and defaults to the contract.

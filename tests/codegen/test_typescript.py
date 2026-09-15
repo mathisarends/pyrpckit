@@ -198,6 +198,44 @@ def test_single_server_websocket_clients_accept_compact_url_overrides(
     assert "url: string | URL" in files["transport.ts"]
 
 
+def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -> None:
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media/{sessionId}",
+            "direction": "bidirectional",
+            "contentType": "audio/pcm;rate=24000",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+            "subprotocols": ["voice.v1"],
+        }
+    ]
+    deployed["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = TypeScriptClientOptions(with_transport="websocket")
+
+    files = render_typescript_client(deployed, configured)
+    media = files["media.ts"]
+
+    assert "class BinaryWebSocketStream" in media
+    assert "send(frame: ArrayBuffer | ArrayBufferView)" in media
+    assert 'socket.binaryType = "arraybuffer"' in media
+    assert "JSON.stringify" not in media
+    assert "base64" not in media.lower()
+    assert "voice(" in media
+    assert 'contentType: "audio/pcm;rate=24000"' in media
+    assert 'from "./media"' in files["index.ts"]
+
+
 def test_the_index_exports_all_public_models(document: dict[str, Any]) -> None:
     index = render_typescript_client(document, options())["index.ts"]
 
@@ -234,7 +272,30 @@ def test_generated_typescript_is_prettier_formatted(
     first["name"] = "tasks.list"
     second["name"] = "tasks.status.set"
     nested["methods"] = [first, second]
+    nested["x-rpckit-binary-streams"] = [
+        {"name": "voice", "url": "wss://media", "frameType": "binary"}
+    ]
     generate_typescript_client(nested, output, options())
+    nested["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = TypeScriptClientOptions(
+        client_name="GreetingClient",
+        source="greeting.openrpc.json",
+        with_transport="websocket",
+    )
+    websocket_media = render_typescript_client(nested, configured)["media.ts"]
+    with (output / "media-websocket.ts").open(
+        "w", encoding="utf-8", newline="\n"
+    ) as handle:
+        handle.write(websocket_media)
     prettier = shutil.which("npx.cmd") or shutil.which("npx")
     if prettier is None:
         pytest.skip("npx is not installed")

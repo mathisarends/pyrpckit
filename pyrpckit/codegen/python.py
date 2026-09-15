@@ -82,6 +82,8 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
         files["errors.py"] = _render_errors(ir, options)
     if ir.servers:
         files["endpoints.py"] = _render_endpoints(ir, options)
+    if ir.binary_streams:
+        files["media.py"] = _render_media(ir, options)
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
@@ -236,6 +238,26 @@ def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
     return _module(options, imports, body)
 
 
+def _render_media(ir: ClientIr, options: PythonClientOptions) -> str:
+    imports = _Imports()
+    imports.add("collections.abc", "Mapping")
+    imports.add("dataclasses", "dataclass")
+    imports.add("enum", "StrEnum")
+    imports.add("typing", "Literal", "Protocol")
+    if options.with_transport == "websocket":
+        imports.add("collections.abc", "Awaitable")
+        imports.add("typing", "Self")
+        imports.add(_runtime_module(options), "RpcTransportError")
+    body = render_template(
+        "python/media.py.j2",
+        filters=_template_filters(imports, options),
+        streams=ir.binary_streams,
+        with_websocket=options.with_transport == "websocket",
+    )
+    body = _collapse_blank_lines(body)
+    return _module(options, imports, body)
+
+
 def _server_subprotocols(server: ServerDecl) -> str:
     if server.transport is None:
         return "()"
@@ -367,6 +389,27 @@ def _render_package_init(
     if options.with_transport == "websocket":
         imports.add(f"{options.package}.transport", "WebSocketTransport")
         exported.append("WebSocketTransport")
+    if ir.binary_streams:
+        imports.add(options.package, "media")
+        imports.add(
+            f"{options.package}.media",
+            "BinaryStreamDirection",
+            "BinaryStreamEndpoint",
+            "BinaryStreamName",
+            "BinaryStreamTransport",
+        )
+        exported.extend(
+            [
+                "BinaryStreamDirection",
+                "BinaryStreamEndpoint",
+                "BinaryStreamName",
+                "BinaryStreamTransport",
+                "media",
+            ]
+        )
+        if options.with_transport == "websocket":
+            imports.add(f"{options.package}.media", "BinaryWebSocketStream")
+            exported.append("BinaryWebSocketStream")
     body = render_template(
         "python/package_init.py.j2",
         filters={"literal": _literal},
@@ -489,6 +532,7 @@ def _template_filters(
         "model_decl": lambda declaration: isinstance(declaration, ModelDecl),
         "null_type": _is_null,
         "options_literal": lambda values: _literal(dict(values)),
+        "placeholder": lambda value: _literal(f"{{{value}}}"),
         "parameter_annotation": lambda parameter: _parameter_annotation(
             parameter, imports, options
         ),
@@ -608,6 +652,10 @@ def _validate(
     assert_unique_names(
         "servers",
         ((server.name, _identifier(server.name)) for server in ir.servers),
+    )
+    assert_unique_names(
+        "binary streams",
+        ((stream.name, _identifier(stream.name)) for stream in ir.binary_streams),
     )
     for server in ir.servers:
         assert_unique_names(

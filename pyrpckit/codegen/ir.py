@@ -170,6 +170,18 @@ class ServerDecl:
 
 
 @dataclass(frozen=True, slots=True)
+class BinaryStreamDecl:
+    name: str
+    url: str
+    direction: str
+    content_type: str
+    summary: str = ""
+    description: str = ""
+    variables: tuple[ServerVariableDecl, ...] = ()
+    subprotocols: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ApiNode:
     segment: str
     path: tuple[str, ...]
@@ -198,6 +210,7 @@ class ClientIr:
     root_operations: tuple[RouteDecl, ...] = ()
     api: tuple[ApiNode, ...] = ()
     notifications: tuple[NotificationDecl, ...] = ()
+    binary_streams: tuple[BinaryStreamDecl, ...] = ()
 
     @property
     def models(self) -> tuple[ModelDecl, ...]:
@@ -225,6 +238,7 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     api = _api_tree(route for route in routes if route.path)
     notifications = _notifications(document)
     servers = _servers(document)
+    binary_streams = _binary_streams(document)
     _validate_server_references(routes, notifications, servers)
     declarations = (
         *discriminator_enums,
@@ -242,6 +256,7 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         root_operations=root_operations,
         api=api,
         notifications=notifications,
+        binary_streams=binary_streams,
     )
 
 
@@ -524,6 +539,79 @@ def _servers(document: dict[str, Any]) -> tuple[ServerDecl, ...]:
         )
         for server in document.get("servers", ())
     )
+
+
+def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
+    values = document.get("x-rpckit-binary-streams", ())
+    if not isinstance(values, list | tuple):
+        raise UnsupportedSchemaError("x-rpckit-binary-streams must be an array")
+    streams: list[BinaryStreamDecl] = []
+    names: set[str] = set()
+    for value in values:
+        if not isinstance(value, dict):
+            raise UnsupportedSchemaError("Binary stream entries must be objects")
+        name = value.get("name")
+        url = value.get("url")
+        direction = value.get("direction", "bidirectional")
+        content_type = value.get("contentType", "application/octet-stream")
+        if not isinstance(name, str) or not name:
+            raise UnsupportedSchemaError("Binary streams need a non-empty name")
+        if name in names:
+            raise UnsupportedSchemaError(f"Duplicate binary stream name: {name}")
+        names.add(name)
+        if not isinstance(url, str) or not url:
+            raise UnsupportedSchemaError(
+                f"Binary stream {name!r} needs a non-empty URL"
+            )
+        if direction not in {
+            "client-to-server",
+            "server-to-client",
+            "bidirectional",
+        }:
+            raise UnsupportedSchemaError(
+                f"Binary stream {name!r} has invalid direction {direction!r}"
+            )
+        if not isinstance(content_type, str) or not content_type:
+            raise UnsupportedSchemaError(
+                f"Binary stream {name!r} needs a non-empty contentType"
+            )
+        if value.get("frameType", "binary") != "binary":
+            raise UnsupportedSchemaError(
+                f"Binary stream {name!r} must use binary frames"
+            )
+        subprotocols = value.get("subprotocols", ())
+        if not isinstance(subprotocols, list | tuple) or any(
+            not isinstance(item, str) or not item for item in subprotocols
+        ):
+            raise UnsupportedSchemaError(
+                f"Binary stream {name!r} subprotocols must be strings"
+            )
+        variables = value.get("variables", {})
+        if not isinstance(variables, dict):
+            raise UnsupportedSchemaError(
+                f"Binary stream {name!r} variables must be an object"
+            )
+        streams.append(
+            BinaryStreamDecl(
+                name=name,
+                url=url,
+                direction=direction,
+                content_type=content_type,
+                summary=value.get("summary", ""),
+                description=value.get("description", ""),
+                variables=tuple(
+                    ServerVariableDecl(
+                        name=variable_name,
+                        default=variable["default"],
+                        description=variable.get("description", ""),
+                        enum=tuple(variable.get("enum", ())),
+                    )
+                    for variable_name, variable in variables.items()
+                ),
+                subprotocols=tuple(subprotocols),
+            )
+        )
+    return tuple(streams)
 
 
 def _validate_server_references(

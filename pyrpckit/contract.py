@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 from pyrpckit.app import RpcChannel
 from pyrpckit.errors import ProtocolDefinitionError
@@ -42,12 +42,90 @@ class ServerVariable:
         return value
 
 
+type BinaryStreamDirection = Literal[
+    "client-to-server", "server-to-client", "bidirectional"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class BinaryStream:
+    """A binary WebSocket endpoint adjacent to the JSON-RPC control plane."""
+
+    name: str
+    url: str
+    direction: BinaryStreamDirection = "bidirectional"
+    content_type: str = "application/octet-stream"
+    summary: str | None = None
+    description: str | None = None
+    variables: Mapping[str, ServerVariable] | None = None
+    subprotocols: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise ProtocolDefinitionError("Binary stream names must be non-empty")
+        if not isinstance(self.url, str) or not self.url:
+            raise ProtocolDefinitionError("Binary stream URLs must be non-empty")
+        if self.direction not in {
+            "client-to-server",
+            "server-to-client",
+            "bidirectional",
+        }:
+            raise ProtocolDefinitionError(
+                f"Invalid binary stream direction: {self.direction!r}"
+            )
+        if not isinstance(self.content_type, str) or not self.content_type:
+            raise ProtocolDefinitionError(
+                "Binary stream content types must be non-empty"
+            )
+        subprotocols = tuple(self.subprotocols)
+        if any(not isinstance(value, str) or not value for value in subprotocols):
+            raise ProtocolDefinitionError(
+                "Binary stream subprotocols must be non-empty strings"
+            )
+        variables = dict(self.variables or {})
+        if any(
+            not isinstance(name, str) or not isinstance(value, ServerVariable)
+            for name, value in variables.items()
+        ):
+            raise ProtocolDefinitionError(
+                "Binary stream variables must map names to ServerVariable objects"
+            )
+        url_variables = set(re.findall(r"{([^{}]+)}", self.url))
+        if set(variables) != url_variables:
+            raise ProtocolDefinitionError(
+                "Binary stream variables must match URL variables exactly"
+            )
+        object.__setattr__(self, "subprotocols", subprotocols)
+        object.__setattr__(self, "variables", MappingProxyType(variables))
+
+    def document(self) -> dict[str, Any]:
+        value: dict[str, Any] = {
+            "name": self.name,
+            "url": self.url,
+            "direction": self.direction,
+            "contentType": self.content_type,
+            "frameType": "binary",
+        }
+        if self.summary is not None:
+            value["summary"] = self.summary
+        if self.description is not None:
+            value["description"] = self.description
+        if self.variables:
+            value["variables"] = {
+                name: variable.document() for name, variable in self.variables.items()
+            }
+        if self.subprotocols:
+            value["subprotocols"] = list(self.subprotocols)
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class RpcContract:
     protocol: RpcProtocol
     title: str
     description: str = "Typed JSON-RPC API."
     servers: tuple[Mapping[str, Any], ...] = ()
+    binary_streams: tuple[BinaryStream, ...] = ()
 
     @classmethod
     def from_channels(
@@ -59,6 +137,7 @@ class RpcContract:
         description: str = "Typed JSON-RPC API.",
         variables: Mapping[str, ServerVariable] | None = None,
         subprotocols: Mapping[str, str] | None = None,
+        binary_streams: Iterable[BinaryStream] = (),
     ) -> "RpcContract":
         """Build a WebSocket contract from channels and explicit public URLs.
 
@@ -131,6 +210,7 @@ class RpcContract:
             title=title,
             description=description,
             servers=tuple(servers),
+            binary_streams=tuple(binary_streams),
         )
 
     def __post_init__(self) -> None:
@@ -149,7 +229,21 @@ class RpcContract:
             raise ProtocolDefinitionError(
                 "Duplicate RPC contract server names: " + ", ".join(duplicates)
             )
+        binary_streams = tuple(self.binary_streams)
+        if any(not isinstance(stream, BinaryStream) for stream in binary_streams):
+            raise ProtocolDefinitionError(
+                "RpcContract.binary_streams must contain BinaryStream objects"
+            )
+        stream_names = [stream.name for stream in binary_streams]
+        duplicate_streams = sorted(
+            name for name in set(stream_names) if stream_names.count(name) > 1
+        )
+        if duplicate_streams:
+            raise ProtocolDefinitionError(
+                "Duplicate binary stream names: " + ", ".join(duplicate_streams)
+            )
         object.__setattr__(self, "servers", servers)
+        object.__setattr__(self, "binary_streams", binary_streams)
 
 
 def _combined_protocol(

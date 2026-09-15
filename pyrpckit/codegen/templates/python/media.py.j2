@@ -1,0 +1,123 @@
+BinaryStreamDirection = Literal["client-to-server", "server-to-client", "bidirectional"]
+
+
+class BinaryStreamName(StrEnum):
+{% for stream in streams %}    {{ stream.name | constant }} = {{ stream.name | literal }}
+{% endfor %}
+
+
+@dataclass(frozen=True, slots=True)
+class BinaryStreamEndpoint:
+    name: BinaryStreamName
+    url: str
+    direction: BinaryStreamDirection
+    content_type: str
+    subprotocols: tuple[str, ...] = ()
+
+
+class BinaryStreamTransport(Protocol):
+    async def send(self, frame: bytes) -> None: ...
+
+    async def receive(self) -> bytes: ...
+
+    async def close(self) -> None: ...
+{% if with_websocket %}
+
+
+class BinaryWebSocket(Protocol):
+    async def send(self, message: bytes) -> None: ...
+
+    async def recv(self) -> str | bytes: ...
+
+    async def close(self) -> None: ...
+
+
+class BinaryWebSocketFactory(Protocol):
+    def __call__(
+        self,
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+    ) -> Awaitable[BinaryWebSocket]: ...
+
+
+class BinaryWebSocketStream:
+    def __init__(
+        self,
+        socket: BinaryWebSocket,
+        endpoint: BinaryStreamEndpoint,
+    ) -> None:
+        self._socket = socket
+        self.endpoint = endpoint
+        self._closed = False
+
+    @classmethod
+    async def open(
+        cls,
+        endpoint: BinaryStreamEndpoint,
+        *,
+        socket_factory: BinaryWebSocketFactory | None = None,
+    ) -> Self:
+        if socket_factory is None:
+            try:
+                from websockets.asyncio.client import connect
+            except ImportError as error:
+                raise RuntimeError(
+                    "Generated WebSocket clients require the 'websockets' package"
+                ) from error
+            socket_factory = connect
+        socket = await socket_factory(
+            endpoint.url,
+            subprotocols=list(endpoint.subprotocols) or None,
+        )
+        return cls(socket, endpoint)
+
+    async def send(self, frame: bytes) -> None:
+        if self._closed:
+            raise RpcTransportError("The binary WebSocket stream is closed")
+        if self.endpoint.direction == "server-to-client":
+            raise RpcTransportError("This binary stream is receive-only")
+        await self._socket.send(frame)
+
+    async def receive(self) -> bytes:
+        if self._closed:
+            raise RpcTransportError("The binary WebSocket stream is closed")
+        if self.endpoint.direction == "client-to-server":
+            raise RpcTransportError("This binary stream is send-only")
+        frame = await self._socket.recv()
+        if not isinstance(frame, bytes):
+            raise RpcTransportError("The binary WebSocket returned a text frame")
+        return frame
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await self._socket.close()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()
+{% endif %}
+{% for stream in streams %}
+
+def {{ stream.name | identifier }}({% if stream.variables %}
+    *,
+{% for variable in stream.variables %}    {{ variable.name | identifier }}: {{ variable | variable_annotation }} = {{ variable.default | literal }},
+{% endfor %}{% endif %}) -> BinaryStreamEndpoint:
+    url = {{ stream.url | literal }}
+{% for variable in stream.variables %}    url = url.replace({{ variable.name | placeholder }}, {{ variable.name | identifier }})
+{% endfor %}    return BinaryStreamEndpoint(
+        name=BinaryStreamName.{{ stream.name | constant }},
+        url=url,
+        direction={{ stream.direction | literal }},
+        content_type={{ stream.content_type | literal }},
+        subprotocols={{ stream.subprotocols | tuple_literal }},
+    )
+{% endfor %}
+
+binary_streams: Mapping[BinaryStreamName, BinaryStreamEndpoint] = {
+{% for stream in streams %}    BinaryStreamName.{{ stream.name | constant }}: {{ stream.name | identifier }}(),
+{% endfor %}}

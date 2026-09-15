@@ -59,6 +59,8 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
         files["errors.ts"] = renderer.errors()
     if ir.servers:
         files["endpoints.ts"] = renderer.endpoints()
+    if ir.binary_streams:
+        files["media.ts"] = renderer.media()
     if options.with_transport == "websocket":
         files["transport.ts"] = renderer.transport()
     if view.nodes:
@@ -158,6 +160,15 @@ class _Renderer:
 
     def transport(self) -> str:
         return self.module(render_template("typescript/transport.ts.j2").rstrip())
+
+    def media(self) -> str:
+        return self.module(
+            self.template(
+                "media",
+                streams=self.ir.binary_streams,
+                with_websocket=self.options.with_transport == "websocket",
+            )
+        )
 
     def api(self, root_node: NamespaceViewNode) -> str:
         root = "../"
@@ -265,6 +276,7 @@ class _Renderer:
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
             named_errors=_named_errors(self.ir),
+            binary_streams=self.ir.binary_streams,
         )
         return self.module(body)
 
@@ -383,6 +395,10 @@ def _validate(
     assert_unique_names(
         "servers",
         ((server.name, _identifier(server.name)) for server in ir.servers),
+    )
+    assert_unique_names(
+        "binary streams",
+        ((stream.name, _identifier(stream.name)) for stream in ir.binary_streams),
     )
     for server in ir.servers:
         assert_unique_names(

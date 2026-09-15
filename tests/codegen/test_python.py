@@ -296,6 +296,53 @@ def test_servers_without_variables_do_not_import_variable_metadata(
     assert "RpcServerVariable" not in endpoints
 
 
+def test_binary_streams_generate_typed_media_clients(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media/{sessionId}",
+            "direction": "bidirectional",
+            "contentType": "audio/pcm;rate=24000",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+            "subprotocols": ["voice.v1"],
+        }
+    ]
+    deployed["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = PythonClientOptions(
+        package=options.package,
+        client_name=options.client_name,
+        source=options.source,
+        with_transport="websocket",
+    )
+
+    files = render_python_client(deployed, configured)
+    media = files["media.py"]
+
+    assert "class BinaryWebSocketStream:" in media
+    assert "async def send(self, frame: bytes)" in media
+    assert "frame = await self._socket.recv()" in media
+    assert "json.dumps" not in media
+    assert "base64" not in media.lower()
+    assert "def voice(" in media
+    assert 'session_id: str = "demo"' in media
+    assert 'content_type="audio/pcm;rate=24000"' in media
+    assert "BinaryWebSocketStream" in files["__init__.py"]
+
+
 def test_python_name_collisions_fail_with_both_wire_names(
     document: dict[str, Any],
     options: PythonClientOptions,
@@ -337,7 +384,11 @@ def test_generated_python_is_ruff_formatted(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / PACKAGE
-    generate_python_client(document, output, options)
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {"name": "voice", "url": "wss://media", "frameType": "binary"}
+    ]
+    generate_python_client(deployed, output, options)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nline-length = 88\n[tool.ruff.lint]\nselect = ["E", "F", "I"]\n'
         f'[tool.ruff.lint.isort]\nknown-first-party = ["{PACKAGE}"]\n',
