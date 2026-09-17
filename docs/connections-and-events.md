@@ -78,8 +78,7 @@ class TaskUpdated(RpcModel):
 
 
 class TaskEvents:
-    async def subscribe(self) -> AsyncIterator[TaskUpdated]:
-        ...
+    async def subscribe(self) -> AsyncIterator[TaskUpdated]: ...
 
 
 @tasks.event(summary="Publish task changes.")

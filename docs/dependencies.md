@@ -55,8 +55,7 @@ A resolver implements one async method:
 
 ```python
 class Resolver:
-    async def resolve[T](self, dependency: type[T]) -> T:
-        ...
+    async def resolve[T](self, dependency: type[T]) -> T: ...
 ```
 
 Pass it as `resolver=` to `RpcService.serve()`, an endpoint, `create_router()`,
