@@ -189,25 +189,6 @@
           "params": {"$ref": "#/components/schemas/TaskUpdated"}
         },
         "required": ["jsonrpc", "method", "params"]
-      },
-      "Frame": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "sequence": {"type": "integer"},
-          "data": {"type": "string"}
-        },
-        "required": ["sequence", "data"]
-      },
-      "FrameNotification": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "jsonrpc": {"const": "2.0"},
-          "method": {"const": "browser.screencast.frames"},
-          "params": {"$ref": "#/components/schemas/Frame"}
-        },
-        "required": ["jsonrpc", "method", "params"]
       }
     }
   },
@@ -235,13 +216,6 @@
       "payload": {"$ref": "#/components/schemas/TaskUpdated"},
       "message": {"$ref": "#/components/schemas/TaskUpdatedNotification"},
       "servers": [{"name": "production"}]
-    },
-    {
-      "name": "browser.screencast.frames",
-      "summary": "Stream screencast frames.",
-      "payload": {"$ref": "#/components/schemas/Frame"},
-      "message": {"$ref": "#/components/schemas/FrameNotification"},
-      "servers": [{"name": "streaming"}]
     }
   ]
 }

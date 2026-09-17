@@ -4,12 +4,7 @@
 
 import type { RpcClientCore } from "../core";
 import { routes } from "../routes";
-import type {
-  Frame,
-  OpenTabParams,
-  StartScreencastParams,
-  Tab,
-} from "../models";
+import type { OpenTabParams, StartScreencastParams, Tab } from "../models";
 
 export class BrowserTabs {
   constructor(private readonly rpc: RpcClientCore) {}
@@ -26,14 +21,6 @@ export class BrowserScreencast {
   /** Start the browser screencast. */
   async start(params: StartScreencastParams = {}): Promise<void> {
     await this.rpc.request<null>(routes.browserScreencastStart, params);
-  }
-
-  /** Stream screencast frames. */
-  frames(): AsyncIterable<Frame> {
-    return this.rpc.notifications<Frame>(
-      "browser.screencast.frames",
-      "streaming",
-    );
   }
 }
 

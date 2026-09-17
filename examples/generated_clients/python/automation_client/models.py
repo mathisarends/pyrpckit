@@ -51,19 +51,6 @@ class TaskUpdatedNotification(RpcModel):
     params: TaskUpdated
 
 
-class Frame(RpcModel):
-    model_config = ConfigDict(extra="forbid")
-    sequence: int
-    data: str
-
-
-class FrameNotification(RpcModel):
-    model_config = ConfigDict(extra="forbid")
-    jsonrpc: Literal["2.0"]
-    method: Literal["browser.screencast.frames"]
-    params: Frame
-
-
 type TaskList = list[Task]
 
 
@@ -74,5 +61,3 @@ OpenTabParams.model_rebuild()
 StartScreencastParams.model_rebuild()
 TaskUpdated.model_rebuild()
 TaskUpdatedNotification.model_rebuild()
-Frame.model_rebuild()
-FrameNotification.model_rebuild()
