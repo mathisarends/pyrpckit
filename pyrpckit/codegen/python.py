@@ -89,6 +89,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
+        files["namespaces/__init__.py"] = _render_namespaces_init(view.nodes, options)
         for node in view.nodes:
             files[_api_file(node)] = _render_api(node, ir, options)
     return files
@@ -327,6 +328,24 @@ def _render_api(
     return _module(options, imports, body)
 
 
+def _render_namespaces_init(
+    nodes: tuple[NamespaceViewNode, ...],
+    options: PythonClientOptions,
+) -> str:
+    imports = _Imports()
+    exported = []
+    for node in nodes:
+        api_class = _api_class(node.path)
+        imports.add(f".{_identifier(node.path[0])}", api_class)
+        exported.append(api_class)
+    body = render_template(
+        "python/package_init.py.j2",
+        filters={"literal": _literal},
+        exports=sorted(exported),
+    ).rstrip()
+    return _module(options, imports, body)
+
+
 def _render_client(
     ir: ClientIr,
     root_operations: tuple[RouteDecl, ...],
@@ -361,8 +380,7 @@ def _render_client(
         )
         imports.add(f"{options.package}.transport", "WebSocketTransport")
     for node in nodes:
-        api_class = _api_class(node.path)
-        imports.add(f"{options.package}.{_api_module(node)}", api_class)
+        imports.add(_namespaces_module(options), _api_class(node.path))
     for route in root_operations:
         _add_operation_imports(route, imports, options)
     for event in root_events:
@@ -768,6 +786,10 @@ def _constant(value: str) -> str:
 
 def _api_class(path: tuple[str, ...]) -> str:
     return "".join(pascal_case(segment) for segment in path)
+
+
+def _namespaces_module(options: PythonClientOptions) -> str:
+    return f"{options.package}.namespaces"
 
 
 def _api_module(node: NamespaceViewNode) -> str:

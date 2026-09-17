@@ -29,6 +29,7 @@ def test_the_generated_package_has_one_module_per_concern(
         "internal/transport.py",
         "internal/unset.py",
         "__init__.py",
+        "namespaces/__init__.py",
         "namespaces/greeting.py",
         "client.py",
         "errors.py",
@@ -368,7 +369,7 @@ def test_writing_is_idempotent_and_check_does_not_write(
 ) -> None:
     output = tmp_path / PACKAGE
 
-    assert len(generate_python_client(document, output, options)) == 13
+    assert len(generate_python_client(document, output, options)) == 14
     assert generate_python_client(document, output, options) == ()
     (output / "client.py").write_text("stale\n", encoding="utf-8")
 

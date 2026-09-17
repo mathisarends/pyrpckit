@@ -27,12 +27,14 @@ def test_nested_apis_share_top_level_namespace_modules(
     )
 
     assert {name for name in python_files if name.startswith("namespaces/")} == {
+        "namespaces/__init__.py",
         "namespaces/tasks.py",
     }
     assert "class TasksStatus:" in python_files["namespaces/tasks.py"]
     assert "class Tasks:" in python_files["namespaces/tasks.py"]
     assert "self.status = TasksStatus(rpc)" in python_files["namespaces/tasks.py"]
-    assert "from task_client.namespaces.tasks import Tasks" in python_files["client.py"]
+    assert "from .tasks import Tasks" in python_files["namespaces/__init__.py"]
+    assert "from task_client.namespaces import Tasks" in python_files["client.py"]
     assert "task_client.namespaces.tasks.status" not in "".join(python_files.values())
     assert {name for name in typescript_files if name.startswith("namespaces/")} == {
         "namespaces/index.ts",

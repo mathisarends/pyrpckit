@@ -5,8 +5,7 @@ from typing import Self
 
 from automation_client.endpoints import Endpoint, ServerName, resolve_endpoints
 from automation_client.internal import ClientConnection, RpcClientCore, RpcTransport
-from automation_client.namespaces.browser import Browser
-from automation_client.namespaces.tasks import Tasks
+from automation_client.namespaces import Browser, Tasks
 from automation_client.streams import (
     BinaryStreamEndpoint,
     BinaryStreamName,
