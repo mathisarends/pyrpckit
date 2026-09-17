@@ -1,218 +1,148 @@
 # pyrpckit
 
-Build typed, transport-independent JSON-RPC 2.0 services in Python. A single
-definition drives request dispatch, server events, binary streams, OpenRPC, and
-generated Python or TypeScript clients.
+**Define your realtime API once in Python. Get the server, the contract, and
+typed clients for Python and TypeScript — none of which can drift apart.**
+
+Agents, browser automation, live dashboards and voice need more than
+request/response over HTTP: server-pushed events, binary streams, one
+long-lived connection. So the JSON-RPC envelope gets hand-written, the dispatch
+table grows by hand, and the frontend client is maintained separately — until
+the two disagree in production.
+
+pyrpckit makes the Python definition the single source of truth:
+
+| You write | pyrpckit gives you |
+| --- | --- |
+| an async function on a channel | validated dispatch, injection, concurrency, shutdown |
+| a payload model | an OpenRPC contract as a build-time artifact |
+| an error class | typed exceptions in every generated client |
+| an async iterator | server-pushed events and binary streams |
+| nothing else | Python and TypeScript clients, regenerated in CI |
+
+The core has no HTTP or WebSocket dependency — a FastAPI adapter ships with it,
+and any transport you already have can serve a pyrpckit service.
+
+## The idea
+
+You define each operation once, on the server:
+
+```python
+@tasks.method()
+async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
+    return await store.create(params.title)
+
+
+@tasks.event(payload=TaskUpdated)
+async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
+    async for task in store.watch():
+        yield TaskUpdated(task=task)
+```
+
+One command turns that into an OpenRPC document and clients in both languages:
+
+```bash
+pyrpckit generate --config rpcgen.toml
+```
+
+And your frontend gets the whole API fully typed — no schema written twice, no
+client kept in sync by hand, no stringly-typed method names:
+
+```ts
+const task = await client.tasks.create({ title: "Ship 0.6" }); // Task
+
+for await (const update of client.tasks.updated()) {           // TaskUpdated
+  render(update.task);
+}
+```
+
+Run `--check` in CI and a definition that outgrew its clients fails the build
+instead of shipping.
 
 ## Install
 
 ```bash
 uv add pyrpckit
-uv add "pyrpckit[fastapi]"  # optional FastAPI adapter
-uv add "pyrpckit[codegen]"  # optional client generation
+uv add "pyrpckit[fastapi]"  # FastAPI adapter
+uv add "pyrpckit[codegen]"  # client generation
 ```
 
-Python 3.12 or newer is required.
+Python 3.12 or newer. Pydantic is the only required dependency.
 
-## Define and test a service
+## Quickstart
 
-Channels group related operations and provide their default RPC namespace.
-Mount one or more channels on a service socket.
+Channels group related operations and provide their namespace; a service mounts
+them on a socket. Nothing here needs a running server to test:
 
 ```python
-from dataclasses import dataclass
-
 from pyrpckit import Inject, RpcChannel, RpcModel, RpcService
 from pyrpckit.testing import RpcTestClient
 
 
-class GreetParams(RpcModel):
-    name: str
+class CreateTask(RpcModel):
+    title: str
 
 
-class Greeting(RpcModel):
-    text: str
+class Task(RpcModel):
+    id: int
+    title: str
 
 
-@dataclass(frozen=True)
-class Greeter:
-    salutation: str
+class TaskStore:
+    def __init__(self) -> None:
+        self._tasks: list[Task] = []
+
+    async def create(self, title: str) -> Task:
+        task = Task(id=len(self._tasks) + 1, title=title)
+        self._tasks.append(task)
+        return task
 
 
-greeting = RpcChannel("greeting")
+tasks = RpcChannel("tasks")
 
 
-@greeting.method()
-async def say(params: GreetParams, greeter: Inject[Greeter]) -> Greeting:
-    return Greeting(text=f"{greeter.salutation}, {params.name}!")
+@tasks.method()
+async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
+    """Create a task."""
+    return await store.create(params.title)
 
 
 app = RpcService(version=1)
-app.socket("/rpc", greeting)
+app.socket("/rpc", tasks)
 
 
-async def example() -> None:
-    async with RpcTestClient(
-        app, "/rpc", context={Greeter: Greeter("Hello")}
-    ) as client:
-        assert await client.request("greeting.say", {"name": "World"}) == {
-            "text": "Hello, World!"
+async def test_create() -> None:
+    async with RpcTestClient(app, "/rpc", context={TaskStore: TaskStore()}) as client:
+        assert await client.request("tasks.create", {"title": "Ship 0.6"}) == {
+            "id": 1,
+            "title": "Ship 0.6",
         }
 ```
 
-`Inject[T]` is resolved on the server and never appears in the public request
-schema. Methods are async free functions with either one request model or
-direct named parameters, followed by injected dependencies. Use
-`RpcChannel("name", namespace="")` for root-level operation names.
+`tasks.create` is the wire name, the docstring becomes the contract summary,
+and `Inject[TaskStore]` is resolved on the server — it never appears in the
+public schema.
 
-## Connections and events
+## Documentation
 
-A service-level `connect` hook runs before a socket is accepted. It may inspect
-`RpcConnection`, resolve dependencies, and return one concrete value that is
-then injectable for the connection lifetime. Raise `ConnectionRejected` to
-reject the handshake deliberately.
+- [Services and channels](docs/services.md) — methods, namespaces, parameter
+  styles, sockets, protocol versions
+- [Dependency injection](docs/dependencies.md) — `Inject[T]`, resolvers,
+  scopes, Dishka
+- [Connections and events](docs/connections-and-events.md) — the `connect`
+  hook, rejecting handshakes, server-pushed events, limits
+- [Typed errors](docs/errors.md) — stable codes, typed details, generated
+  exception classes
+- [Binary streams](docs/streams.md) — receive-only byte streams beside JSON-RPC
+- [Contract and clients](docs/clients.md) — `rpcgen.toml`, the CLI, the shape
+  of generated clients
+- [Transports](docs/transports.md) — FastAPI, custom sockets, testing
 
-```python
-from collections.abc import AsyncIterator
+## Examples
 
-from pyrpckit import Inject, RpcConnection, RpcModel, RpcService
-
-
-class Session:
-    pass
-
-
-async def authenticate(connection: RpcConnection) -> Session:
-    return Session()
-
-
-class Progress(RpcModel):
-    percent: int
-
-
-@greeting.event(payload=Progress)
-async def progress(session: Inject[Session]) -> AsyncIterator[Progress]:
-    yield Progress(percent=100)
-
-
-app = RpcService(connect=authenticate)
-app.socket("/rpc", greeting)
-```
-
-The socket runtime owns acceptance, concurrent request handling, event tasks,
-limits, shutdown, and connection-scoped cleanup. Custom transports implement
-the exported `RpcSocket` protocol and call `app.serve(socket)`.
-
-## Typed errors
-
-Application errors have a stable string code, JSON-RPC integer code, default
-message, and optionally typed details.
-
-```python
-from pyrpckit import RpcError, RpcModel
-
-
-class MissingPageDetails(RpcModel):
-    page_id: str
-
-
-class MissingPage(RpcError):
-    code = "page_missing"
-    rpc_code = -32004
-    message = "Page not found"
-    details: MissingPageDetails
-
-
-@greeting.method(raises=(MissingPage,))
-async def open_page(page_id: str) -> None:
-    raise MissingPage(MissingPageDetails(page_id=page_id))
-```
-
-The wire response keeps the JSON-RPC integer in `error.code` and places the
-stable application code plus details in `error.data`. Declared errors are
-written to OpenRPC and become concrete generated client exception classes.
-
-## Binary streams
-
-Binary streams are receive-only and use a separate socket from JSON-RPC.
-
-```python
-from collections.abc import AsyncIterator
-
-
-@greeting.stream(content_type="audio/pcm;rate=24000")
-async def audio(session: Inject[Session]) -> AsyncIterator[bytes]:
-    yield b"..."
-
-
-app.stream("/sessions/{session_id}/audio", audio)
-```
-
-Generated clients expose stream methods on the same namespace tree as RPC
-methods. Await the result or use it as an async context manager, then call
-`receive()` or iterate asynchronously. Generated WebSocket clients configure a
-default opener; custom transports can pass their own stream opener. Stream
-metadata is emitted as `x-rpckit-binary-streams` and generated into
-`streams.py` or `streams.ts`.
-
-## Contract and clients
-
-The service is the source of endpoint URLs, protocol version, subprotocols,
-and streams:
-
-```python
-contract = app.contract(
-    title="Greeting API",
-    base_url="wss://api.example.com",
-)
-```
-
-Export and generate clients with one repository-relative configuration:
-
-```toml
-version = 1
-
-[contract]
-source = "my_api:contract"
-output = "schema/openrpc.json"
-
-[[clients]]
-language = "python"
-output = "src/greeting_client"
-package = "greeting_client"
-with_transport = "websocket"
-
-[[clients]]
-language = "typescript"
-output = "frontend/src/greeting-client"
-with_transport = "websocket"
-```
-
-```bash
-pyrpckit generate --config rpcgen.toml
-pyrpckit generate --config rpcgen.toml --check
-```
-
-Generators consume only OpenRPC. They understand pyrpckit's typed-error and
-binary-stream extensions, but remain tolerant of ordinary OpenRPC tags from
-external documents.
-
-## FastAPI
-
-```python
-from fastapi import FastAPI
-
-from pyrpckit.fastapi import create_router
-
-
-web = FastAPI()
-web.include_router(create_router(app))
-```
-
-`create_router()` adds every declared JSON-RPC and stream endpoint. Optional
-context, resolver, error mapper, limits, prefix, and FastAPI dependencies can
-be supplied once for the router. The core package itself has no web-framework
-dependency.
+[`examples/`](examples) holds standalone runnable scripts, and
+[`examples/generated_clients`](examples/generated_clients) contains real
+generated Python and TypeScript output you can read before installing
+anything.
 
 ## Development
 

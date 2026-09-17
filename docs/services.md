@@ -1,0 +1,106 @@
+# Services and channels
+
+A channel owns related operations and their wire namespace. A service mounts
+one or more channels on concrete socket paths. Keeping those concepts separate
+lets one application expose several independently addressable APIs while still
+producing one contract.
+
+## Define a method
+
+Methods are async free functions. Their public input is either absent or one
+Pydantic model, and their return annotation describes the result.
+
+```python
+from pyrpckit import RpcChannel, RpcModel, RpcService
+
+
+class CreateTask(RpcModel):
+    title: str
+
+
+class Task(RpcModel):
+    id: int
+    title: str
+
+
+tasks = RpcChannel("tasks")
+
+
+@tasks.method()
+async def create(params: CreateTask) -> Task:
+    return Task(id=1, title=params.title)
+
+
+@tasks.method()
+async def health() -> None:
+    return None
+
+
+app = RpcService(version=1)
+app.socket("/rpc", tasks)
+```
+
+The methods are exposed as `tasks.create` and `tasks.health`. Use an explicit
+decorator name when the Python and wire names should differ:
+
+```python
+@tasks.method("list", summary="List the current tasks.")
+async def list_tasks() -> list[Task]:
+    return []
+```
+
+If `summary` is omitted, the first line of the function docstring becomes the
+contract summary. Handlers may add any number of injected parameters after the
+optional params model; see [Dependency injection](dependencies.md).
+
+## Namespaces
+
+By default, the channel name is also its namespace. Set a different namespace,
+or use an empty one for root-level method names:
+
+```python
+admin = RpcChannel("admin", namespace="internal.admin")
+system = RpcChannel("system", namespace="")
+```
+
+Channels, operations, and namespaces must remain unambiguous across a service.
+pyrpckit rejects duplicate names and cases where an operation is also the
+prefix of another operation when the protocol is materialized.
+
+## Mount endpoints
+
+Mount several channels on one JSON-RPC socket:
+
+```python
+app = RpcService(version=2)
+endpoint = app.socket(
+    "/projects/{project_id}/rpc",
+    tasks,
+    admin,
+    name="project-rpc",
+    subprotocol="rpc.v2",
+    summary="Project control API.",
+)
+```
+
+Path variables are available from `RpcConnection.path_params`. Endpoint names
+identify servers in OpenRPC and generated clients; when omitted, the last
+static path segment is used. A channel can be mounted only once in a service.
+
+The service stays mutable until `freeze()`, `protocol`, `contract()`, or an
+adapter materializes its protocol. Add all channels and endpoints before that
+point.
+
+## Protocol version
+
+`RpcService(version=...)` takes a positive integer. The version is emitted as
+`<version>.0.0` in OpenRPC, so changing a wire contract can be reflected in the
+service definition and generated artifacts together.
+
+## Use Pydantic directly
+
+`RpcModel` is pyrpckit's strict Pydantic base model. Existing Pydantic
+`BaseModel` classes are supported too, so domain models do not need to inherit
+from `RpcModel` merely to appear in an RPC signature.
+
+[Back to documentation](README.md)
