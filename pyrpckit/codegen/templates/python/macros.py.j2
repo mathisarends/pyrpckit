@@ -8,7 +8,7 @@
 {% for parameter in route.params %}            {{ parameter.name | identifier }}={{ parameter.name | identifier }},
 {% endfor %}        )
 {% else %}        values: dict[str, object] = {}
-{% for parameter in route.params %}{% if parameter.required or parameter.has_default %}        values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
+{% for parameter in route.params %}{% if parameter.required %}        values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
 {% else %}        if {{ parameter.name | identifier }} is not UNSET:
             values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
 {% endif %}{% endfor %}        params = {{ route.params_model | schema_name }}.model_validate(values)

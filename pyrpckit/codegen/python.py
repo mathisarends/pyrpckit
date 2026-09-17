@@ -570,8 +570,6 @@ def _parameter_annotation(
     annotation = _annotation(parameter.type, imports)
     if parameter.required:
         return annotation
-    if parameter.has_default:
-        return f"{annotation} = {_literal(parameter.default)}"
     imports.add(_runtime_module(options), "UNSET", "UnsetType")
     return f"{_union((annotation, 'UnsetType'))} = UNSET"
 
@@ -595,7 +593,7 @@ def _template_filters(
             <= 88
         ),
         "direct_params": lambda parameters: all(
-            parameter.required or parameter.has_default for parameter in parameters
+            parameter.required for parameter in parameters
         ),
         "docstring": _docstring,
         "enum_decl": lambda declaration: isinstance(declaration, EnumDecl),

@@ -231,6 +231,26 @@ def test_optional_nullable_params_use_unset_instead_of_dropping_none(
     assert "exclude_none" not in api
 
 
+def test_params_with_a_schema_default_stay_unset_until_the_caller_sets_them(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    defaulted = deepcopy(document)
+    schema = {"type": "integer", "default": 80}
+    defaulted["methods"][0]["params"] = [
+        {"name": "quality", "required": False, "schema": schema}
+    ]
+    params = defaulted["components"]["schemas"]["SayParams"]
+    params["properties"] = {"quality": schema}
+    params["required"] = []
+
+    api = render_python_client(defaulted, options)["namespaces/greeting.py"]
+
+    assert "quality: int | UnsetType = UNSET" in api
+    assert "quality: int = 80" not in api
+    assert "if quality is not UNSET:" in api
+
+
 def test_camel_case_wire_fields_become_snake_case_python_names(
     document: dict[str, Any],
     options: PythonClientOptions,
