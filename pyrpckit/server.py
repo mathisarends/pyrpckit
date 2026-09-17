@@ -3,9 +3,9 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
-from pyrpckit._logging import LOGGER_NAME
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connection import ConnectionRejected
+from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess

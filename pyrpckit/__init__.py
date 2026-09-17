@@ -10,6 +10,7 @@ from .connection import (
     RpcRejection,
     RpcSocket,
 )
+from .constants import LOGGER_NAME
 from .contract import RpcContract, ServerVariable
 from .dependencies import Inject, RpcResolver, RpcResolverScope, call_scope
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
@@ -34,6 +35,7 @@ __version__ = "0.6.0"
 __all__ = [
     "ConnectionRejected",
     "Inject",
+    "LOGGER_NAME",
     "ProtocolDefinitionError",
     "RpcChannel",
     "RpcCodec",

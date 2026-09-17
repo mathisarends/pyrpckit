@@ -6,7 +6,6 @@ from typing import Any, get_type_hints
 
 from pydantic import TypeAdapter
 
-from pyrpckit._logging import LOGGER_NAME
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connection import (
     ConnectionRejected,
@@ -17,6 +16,7 @@ from pyrpckit.connection import (
     RpcRejection,
     RpcSocket,
 )
+from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import (
     ContextResolver,
     RpcResolverLike,

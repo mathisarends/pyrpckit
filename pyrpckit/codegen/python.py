@@ -894,6 +894,8 @@ def _import_name_key(name: str) -> tuple[int, str]:
 
 
 def _import_group(module: str) -> int:
+    if module.startswith("."):
+        return 3
     root = module.split(".", 1)[0]
     if root in {
         "__future__",

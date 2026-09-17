@@ -77,9 +77,6 @@ def _method(
     document: dict[str, Any] = {"name": method.name}
     if method.summary is not None:
         document["summary"] = method.summary
-    tags = method.tags
-    if tags:
-        document["tags"] = [{"name": tag} for tag in tags]
     document |= {
         "paramStructure": "by-name",
         "params": _params(method, components),

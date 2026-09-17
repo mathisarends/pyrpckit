@@ -118,8 +118,6 @@ def contract_from_service(
                 "contentType": endpoint.stream.content_type,
                 "frameType": "binary",
             }
-            if endpoint.stream.tags:
-                item["tags"] = [{"name": tag} for tag in endpoint.stream.tags]
             summary = endpoint.stream.summary or endpoint.summary
             if summary:
                 item["summary"] = summary

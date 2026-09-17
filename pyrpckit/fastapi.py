@@ -16,8 +16,6 @@ from pyrpckit.server import RpcErrorMapper
 from pyrpckit.service import RpcEndpoint, RpcService
 from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 
-__all__ = ["FastApiSocket", "create_router"]
-
 _HTTP_STATUS = {
     RpcRejection.UNAUTHORIZED: 401,
     RpcRejection.FORBIDDEN: 403,

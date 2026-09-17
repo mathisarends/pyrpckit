@@ -16,7 +16,7 @@ def test_rendering_rejects_two_distinct_types_sharing_a_schema_name() -> None:
     ParamsA = create_model("Dup", value=(int, ...))
     ParamsB = create_model("Dup", value=(str, ...))
 
-    router = rpc.RpcModule(namespace="greeting")
+    router = rpc.RpcChannel("greeting")
 
     @router.method("a")
     async def a(params: ParamsA) -> None: ...
@@ -24,7 +24,5 @@ def test_rendering_rejects_two_distinct_types_sharing_a_schema_name() -> None:
     @router.method("b")
     async def b(params: ParamsB) -> None: ...
 
-    app = rpc.RpcChannel()
-    app.include(router)
     with pytest.raises(ProtocolDefinitionError, match="Duplicate protocol schema name"):
-        render_openrpc(app.protocol, title="Greeting")
+        render_openrpc(router.protocol, title="Greeting")

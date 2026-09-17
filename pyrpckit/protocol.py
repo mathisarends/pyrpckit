@@ -32,7 +32,6 @@ class RpcMethodDefinition:
     result: Any
     summary: str | None = None
     raises: tuple[type[RpcError], ...] = ()
-    tags: tuple[str, ...] = ()
     server: str | None = None
     function: FunctionType | None = None
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
@@ -45,7 +44,6 @@ class RpcNotificationDefinition:
     name: str
     payload: Any
     summary: str | None = None
-    tags: tuple[str, ...] = ()
     server: str | None = None
     function: FunctionType | None = None
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
@@ -57,7 +55,6 @@ class RpcStreamDefinition:
     function: FunctionType
     content_type: str
     summary: str | None
-    tags: tuple[str, ...]
     injected_parameters: tuple[RpcInjectedParameter, ...]
     resolver_scope: RpcResolverScope
     server: str | None = None
@@ -130,7 +127,6 @@ def method_definition(
     handler_name: str,
     summary: str | None,
     raises: tuple[type[RpcError], ...],
-    tags: tuple[str, ...],
     server: str | None,
     resolver_scope: RpcResolverScope,
     request_name: str | None = None,
@@ -145,7 +141,6 @@ def method_definition(
         result=wire_annotation(_result_annotation(function)),
         summary=summary,
         raises=raises,
-        tags=tags,
         server=server,
         function=function,
         injected_parameters=injected,
@@ -248,7 +243,6 @@ def notification_definition(
     payload: Any | None,
     function: FunctionType,
     summary: str | None,
-    tags: tuple[str, ...],
     server: str | None,
 ) -> RpcNotificationDefinition:
     if not inspect.isasyncgenfunction(function):
@@ -284,7 +278,6 @@ def notification_definition(
         name=name,
         payload=payload,
         summary=summary,
-        tags=tags,
         server=server,
         function=function,
         injected_parameters=injected,
@@ -297,7 +290,6 @@ def stream_definition(
     function: FunctionType,
     content_type: str,
     summary: str | None,
-    tags: tuple[str, ...],
     resolver_scope: RpcResolverScope,
 ) -> RpcStreamDefinition:
     if not inspect.isasyncgenfunction(function):
@@ -325,7 +317,6 @@ def stream_definition(
         function=function,
         content_type=content_type,
         summary=summary,
-        tags=tags,
         injected_parameters=injected,
         resolver_scope=resolver_scope,
     )

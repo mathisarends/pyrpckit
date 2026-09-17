@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from types import FunctionType, UnionType
-from typing import Any, get_origin, get_type_hints
+from typing import Any, Union, get_origin, get_type_hints
 from urllib.parse import unquote
 
 from pyrpckit.channel import RpcChannel
@@ -397,7 +397,7 @@ def analyze_connect_hook(
         or result is Any
         or not isinstance(result, type)
         or result is RpcConnection
-        or get_origin(result) in (UnionType,)
+        or get_origin(result) in (UnionType, Union)
     ):
         raise ProtocolDefinitionError("connect hooks must provide a concrete type")
     return tuple(injected), result

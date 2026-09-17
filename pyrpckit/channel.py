@@ -31,7 +31,6 @@ class RpcRoute:
     function: FunctionType
     summary: str | None
     raises: tuple[type[RpcError], ...]
-    tags: tuple[str, ...]
     resolver_scope: RpcResolverScope
 
 
@@ -42,7 +41,6 @@ class RpcChannel:
         /,
         *,
         namespace: str | None = None,
-        tags: Iterable[str] = (),
         raises: Iterable[type[RpcError]] = (),
         resolver_scope: RpcResolverScope = call_scope,
     ) -> None:
@@ -50,7 +48,6 @@ class RpcChannel:
         self._namespace = (
             self._name if namespace is None else normalize_namespace(namespace)
         )
-        self._tags = normalize_tags(tags)
         self._raises = tuple(dict.fromkeys(declared_error(item) for item in raises))
         if not callable(resolver_scope):
             raise ProtocolDefinitionError("RPC resolver scope must be callable")
@@ -63,7 +60,6 @@ class RpcChannel:
 
     name = property(lambda self: self._name)
     namespace = property(lambda self: self._namespace)
-    tags = property(lambda self: self._tags)
     raises = property(lambda self: self._raises)
     resolver_scope = property(lambda self: self._resolver_scope)
     routes = property(lambda self: tuple(self._routes))
@@ -81,7 +77,6 @@ class RpcChannel:
         /,
         *,
         summary: str | None = None,
-        tags: Iterable[str] = (),
         raises: Iterable[type[RpcError]] = (),
     ) -> Callable[[FunctionType], FunctionType]: ...
 
@@ -91,7 +86,6 @@ class RpcChannel:
         /,
         *,
         summary: str | None = None,
-        tags: Iterable[str] = (),
         raises: Iterable[type[RpcError]] = (),
     ) -> Any:
         self._ensure_mutable()
@@ -105,7 +99,6 @@ class RpcChannel:
         merged_raises = tuple(
             dict.fromkeys((*self.raises, *(declared_error(e) for e in raises)))
         )
-        merged_tags = normalize_tags((*self.tags, *tags))
 
         def decorate(function: FunctionType) -> FunctionType:
             self._validate_function(function, "method", coroutine=True)
@@ -117,7 +110,6 @@ class RpcChannel:
                     function,
                     summary or _docstring_summary(function),
                     merged_raises,
-                    merged_tags,
                     self.resolver_scope,
                 )
             )
@@ -132,7 +124,6 @@ class RpcChannel:
         *,
         payload: Any = None,
         summary: str | None = None,
-        tags: Iterable[str] = (),
     ) -> Any:
         self._ensure_mutable()
         if isinstance(name, FunctionType):
@@ -152,7 +143,6 @@ class RpcChannel:
                 payload=payload,
                 function=function,
                 summary=summary or _docstring_summary(function),
-                tags=normalize_tags((*self.tags, *tags)),
                 server=None,
             )
             self._reserve(wire_name)
@@ -168,7 +158,6 @@ class RpcChannel:
         *,
         content_type: str = "application/octet-stream",
         summary: str | None = None,
-        tags: Iterable[str] = (),
     ) -> Any:
         self._ensure_mutable()
         if isinstance(name, FunctionType):
@@ -189,7 +178,6 @@ class RpcChannel:
                 function=function,
                 content_type=content_type,
                 summary=summary or _docstring_summary(function),
-                tags=normalize_tags((*self.tags, *tags)),
                 resolver_scope=self.resolver_scope,
             )
             self._reserve(wire_name)
@@ -208,7 +196,6 @@ class RpcChannel:
                     handler_name=r.function.__name__,
                     summary=r.summary,
                     raises=r.raises,
-                    tags=r.tags,
                     server=None,
                     resolver_scope=r.resolver_scope,
                 )
@@ -291,15 +278,6 @@ def normalize_namespace(value: object) -> str:
         for part in namespace.split("."):
             _segment(part, "namespace")
     return namespace
-
-
-def normalize_tags(values: Iterable[str]) -> tuple[str, ...]:
-    result: dict[str, None] = {}
-    for value in values:
-        if not isinstance(value, str) or not value:
-            raise ProtocolDefinitionError("RPC tags cannot be empty")
-        result.setdefault(value, None)
-    return tuple(result)
 
 
 def _segment(value: object, kind: str) -> str:
