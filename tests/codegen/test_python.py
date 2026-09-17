@@ -29,6 +29,7 @@ def test_the_generated_package_has_one_module_per_concern(
         "internal/transport.py",
         "internal/unset.py",
         "__init__.py",
+        "namespaces/__init__.py",
         "namespaces/greeting.py",
         "client.py",
         "errors.py",
@@ -153,7 +154,7 @@ def test_stably_named_remote_errors_get_their_own_module(
     errors = render_python_client(document, options)["errors.py"]
 
     assert "class UnknownGreetingError(RpcRemoteError):" in errors
-    assert "code: ClassVar[int] = -32001" in errors
+    assert 'code: ClassVar[str] = "unknown_greeting"' in errors
 
 
 def test_client_name_defaults_to_the_contract_title(document: dict[str, Any]) -> None:
@@ -230,6 +231,26 @@ def test_optional_nullable_params_use_unset_instead_of_dropping_none(
     assert "exclude_none" not in api
 
 
+def test_params_with_a_schema_default_stay_unset_until_the_caller_sets_them(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    defaulted = deepcopy(document)
+    schema = {"type": "integer", "default": 80}
+    defaulted["methods"][0]["params"] = [
+        {"name": "quality", "required": False, "schema": schema}
+    ]
+    params = defaulted["components"]["schemas"]["SayParams"]
+    params["properties"] = {"quality": schema}
+    params["required"] = []
+
+    api = render_python_client(defaulted, options)["namespaces/greeting.py"]
+
+    assert "quality: int | UnsetType = UNSET" in api
+    assert "quality: int = 80" not in api
+    assert "if quality is not UNSET:" in api
+
+
 def test_camel_case_wire_fields_become_snake_case_python_names(
     document: dict[str, Any],
     options: PythonClientOptions,
@@ -296,6 +317,55 @@ def test_servers_without_variables_do_not_import_variable_metadata(
     assert "RpcServerVariable" not in endpoints
 
 
+def test_binary_streams_generate_typed_media_clients(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media/{sessionId}",
+            "direction": "server-to-client",
+            "contentType": "audio/pcm;rate=24000",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+            "subprotocols": ["voice.v1"],
+        }
+    ]
+    deployed["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = PythonClientOptions(
+        package=options.package,
+        client_name=options.client_name,
+        source=options.source,
+        with_transport="websocket",
+    )
+
+    files = render_python_client(deployed, configured)
+    media = files["streams.py"]
+
+    assert "class BinaryWebSocketStream:" in media
+    assert "class BinaryStreamOpening:" in media
+    assert "frame = await self._socket.recv()" in media
+    assert "json.dumps" not in media
+    assert "base64" not in media.lower()
+    assert "def voice(" in files["client.py"]
+    assert "session_id: str | None = None," in files["client.py"]
+    assert "defaults=self._rpc.variables," in files["client.py"]
+    assert 'content_type="audio/pcm;rate=24000"' in media
+    assert 'default="demo"' in media
+    assert "BinaryWebSocketStream" in files["__init__.py"]
+
+
 def test_python_name_collisions_fail_with_both_wire_names(
     document: dict[str, Any],
     options: PythonClientOptions,
@@ -321,7 +391,7 @@ def test_writing_is_idempotent_and_check_does_not_write(
 ) -> None:
     output = tmp_path / PACKAGE
 
-    assert len(generate_python_client(document, output, options)) == 13
+    assert len(generate_python_client(document, output, options)) == 14
     assert generate_python_client(document, output, options) == ()
     (output / "client.py").write_text("stale\n", encoding="utf-8")
 
@@ -337,7 +407,16 @@ def test_generated_python_is_ruff_formatted(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / PACKAGE
-    generate_python_client(document, output, options)
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media",
+            "direction": "server-to-client",
+            "frameType": "binary",
+        }
+    ]
+    generate_python_client(deployed, output, options)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nline-length = 88\n[tool.ruff.lint]\nselect = ["E", "F", "I"]\n'
         f'[tool.ruff.lint.isort]\nknown-first-party = ["{PACKAGE}"]\n',

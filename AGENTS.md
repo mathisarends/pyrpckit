@@ -4,11 +4,12 @@ Guidance for AI coding agents working in this repository.
 
 ## Project
 
-`pyrpckit` is a Python library, packaged for distribution on PyPI. It turns decorated
-handler classes into a JSON-RPC 2.0 protocol: definition (`decorators.py`, `protocol.py`),
-serving (`dispatch.py`, `server.py`), contract generation (`schema/`), and client
-generation (`codegen/`). Generated Python clients embed their runtime from the
-templates under `codegen/templates/python/runtime/`.
+`pyrpckit` is a Python library, packaged for distribution on PyPI. It turns
+decorated channel functions and mounted service endpoints into a JSON-RPC 2.0
+protocol: definition (`channel.py`, `protocol.py`), serving (`service.py`,
+`runtime.py`, `dispatch.py`, `server.py`), contract generation (`schema/`), and
+client generation (`codegen/`). Generated Python clients embed their runtime
+from the templates under `codegen/templates/python/runtime/`.
 
 ## Environment
 

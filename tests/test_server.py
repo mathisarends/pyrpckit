@@ -131,7 +131,10 @@ async def test_a_non_object_payload_fails_without_an_id(
 
 
 def test_rpc_errors_carry_their_own_code(handler: GreetingState) -> None:
-    failure = _server(handler).failure(3, RpcError("Busy", code=-32001))
+    class BusyError(RpcError):
+        rpc_code = -32001
+
+    failure = _server(handler).failure(3, BusyError(message="Busy"))
 
     assert failure.id == 3
     assert failure.error.code == -32001
@@ -154,15 +157,13 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     class NestedParams(BaseModel):
         params: str
 
-    router = rpc.RpcModule(namespace="greeting")
+    router = rpc.RpcChannel("greeting")
 
     @router.method("broken")
     async def broken(params: SayParams) -> None:
         NestedParams.model_validate({"params": 1})
 
-    app = rpc.RpcChannel()
-    app.include(router)
-    response = await app.server().handle(
+    response = await router.server().handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -183,7 +184,7 @@ class BrokenParams(BaseModel):
     pass
 
 
-BROKEN_ROUTER = rpc.RpcModule(namespace="greeting")
+BROKEN_ROUTER = rpc.RpcChannel("greeting")
 
 
 @BROKEN_ROUTER.method("break")
@@ -191,11 +192,14 @@ async def fail(params: BrokenParams) -> None:
     raise BreakageError("boom")
 
 
-BROKEN_APP = rpc.RpcChannel()
-BROKEN_APP.include(BROKEN_ROUTER)
+BROKEN_APP = BROKEN_ROUTER
+
+
+class MappedError(RpcError):
+    rpc_code = -32004
 
 
 def _broken_error(error: Exception) -> RpcError | None:
     if isinstance(error, BreakageError):
-        return RpcError(f"Mapped: {error}", code=-32004)
+        return MappedError(message=f"Mapped: {error}")
     return None

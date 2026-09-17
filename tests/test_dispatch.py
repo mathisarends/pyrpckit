@@ -88,7 +88,7 @@ def test_invalid_params_name_the_offending_field(
         dispatcher.parse_request(_request(GreetingRpcMethod.SAY, {}))
 
     assert "params.name" in error.value.message
-    assert error.value.code == rpc.RpcErrorCode.INVALID_PARAMS
+    assert error.value.code == "invalid_params"
 
 
 def test_params_sent_to_a_method_without_params_are_rejected(
@@ -101,4 +101,4 @@ def test_params_sent_to_a_method_without_params_are_rejected(
         dispatcher.parse_request(_request(GreetingRpcMethod.CLEAR, {"name": "Mathis"}))
 
     assert "params.name" in error.value.message
-    assert error.value.code == rpc.RpcErrorCode.INVALID_PARAMS
+    assert error.value.code == "invalid_params"

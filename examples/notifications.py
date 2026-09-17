@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from pyrpckit import Inject, RpcChannel, RpcModel, RpcModule
+from pyrpckit import Inject, RpcChannel, RpcModel, RpcService
 
 
 class JobStarted(RpcModel):
@@ -17,7 +17,7 @@ class JobFinished(RpcModel):
 
 type JobUpdate = JobStarted | JobFinished
 
-router = RpcModule(namespace="jobs", tags=("jobs",))
+router = RpcChannel("jobs")
 
 
 class JobEvents:
@@ -27,7 +27,6 @@ class JobEvents:
 
 @router.event(
     "changed",
-    payload=JobUpdate,
     summary="Publish job lifecycle changes.",
 )
 async def job_changes(events: Inject[JobEvents]) -> AsyncIterator[JobUpdate]:
@@ -35,14 +34,14 @@ async def job_changes(events: Inject[JobEvents]) -> AsyncIterator[JobUpdate]:
         yield event
 
 
-APP = RpcChannel()
-APP.include(router)
+app = RpcService()
+app.socket("/rpc", router)
 
 
 def main() -> None:
-    notification = APP.protocol.notifications[0]
+    notification = app.freeze().notifications[0]
     print(f"Notification source: {notification.name} -> {notification.payload}")
-    names = [item.name for item in APP.protocol.notification_types]
+    names = [item.name for item in app.freeze().notification_types]
     print(f"Known notification types: {names}")
 
 

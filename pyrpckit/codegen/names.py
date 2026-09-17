@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from pyrpckit.codegen.ir import (
     ApiNode,
+    BinaryStreamDecl,
     ClientIr,
     NotificationDecl,
     RouteDecl,
@@ -47,6 +48,7 @@ class EventViewNode:
 class ClientView:
     root_operations: tuple[RouteDecl, ...]
     root_notifications: tuple[NotificationDecl, ...]
+    root_streams: tuple[BinaryStreamDecl, ...]
     nodes: tuple[NamespaceViewNode, ...]
 
 
@@ -57,6 +59,7 @@ class NamespaceViewNode:
     source_path: tuple[str, ...]
     operations: tuple[RouteDecl, ...]
     notifications: tuple[NotificationDecl, ...]
+    streams: tuple[BinaryStreamDecl, ...]
     children: tuple[NamespaceViewNode, ...]
 
 
@@ -160,10 +163,26 @@ def client_view(
 ) -> ClientView:
     routes = api_view(ir, api_root=api_root, api_names=api_names)
     events = event_view(ir, api_root=api_root, api_names=api_names)
+    root_streams: list[BinaryStreamDecl] = []
+    projected_streams: list[
+        tuple[tuple[str, ...], tuple[str, ...], BinaryStreamDecl]
+    ] = []
+    root = tuple(api_root.split(".")) if api_root else ()
+    for stream in ir.binary_streams:
+        visible = (
+            stream.path[len(root) :]
+            if root and stream.path[: len(root)] == root
+            else stream.path
+        )
+        if not visible:
+            root_streams.append(stream)
+        else:
+            projected_streams.append((visible, stream.path, stream))
     return ClientView(
         root_operations=routes.root_operations,
         root_notifications=events.root_events,
-        nodes=_merge_nodes(routes.nodes, events.nodes),
+        root_streams=tuple(root_streams),
+        nodes=_merge_nodes(routes.nodes, events.nodes, _stream_tree(projected_streams)),
     )
 
 
@@ -355,18 +374,23 @@ def _event_node(
 def _merge_nodes(
     routes: tuple[ApiViewNode, ...],
     events: tuple[EventViewNode, ...],
+    streams: tuple[StreamViewNode, ...] = (),
 ) -> tuple[NamespaceViewNode, ...]:
     route_by_segment = {node.segment: node for node in routes}
     event_by_segment = {node.segment: node for node in events}
-    segments = tuple(dict.fromkeys((*route_by_segment, *event_by_segment)))
+    stream_by_segment = {node.segment: node for node in streams}
+    segments = tuple(
+        dict.fromkeys((*route_by_segment, *event_by_segment, *stream_by_segment))
+    )
     merged: list[NamespaceViewNode] = []
     for segment in segments:
         route = route_by_segment.get(segment)
         event = event_by_segment.get(segment)
-        path = route.path if route is not None else event.path  # type: ignore[union-attr]
-        source_path = (
-            route.source_path if route is not None else event.source_path  # type: ignore[union-attr]
-        )
+        stream = stream_by_segment.get(segment)
+        present = route or event or stream
+        assert present is not None
+        path = present.path
+        source_path = present.source_path
         merged.append(
             NamespaceViewNode(
                 segment=segment,
@@ -374,10 +398,72 @@ def _merge_nodes(
                 source_path=source_path,
                 operations=route.operations if route is not None else (),
                 notifications=event.events if event is not None else (),
+                streams=stream.streams if stream is not None else (),
                 children=_merge_nodes(
                     route.children if route is not None else (),
                     event.children if event is not None else (),
+                    stream.children if stream is not None else (),
                 ),
             )
         )
     return tuple(merged)
+
+
+@dataclass(frozen=True, slots=True)
+class StreamViewNode:
+    segment: str
+    path: tuple[str, ...]
+    source_path: tuple[str, ...]
+    streams: tuple[BinaryStreamDecl, ...]
+    children: tuple[StreamViewNode, ...]
+
+
+def _stream_tree(
+    streams: list[tuple[tuple[str, ...], tuple[str, ...], BinaryStreamDecl]],
+) -> tuple[StreamViewNode, ...]:
+    tree: dict[str, dict[str, object]] = {}
+    for visible_path, source_path, stream in streams:
+        cursor = tree
+        for index, segment in enumerate(visible_path):
+            node = cursor.setdefault(
+                segment,
+                {
+                    "source_path": source_path[
+                        : len(source_path) - len(visible_path) + index + 1
+                    ],
+                    "streams": [],
+                    "children": {},
+                },
+            )
+            if index == len(visible_path) - 1:
+                node_streams = node["streams"]
+                assert isinstance(node_streams, list)
+                node_streams.append(stream)
+            children = node["children"]
+            assert isinstance(children, dict)
+            cursor = children
+    return tuple(_stream_node(segment, node, ()) for segment, node in tree.items())
+
+
+def _stream_node(
+    segment: str,
+    value: dict[str, object],
+    parent: tuple[str, ...],
+) -> StreamViewNode:
+    children = value["children"]
+    streams = value["streams"]
+    source_path = value["source_path"]
+    assert isinstance(children, dict)
+    assert isinstance(streams, list)
+    assert isinstance(source_path, tuple)
+    path = (*parent, segment)
+    return StreamViewNode(
+        segment,
+        path,
+        source_path,
+        tuple(streams),
+        tuple(
+            _stream_node(child_segment, child, path)
+            for child_segment, child in children.items()
+        ),
+    )

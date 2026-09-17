@@ -3,7 +3,7 @@
 // Regenerate it from the OpenRPC document instead.
 
 import type { RpcClientCore } from "../core";
-import { routes } from "../routes";
+import { routes, notifications } from "../routes";
 import type { CreateTaskParams, Task, TaskList, TaskUpdated } from "../models";
 
 export class Tasks {
@@ -21,6 +21,6 @@ export class Tasks {
 
   /** Stream task updates. */
   updated(): AsyncIterable<TaskUpdated> {
-    return this.rpc.notifications<TaskUpdated>("tasks.updated", "production");
+    return this.rpc.notifications<TaskUpdated>(notifications.tasksUpdated);
   }
 }

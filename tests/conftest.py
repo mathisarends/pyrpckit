@@ -50,11 +50,11 @@ type GreetingUpdate = GreetingSaid | GreetingForgotten
 
 
 class UnknownGreetingError(rpc.RpcError):
-    code = -32001
+    rpc_code = -32001
     message = "Unknown greeting"
 
 
-GREETING_ROUTER = rpc.RpcModule(namespace="greeting", tags=("greeting",))
+GREETING_ROUTER = rpc.RpcChannel("greeting")
 
 
 class GreetingState:
@@ -71,14 +71,14 @@ async def say(
     return SayResult(text=f"Hello, {params.name}!")
 
 
-@GREETING_ROUTER.method("forget", errors=(UnknownGreetingError,))
+@GREETING_ROUTER.method("forget", raises=(UnknownGreetingError,))
 async def forget(
     params: ForgetParams,
     state: rpc.Inject[GreetingState],
 ) -> None:
     """Forget a greeted name."""
     if params.name not in state.greeted:
-        raise UnknownGreetingError(f"Unknown greeting: {params.name}")
+        raise UnknownGreetingError(message=f"Unknown greeting: {params.name}")
     state.greeted.remove(params.name)
 
 
@@ -106,9 +106,8 @@ async def greeting_changed() -> AsyncIterator[GreetingUpdate]:
         yield GreetingSaid(text="")
 
 
-GREETING_APP = rpc.RpcChannel()
-GREETING_APP.include(GREETING_ROUTER)
-GREETING_PROTOCOL = GREETING_APP.protocol
+GREETING_PROTOCOL = GREETING_ROUTER.protocol
+GREETING_APP = GREETING_ROUTER
 
 
 @pytest.fixture

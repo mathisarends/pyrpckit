@@ -8,7 +8,7 @@
 {% for parameter in route.params %}            {{ parameter.name | identifier }}={{ parameter.name | identifier }},
 {% endfor %}        )
 {% else %}        values: dict[str, object] = {}
-{% for parameter in route.params %}{% if parameter.required or parameter.has_default %}        values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
+{% for parameter in route.params %}{% if parameter.required %}        values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
 {% else %}        if {{ parameter.name | identifier }} is not UNSET:
             values[{{ parameter.name | literal }}] = {{ parameter.name | identifier }}
 {% endif %}{% endfor %}        params = {{ route.params_model | schema_name }}.model_validate(values)
@@ -21,4 +21,24 @@
 {% macro notification(event) %}    def {{ event.operation_name | identifier }}(self) -> AsyncIterator[{{ event.payload | annotation }}]:
 {% if event.summary %}        """{{ event.summary | docstring }}"""
 {% endif %}        return self._rpc.subscribe({{ event.rpc_name | constant }})
+{% endmacro %}
+
+{% macro stream(item) %}    def {{ item.operation_name | identifier }}(
+        self,
+        *,
+{% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
+{% endfor %}        url: str | None = None,
+    ) -> BinaryStreamOpening:
+{% if item.summary %}        """{{ item.summary | docstring }}"""
+{% endif %}        return BinaryStreamOpening(
+            resolve_stream_endpoint(
+                BINARY_STREAMS[BinaryStreamName.{{ item.name | constant }}],
+{% if item.variables %}                {
+{% for variable in item.variables %}                    {{ variable.name | literal }}: {{ variable.name | identifier }},
+{% endfor %}                },
+{% endif %}                url=url,
+                defaults=self._rpc.variables,
+            ),
+            self._rpc.stream_opener,
+        )
 {% endmacro %}

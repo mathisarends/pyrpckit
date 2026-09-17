@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.6.0 - 2026-09-17
+
+### Added
+
+- Add `RpcService`, socket endpoints, connection hooks, transport-independent
+  serving, and an in-memory `RpcTestClient`.
+- Add receive-only binary stream definitions and endpoints, represented by the
+  `x-rpckit-binary-streams` OpenRPC extension.
+- Add stable string error codes and typed error details alongside numeric
+  JSON-RPC codes.
+- Generate concrete typed errors and namespaced stream clients for Python and
+  TypeScript. Bundled WebSocket clients open stream sockets automatically.
+- Export generated models, namespace classes, errors, routes, transport types,
+  and stream types from each client package root.
+- Add request hooks to both generated clients and async disposal support to the
+  TypeScript client.
+- Add `create_router()` and `FastApiSocket` as the FastAPI integration.
+
+### Changed
+
+- Configure FastAPI prefixes and dependencies through `include_router()` so
+  `create_router()` only exposes pyrpckit runtime options.
+- Keep FastAPI WebSocket handler signatures free of captured endpoint
+  parameters and preserve unexpected WebSocket state errors.
+- Make `RpcChannel` a lightweight group of methods, events, and streams; the
+  channel name is positional and supplies the default namespace.
+- Generate contracts from mounted services, including endpoint paths,
+  variables, subprotocols, protocol version, errors, and streams.
+- Rename generated `media.py` / `media.ts` to `streams.py` / `streams.ts`.
+- Rename method `errors=` to `raises=` and error extensions to
+  `x-rpckit-code` / `x-rpckit-details-schema`.
+- Redesign generated `connect()` around one option set, shared server variables,
+  per-server overrides, injectable socket factories, and lazy sockets. Pass
+  `eager=True` / `eager: true` to open every declared server in parallel.
+- Place binary stream operations on their declared namespace and let their URL
+  templates inherit variables supplied to `connect()`.
+- Let optional Python request parameters remain unset so server-side schema
+  defaults still apply.
+- Treat regular binary stream closure as normal async-iteration completion and
+  report it as `RpcStreamClosed` only for direct reads.
+- Preserve notification pump completion so subscriptions created after a
+  transport ends finish or fail immediately instead of waiting forever.
+
+### Removed
+
+- Remove the old app/router/module composition API, channel inclusion, and
+  `RpcContract.from_channels()`.
+- Remove authoring-side tags and the old FastAPI `serve()` helper.
+- Remove client-to-server and bidirectional binary streams.
+- Replace generated `from_transport*` / `fromTransport*` constructors with
+  `with_transports()` / `withTransports()`.
+- Remove awaiting a Python `BinaryStreamOpening` directly; use `async with` or
+  call `.open()` and close the returned connection explicitly.
+
 ## 0.5.0 - 2026-09-10
 
 ### Added

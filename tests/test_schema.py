@@ -82,12 +82,12 @@ def test_openrpc_documents_the_declared_errors(protocol: RpcProtocol) -> None:
         {
             "code": -32001,
             "message": "Unknown greeting",
-            "x-rpckit-name": "UnknownGreeting",
+            "x-rpckit-code": "unknown_greeting",
         }
     ]
 
 
-def test_openrpc_tags_each_method_with_its_feature(protocol: RpcProtocol) -> None:
+def test_openrpc_does_not_add_tags(protocol: RpcProtocol) -> None:
     document = render_openrpc(protocol, title="Greeting")
     say = next(
         method
@@ -95,7 +95,7 @@ def test_openrpc_tags_each_method_with_its_feature(protocol: RpcProtocol) -> Non
         if method["name"] == GreetingRpcMethod.SAY
     )
 
-    assert say["tags"] == [{"name": "greeting"}]
+    assert "tags" not in say
 
 
 def test_openrpc_takes_a_missing_summary_from_the_docstring(

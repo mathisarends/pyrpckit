@@ -1,54 +1,78 @@
 import pytest
+from pydantic import BaseModel, ValidationError
 
-from pyrpckit import ProtocolDefinitionError, RpcError, RpcErrorCode, error_message
-
-
-class Busy(RpcError):
-    code = -32010
-    message = "Server is busy"
-
-
-def test_error_message_names_a_reserved_code() -> None:
-    assert error_message(RpcErrorCode.METHOD_NOT_FOUND) == "Method not found"
+from pyrpckit import (
+    ProtocolDefinitionError,
+    RpcError,
+    RpcInvalidParamsError,
+    RpcModel,
+)
+from pyrpckit.envelopes import RpcFailure
 
 
-def test_error_message_names_a_reserved_code_given_as_a_plain_int() -> None:
-    assert error_message(int(RpcErrorCode.INVALID_PARAMS)) == "Invalid params"
+class MissingDetails(RpcModel):
+    project_id: str
 
 
-def test_error_message_falls_back_for_an_application_defined_code() -> None:
-    assert error_message(-32004) == "Error -32004"
+class ProjectNotFoundError(RpcError):
+    details: MissingDetails
 
 
-def test_a_declared_error_carries_its_code_and_default_message() -> None:
-    error = Busy()
-
-    assert error.code == -32010
-    assert error.message == "Server is busy"
-    assert str(error) == "Server is busy"
+class HTTPTimeoutError(RpcError):
+    rpc_code = -32010
 
 
-def test_a_declared_error_may_override_its_message_per_instance() -> None:
-    error = Busy("Try again in 30s")
-
-    assert error.code == -32010
-    assert error.message == "Try again in 30s"
-
-
-def test_a_one_off_error_takes_its_code_directly() -> None:
-    error = RpcError("Not found", code=-32004)
-
-    assert error.code == -32004
-    assert error.message == "Not found"
+def test_error_metadata_is_derived() -> None:
+    assert ProjectNotFoundError.code == "project_not_found"
+    assert ProjectNotFoundError.message == "Project not found"
+    assert HTTPTimeoutError.code == "http_timeout"
+    assert HTTPTimeoutError.rpc_code == -32010
 
 
-def test_an_error_without_a_message_falls_back_to_the_name_of_its_code() -> None:
-    assert RpcError(code=RpcErrorCode.INTERNAL_ERROR).message == "Internal error"
+def test_details_accept_fields_or_model() -> None:
+    expected = MissingDetails(project_id="p-1")
+    assert ProjectNotFoundError(project_id="p-1").details == expected
+    assert ProjectNotFoundError(expected).details == expected
+    with pytest.raises(TypeError):
+        ProjectNotFoundError()
 
 
-def test_an_error_without_a_code_cannot_be_raised() -> None:
-    class Codeless(RpcError):
-        pass
+def test_wire_error_has_string_code_and_details() -> None:
+    failure = RpcFailure.from_error(7, ProjectNotFoundError(project_id="p-1"))
+    assert failure.model_dump(mode="json", exclude_none=True) == {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": {
+            "code": -32000,
+            "message": "Project not found",
+            "data": {
+                "code": "project_not_found",
+                "details": {"projectId": "p-1"},
+            },
+        },
+    }
 
-    with pytest.raises(ProtocolDefinitionError, match="declares no code"):
-        Codeless()
+
+def test_direct_error_and_invalid_declarations_are_rejected() -> None:
+    with pytest.raises(TypeError):
+        RpcError()
+    with pytest.raises(ProtocolDefinitionError):
+
+        class BadCode(RpcError):
+            code = "Bad-Code"
+
+    with pytest.raises(ProtocolDefinitionError):
+
+        class BadDetails(RpcError):
+            details: str
+
+
+def test_invalid_params_has_structured_issues() -> None:
+    class Input(BaseModel):
+        name: str
+
+    with pytest.raises(ValidationError) as caught:
+        Input.model_validate({})
+    error = RpcInvalidParamsError.from_validation_error(caught.value)
+    assert error.code == "invalid_params"
+    assert error.details.issues[0].loc == ["name"]

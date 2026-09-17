@@ -90,7 +90,7 @@ def test_stably_named_remote_errors_get_their_own_module(
     errors = render_typescript_client(document, options())["errors.ts"]
 
     assert "class UnknownGreetingError extends RpcRemoteError" in errors
-    assert "static readonly code = -32001" in errors
+    assert 'static readonly code = "unknown_greeting"' in errors
 
 
 def test_transport_module_can_be_configured(document: dict[str, Any]) -> None:
@@ -192,19 +192,67 @@ def test_single_server_websocket_clients_accept_compact_url_overrides(
     files = render_typescript_client(deployed, configured)
 
     assert "readonly url?: string | URL;" in files["client.ts"]
-    assert 'server: "greeting-api", url: options.url' in files["client.ts"]
+    assert 'overrides["greeting-api"] ??= options.url;' in files["client.ts"]
     assert "readonly subprotocols?: readonly string[];" in files["endpoints.ts"]
-    assert "endpoint.subprotocols ?? declared?.subprotocols" in files["endpoints.ts"]
+    assert (
+        "subprotocols: override.subprotocols ?? declared.subprotocols,"
+        in files["endpoints.ts"]
+    )
     assert "url: string | URL" in files["transport.ts"]
 
 
-def test_the_index_exports_all_public_models(document: dict[str, Any]) -> None:
+def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -> None:
+    deployed = deepcopy(document)
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media/{sessionId}",
+            "direction": "server-to-client",
+            "contentType": "audio/pcm;rate=24000",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+            "subprotocols": ["voice.v1"],
+        }
+    ]
+    deployed["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = TypeScriptClientOptions(with_transport="websocket")
+
+    files = render_typescript_client(deployed, configured)
+    media = files["streams.ts"]
+    client = files["client.ts"]
+
+    assert "class BinaryWebSocketStream" in media
+    assert "send(frame: ArrayBuffer | ArrayBufferView)" not in media
+    assert 'socket.binaryType = "arraybuffer"' in media
+    assert "JSON.stringify" not in media
+    assert "base64" not in media.lower()
+    assert "voice(" in client
+    assert 'contentType: "audio/pcm;rate=24000"' in media
+    assert 'from "./streams"' in files["index.ts"]
+
+
+def test_the_index_exports_everything_a_caller_needs(
+    document: dict[str, Any],
+) -> None:
     index = render_typescript_client(document, options())["index.ts"]
 
     assert 'export { GreetingClient } from "./client";' in index
     assert 'export type * from "./models";' in index
-    assert "GreetingApi" not in index
-    assert "RpcClientCore" not in index
+    assert 'export * from "./namespaces";' in index
+    assert 'export * from "./errors";' in index
+    assert 'export { routes, notifications } from "./routes";' in index
+    assert 'export { RpcConnectionClosed, RpcRemoteError } from "./core";' in index
+    assert "export type {" in index
+    assert "  RpcClientCore," in index
 
 
 def test_writing_is_idempotent_and_check_does_not_write(
@@ -234,7 +282,35 @@ def test_generated_typescript_is_prettier_formatted(
     first["name"] = "tasks.list"
     second["name"] = "tasks.status.set"
     nested["methods"] = [first, second]
+    nested["x-rpckit-binary-streams"] = [
+        {
+            "name": "voice",
+            "url": "wss://media",
+            "direction": "server-to-client",
+            "frameType": "binary",
+        }
+    ]
     generate_typescript_client(nested, output, options())
+    nested["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api/rpc",
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    configured = TypeScriptClientOptions(
+        client_name="GreetingClient",
+        source="greeting.openrpc.json",
+        with_transport="websocket",
+    )
+    websocket_media = render_typescript_client(nested, configured)["streams.ts"]
+    with (output / "media-websocket.ts").open(
+        "w", encoding="utf-8", newline="\n"
+    ) as handle:
+        handle.write(websocket_media)
     prettier = shutil.which("npx.cmd") or shutil.which("npx")
     if prettier is None:
         pytest.skip("npx is not installed")
@@ -247,3 +323,72 @@ def test_generated_typescript_is_prettier_formatted(
     )
 
     assert formatting.returncode == 0, formatting.stdout + formatting.stderr
+
+
+def test_generated_typescript_passes_strict_type_checking(
+    document: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    npx = shutil.which("npx.cmd") or shutil.which("npx")
+    if npx is None:
+        pytest.skip("npx is not installed")
+
+    output = tmp_path / "generated"
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "primary",
+            "url": "wss://{host}/rpc",
+            "variables": {"host": {"default": "api.example.com"}},
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "greeting.frames",
+            "url": "wss://{host}/frames",
+            "direction": "server-to-client",
+            "contentType": "image/jpeg",
+            "frameType": "binary",
+            "variables": {"host": {"default": "api.example.com"}},
+        }
+    ]
+    generate_typescript_client(
+        deployed,
+        output,
+        TypeScriptClientOptions(
+            client_name="GreetingClient",
+            source="greeting.openrpc.json",
+            with_transport="websocket",
+        ),
+    )
+
+    type_check = subprocess.run(
+        [
+            npx,
+            "--yes",
+            "--package",
+            "typescript",
+            "tsc",
+            "--noEmit",
+            "--strict",
+            "--target",
+            "ES2022",
+            "--module",
+            "ESNext",
+            "--moduleResolution",
+            "Bundler",
+            "--lib",
+            "ES2022,DOM,ESNext.Disposable",
+            "--skipLibCheck",
+            str(output / "index.ts"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert type_check.returncode == 0, type_check.stdout + type_check.stderr

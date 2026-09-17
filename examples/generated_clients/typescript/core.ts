@@ -3,6 +3,12 @@
 // Regenerate it from the OpenRPC document instead.
 
 import type { RpcTransport } from "./transport";
+import {
+  BinaryStreamConnection,
+  RpcStreamsUnavailableError,
+  type BinaryStreamEndpoint,
+  type BinaryStreamOpener,
+} from "./streams";
 
 export type { RpcTransport } from "./transport";
 
@@ -12,6 +18,11 @@ export type JsonValue =
 export type RpcRouteInfo = {
   readonly method: string;
   readonly server?: string;
+};
+
+export type RpcClientHook = {
+  beforeRequest?(route: RpcRouteInfo, params?: object): void | Promise<void>;
+  afterResponse?(route: RpcRouteInfo, result: unknown): void | Promise<void>;
 };
 
 type JsonRpcNotification = {
@@ -24,90 +35,253 @@ type Subscriber = {
   readonly queue: AsyncQueue<JsonRpcNotification>;
 };
 
+/**
+ * The single notification pump of one transport and its subscribers.
+ *
+ * `ended` remembers how the pump finished so that a subscriber which arrives
+ * afterwards ends or fails immediately instead of waiting forever.
+ */
+type NotificationHub = {
+  readonly subscribers: Set<Subscriber>;
+  pumping: boolean;
+  ended?: { readonly error?: unknown };
+};
+
+/** Where the client gets the transport of one server from. */
+export type RpcTransportSource = {
+  get(server?: string): Promise<RpcTransport>;
+  close(): Promise<void>;
+};
+
+type PoolEndpoint = {
+  readonly server: string;
+  readonly url: string | URL;
+  readonly subprotocols?: readonly string[];
+};
+
+/**
+ * One transport per server, opened on first use.
+ *
+ * A client that only talks to one server never opens the sockets of the
+ * others; `openAll` connects them up front instead, in parallel.
+ */
+export class RpcTransportPool implements RpcTransportSource {
+  readonly #endpoints: ReadonlyMap<string, PoolEndpoint>;
+  readonly #open: (endpoint: PoolEndpoint) => Promise<RpcTransport>;
+  readonly #transports = new Map<string, Promise<RpcTransport>>();
+
+  constructor(options: {
+    readonly endpoints: readonly PoolEndpoint[];
+    readonly open: (endpoint: PoolEndpoint) => Promise<RpcTransport>;
+  }) {
+    this.#endpoints = new Map(
+      options.endpoints.map((endpoint) => [endpoint.server, endpoint]),
+    );
+    this.#open = options.open;
+  }
+
+  get(server?: string): Promise<RpcTransport> {
+    const name = this.#serverName(server);
+    let transport = this.#transports.get(name);
+    if (transport === undefined) {
+      transport = this.#open(this.#endpoints.get(name) as PoolEndpoint);
+      this.#transports.set(name, transport);
+      void transport.catch(() => this.#transports.delete(name));
+    }
+    return transport;
+  }
+
+  async openAll(): Promise<void> {
+    const names = [...this.#endpoints.keys()];
+    try {
+      await Promise.all(names.map((name) => this.get(name)));
+    } catch (error) {
+      await this.close();
+      throw error;
+    }
+  }
+
+  async close(): Promise<void> {
+    const opened = [...this.#transports.values()];
+    this.#transports.clear();
+    const settled = await Promise.allSettled(opened);
+    await Promise.all(
+      settled.map((result) =>
+        result.status === "fulfilled" ? result.value.close() : undefined,
+      ),
+    );
+  }
+
+  #serverName(server?: string): string {
+    if (server !== undefined) {
+      if (this.#endpoints.has(server)) return server;
+      throw new Error(`No endpoint is configured for server ${server}`);
+    }
+    if (this.#endpoints.size === 1) return [...this.#endpoints.keys()][0];
+    throw new Error(
+      "The route has no server and cannot be dispatched across multiple transports",
+    );
+  }
+}
+
+class StaticTransports implements RpcTransportSource {
+  readonly #single?: RpcTransport;
+  readonly #transports?: Readonly<Record<string, RpcTransport>>;
+
+  constructor(
+    transport: RpcTransport | Readonly<Record<string, RpcTransport>>,
+  ) {
+    if (isTransport(transport)) this.#single = transport;
+    else this.#transports = transport;
+  }
+
+  get(server?: string): Promise<RpcTransport> {
+    if (this.#single !== undefined) return Promise.resolve(this.#single);
+    if (server !== undefined) {
+      const transport = this.#transports?.[server];
+      if (transport !== undefined) return Promise.resolve(transport);
+      return Promise.reject(
+        new Error(`No transport is configured for server ${server}`),
+      );
+    }
+    const transports = Object.values(this.#transports ?? {});
+    if (transports.length === 1) return Promise.resolve(transports[0]);
+    return Promise.reject(
+      new Error(
+        "The route has no server and cannot be dispatched across multiple transports",
+      ),
+    );
+  }
+
+  async close(): Promise<void> {
+    const transports = this.#single
+      ? [this.#single]
+      : [...new Set(Object.values(this.#transports ?? {}))];
+    await Promise.all(transports.map((transport) => transport.close()));
+  }
+}
+
 export class RpcRemoteError extends Error {
   constructor(
-    readonly code: number,
+    readonly rpcCode: number,
+    readonly code: string,
     message: string,
-    readonly data?: unknown,
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "RpcRemoteError";
   }
 }
 
+export class RpcConnectionClosed extends Error {
+  constructor(
+    readonly code: number | undefined,
+    readonly reason: string,
+  ) {
+    super(`RPC connection closed (${code}): ${reason}`);
+    this.name = "RpcConnectionClosed";
+  }
+}
+
 export class RpcClientCore {
-  readonly #singleTransport?: RpcTransport;
-  readonly #transports?: Readonly<Record<string, RpcTransport>>;
+  readonly #source: RpcTransportSource;
   readonly #closeTransport: boolean;
-  readonly #subscribers = new WeakMap<RpcTransport, Set<Subscriber>>();
-  readonly #pumps = new WeakSet<RpcTransport>();
+  readonly streamOpener?: BinaryStreamOpener;
+  readonly variables: Readonly<Record<string, string>>;
+
+  readonly #hooks: readonly RpcClientHook[];
+  readonly #hubs = new WeakMap<RpcTransport, NotificationHub>();
   #closed = false;
 
   constructor(
-    transport: RpcTransport | Readonly<Record<string, RpcTransport>>,
-    options?: { readonly closeTransport?: boolean },
+    transport:
+      | RpcTransport
+      | Readonly<Record<string, RpcTransport>>
+      | RpcTransportSource,
+    options?: {
+      readonly closeTransport?: boolean;
+      readonly hooks?: readonly RpcClientHook[];
+      readonly streamOpener?: BinaryStreamOpener;
+      readonly variables?: Readonly<Record<string, string>>;
+    },
   ) {
-    if (isTransport(transport)) this.#singleTransport = transport;
-    else this.#transports = transport;
+    this.#source = isTransportSource(transport)
+      ? transport
+      : new StaticTransports(transport);
     this.#closeTransport = options?.closeTransport ?? true;
+    this.#hooks = options?.hooks ?? [];
+    this.streamOpener = options?.streamOpener;
+    this.variables = options?.variables ?? {};
   }
 
-  request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {
-    return this.#transportFor(route.server).request(
-      route.method,
-      params === undefined ? undefined : withoutUndefined(params),
-    ) as Promise<Result>;
+  async openStream(
+    endpoint: BinaryStreamEndpoint,
+  ): Promise<BinaryStreamConnection> {
+    if (this.streamOpener === undefined) {
+      throw new RpcStreamsUnavailableError(
+        "No binary stream opener configured; pass streamOpener",
+      );
+    }
+    return new BinaryStreamConnection(await this.streamOpener(endpoint));
+  }
+
+  async request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {
+    const payload = params === undefined ? undefined : withoutUndefined(params);
+    for (const hook of this.#hooks) await hook.beforeRequest?.(route, payload);
+    const transport = await this.#transportFor(route.server);
+    const result = await transport.request(route.method, payload);
+    for (const hook of [...this.#hooks].reverse()) {
+      await hook.afterResponse?.(route, result);
+    }
+    return result as Result;
   }
 
   notifications<Notification>(
-    method: string,
-    server?: string,
+    route: RpcRouteInfo,
   ): AsyncIterable<Notification> {
-    const transport = this.#transportFor(server);
-    const subscriber: Subscriber = {
-      method,
-      queue: new AsyncQueue<JsonRpcNotification>(),
-    };
-    let subscribers = this.#subscribers.get(transport);
-    if (subscribers === undefined) {
-      subscribers = new Set();
-      this.#subscribers.set(transport, subscribers);
-    }
-    subscribers.add(subscriber);
-    if (!this.#pumps.has(transport)) {
-      this.#pumps.add(transport);
-      void this.#pump(transport, subscribers);
-    }
-    return this.#notificationValues<Notification>(subscriber, subscribers);
+    return this.#notificationValues<Notification>(route);
   }
 
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
     if (!this.#closeTransport) return;
-    const transports = this.#singleTransport
-      ? [this.#singleTransport]
-      : [...new Set(Object.values(this.#transports ?? {}))];
-    await Promise.all(transports.map((transport) => transport.close()));
+    await this.#source.close();
   }
 
   async *#notificationValues<Notification>(
-    subscriber: Subscriber,
-    subscribers: Set<Subscriber>,
+    route: RpcRouteInfo,
   ): AsyncIterable<Notification> {
+    const transport = await this.#transportFor(route.server);
+    const subscriber: Subscriber = {
+      method: route.method,
+      queue: new AsyncQueue<JsonRpcNotification>(),
+    };
+    let hub = this.#hubs.get(transport);
+    if (hub === undefined) {
+      hub = { subscribers: new Set(), pumping: false };
+      this.#hubs.set(transport, hub);
+    }
+    if (hub.ended !== undefined) {
+      if ("error" in hub.ended) subscriber.queue.fail(hub.ended.error);
+      else subscriber.queue.end();
+    } else {
+      hub.subscribers.add(subscriber);
+      if (!hub.pumping) {
+        hub.pumping = true;
+        void this.#pump(transport, hub);
+      }
+    }
     try {
       for await (const message of subscriber.queue) {
         yield message.params as Notification;
       }
     } finally {
-      subscribers.delete(subscriber);
+      hub.subscribers.delete(subscriber);
     }
   }
 
-  async #pump(
-    transport: RpcTransport,
-    subscribers: Set<Subscriber>,
-  ): Promise<void> {
+  async #pump(transport: RpcTransport, hub: NotificationHub): Promise<void> {
     try {
       for await (const message of transport.notifications()) {
         if (!isNotification(message)) {
@@ -115,30 +289,22 @@ export class RpcClientCore {
             "The transport returned an invalid JSON-RPC notification",
           );
         }
-        for (const subscriber of subscribers) {
+        for (const subscriber of hub.subscribers) {
           if (subscriber.method === message.method)
             subscriber.queue.push(message);
         }
       }
-      for (const subscriber of subscribers) subscriber.queue.end();
+      hub.ended = {};
+      for (const subscriber of hub.subscribers) subscriber.queue.end();
     } catch (error) {
-      for (const subscriber of subscribers) subscriber.queue.fail(error);
+      hub.ended = { error };
+      for (const subscriber of hub.subscribers) subscriber.queue.fail(error);
     }
   }
 
-  #transportFor(server?: string): RpcTransport {
+  #transportFor(server?: string): Promise<RpcTransport> {
     if (this.#closed) throw new Error("The RPC client is closed");
-    if (this.#singleTransport !== undefined) return this.#singleTransport;
-    if (server !== undefined) {
-      const transport = this.#transports?.[server];
-      if (transport !== undefined) return transport;
-      throw new Error(`No transport is configured for server ${server}`);
-    }
-    const transports = Object.values(this.#transports ?? {});
-    if (transports.length === 1) return transports[0];
-    throw new Error(
-      "The route has no server and cannot be dispatched across multiple transports",
-    );
+    return this.#source.get(server);
   }
 }
 
@@ -180,6 +346,16 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
     this.#ended = true;
     for (const waiter of this.#waiters.splice(0)) waiter.reject(error);
   }
+}
+
+function isTransportSource(value: unknown): value is RpcTransportSource {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "get" in value &&
+    typeof value.get === "function" &&
+    !("request" in value)
+  );
 }
 
 function isTransport(value: unknown): value is RpcTransport {

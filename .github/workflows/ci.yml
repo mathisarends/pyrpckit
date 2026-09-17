@@ -67,4 +67,4 @@ jobs:
         if: matrix.fastapi == 'latest'
         run: uv pip install --upgrade fastapi
       - name: Test public WebSocket integration and contracts
-        run: uv run --no-sync pytest tests/test_runtime.py tests/test_contract.py
+        run: uv run --no-sync pytest tests/test_fastapi.py tests/test_runtime.py tests/test_contract.py

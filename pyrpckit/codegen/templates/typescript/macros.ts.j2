@@ -6,10 +6,26 @@
 
 {% macro notification(event, root) %}{% if event.summary %}  /** {{ event.summary | comment }} */
 {% endif %}  {{ event.operation_name | identifier }}(): AsyncIterable<{{ event.payload | type }}> {
-{% if event | compact_notification(root) %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>({{ event.rpc_name | literal }}{% if event.server is not none %}, {{ event.server | literal }}{% endif %});
+{% if event | compact_notification(root) %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>(notifications.{{ event | route_key }});
 {% else %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>(
-      {{ event.rpc_name | literal }},
-{% if event.server is not none %}      {{ event.server | literal }},
-{% endif %}    );
+      notifications.{{ event | route_key }},
+    );
 {% endif %}  }
+{% endmacro %}
+
+{% macro stream(item, root) %}{% if item.summary %}  /** {{ item.summary | comment }} */
+{% endif %}  {{ item.operation_name | identifier }}(options?: {
+{% for variable in item.variables %}    readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
+{% endfor %}    readonly url?: string | URL;
+  }): Promise<BinaryStreamConnection> {
+    return {{ "this.#rpc" if root else "this.rpc" }}.openStream(
+      resolveStreamEndpoint(
+        binaryStreams.{{ item.name | identifier }},
+        {% if item.variables %}{
+{% for variable in item.variables %}          {{ variable.name | property }}: options?.{{ variable.name | property }},
+{% endfor %}        }{% else %}{}{% endif %},
+        {{ "{ url: options?.url, defaults: this.#rpc.variables }" if root else "{ url: options?.url, defaults: this.rpc.variables }" }},
+      ),
+    );
+  }
 {% endmacro %}

@@ -35,15 +35,4 @@ export type TaskUpdatedNotification = {
   params: TaskUpdated;
 };
 
-export type Frame = {
-  sequence: number;
-  data: string;
-};
-
-export type FrameNotification = {
-  jsonrpc: "2.0";
-  method: "browser.screencast.frames";
-  params: Frame;
-};
-
 export type TaskList = Task[];

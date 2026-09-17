@@ -1,103 +1,31 @@
 import json
-from pathlib import Path
 
 import pytest
 
-from pyrpckit.codegen.cli import main
-from pyrpckit.schema import render_openrpc
 from pyrpckit.schema.export import (
     ProtocolReferenceError,
+    load_contract_source,
     load_protocol,
     render_contract,
 )
+from tests.test_contract import CONTRACT
 
-from .conftest import GREETING_APP, GREETING_PROTOCOL
-
-REFERENCE = "tests.conftest:GREETING_APP"
-
-
-def _schema(output: Path, *arguments: str) -> int:
-    return main(
-        ["schema", REFERENCE, "--output", str(output), "--title", "Greeting API"]
-        + list(arguments)
-    )
+REFERENCE = "tests.test_contract:CONTRACT"
 
 
-def test_a_reference_resolves_to_the_protocol() -> None:
-    assert load_protocol(REFERENCE) is GREETING_PROTOCOL
+def test_contract_reference_resolves() -> None:
+    assert load_contract_source(REFERENCE) is CONTRACT
+    assert load_protocol(REFERENCE) is CONTRACT.protocol
 
 
-@pytest.mark.parametrize(
-    "reference",
-    [
-        "tests.conftest",
-        ":GREETING_PROTOCOL",
-        "tests.conftest:",
-        "tests.nowhere:GREETING_PROTOCOL",
-        "tests.conftest:GREETING_PROTOCOL",
-    ],
-)
-def test_an_unusable_reference_is_reported(reference: str) -> None:
-    with pytest.raises(ProtocolReferenceError):
-        load_protocol(reference)
+def test_channel_and_service_references_are_rejected() -> None:
+    with pytest.raises(ProtocolReferenceError, match="RpcChannel"):
+        load_contract_source("tests.test_contract:channel")
+    with pytest.raises(ProtocolReferenceError, match="RpcService"):
+        load_contract_source("tests.test_contract:service")
 
 
-def test_the_contract_is_rendered_as_indented_json() -> None:
-    contract = render_contract(GREETING_APP, title="Greeting API")
-
-    assert contract.endswith("\n")
-    assert json.loads(contract) == render_openrpc(
-        GREETING_PROTOCOL, title="Greeting API"
-    )
-
-
-def test_the_schema_command_writes_the_contract(tmp_path: Path) -> None:
-    output = tmp_path / "spec" / "greeting.openrpc.json"
-
-    assert _schema(output) == 0
-    assert json.loads(output.read_text(encoding="utf-8")) == render_openrpc(
-        GREETING_PROTOCOL, title="Greeting API"
-    )
-
-
-def test_the_description_reaches_the_contract(tmp_path: Path) -> None:
-    output = tmp_path / "greeting.openrpc.json"
-    _schema(output, "--description", "Greets people by name.")
-
-    document = json.loads(output.read_text(encoding="utf-8"))
-    assert document["info"]["description"] == "Greets people by name."
-
-
-def test_the_schema_command_records_the_servers(tmp_path: Path) -> None:
-    output = tmp_path / "greeting.openrpc.json"
-    _schema(output, "--server", "local=ws://127.0.0.1:8000/rpc")
-
-    document = json.loads(output.read_text(encoding="utf-8"))
-    assert document["servers"] == [{"name": "local", "url": "ws://127.0.0.1:8000/rpc"}]
-
-
-def test_check_reports_a_missing_contract(tmp_path: Path) -> None:
-    output = tmp_path / "greeting.openrpc.json"
-
-    assert _schema(output, "--check") == 1
-    assert not output.exists()
-
-
-def test_check_accepts_an_up_to_date_contract(tmp_path: Path) -> None:
-    output = tmp_path / "greeting.openrpc.json"
-    _schema(output)
-
-    assert _schema(output, "--check") == 0
-
-
-def test_an_unusable_reference_fails_the_command(tmp_path: Path) -> None:
-    arguments = [
-        "schema",
-        "tests.conftest",
-        "--output",
-        str(tmp_path / "greeting.openrpc.json"),
-        "--title",
-        "Greeting API",
-    ]
-
-    assert main(arguments) == 2
+def test_contract_is_rendered_as_json() -> None:
+    document = json.loads(render_contract(CONTRACT))
+    assert document["info"]["title"] == "Control API"
+    assert document["servers"][0]["name"] == "rpc"

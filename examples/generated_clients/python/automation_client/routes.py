@@ -4,8 +4,6 @@ from pydantic import TypeAdapter
 
 from automation_client.internal import RpcNotificationInfo, RpcRouteInfo
 from automation_client.models import (
-    Frame,
-    FrameNotification,
     Tab,
     Task,
     TaskList,
@@ -41,10 +39,4 @@ TASKS_UPDATED: RpcNotificationInfo[TaskUpdated] = RpcNotificationInfo(
     method="tasks.updated",
     message_adapter=TypeAdapter(TaskUpdatedNotification),
     server="production",
-)
-
-BROWSER_SCREENCAST_FRAMES: RpcNotificationInfo[Frame] = RpcNotificationInfo(
-    method="browser.screencast.frames",
-    message_adapter=TypeAdapter(FrameNotification),
-    server="streaming",
 )

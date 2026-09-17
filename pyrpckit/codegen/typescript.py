@@ -1,8 +1,10 @@
 import json
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 
 from pyrpckit.codegen.ir import (
+    BinaryStreamDecl,
     ClientIr,
     EnumDecl,
     EnumLiteralType,
@@ -37,12 +39,20 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     """Render one generated TypeScript leaf package."""
     view = client_view(ir, api_root=options.api_root, api_names=options.api_names)
     client_name = _client_name(ir, options)
-    _validate(ir, view.root_operations, view.nodes, options, client_name)
+    _validate(
+        ir,
+        view.root_operations,
+        view.root_streams,
+        view.nodes,
+        options,
+        client_name,
+    )
     renderer = _Renderer(
         ir,
         view.root_operations,
         view.nodes,
         view.root_notifications,
+        view.root_streams,
         options,
         client_name,
     )
@@ -53,12 +63,13 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     }
     if ir.declarations:
         files["models.ts"] = renderer.models()
-    if ir.operations:
+    if ir.operations or ir.notifications:
         files["routes.ts"] = renderer.routes()
-    if _named_errors(ir):
-        files["errors.ts"] = renderer.errors()
+    files["errors.ts"] = renderer.errors()
     if ir.servers:
         files["endpoints.ts"] = renderer.endpoints()
+    if ir.binary_streams:
+        files["streams.ts"] = renderer.streams()
     if options.with_transport == "websocket":
         files["transport.ts"] = renderer.transport()
     if view.nodes:
@@ -75,6 +86,7 @@ class _Renderer:
         root_operations: tuple[RouteDecl, ...],
         nodes: tuple[NamespaceViewNode, ...],
         root_events: tuple[NotificationDecl, ...],
+        root_streams: tuple[BinaryStreamDecl, ...],
         options: TypeScriptClientOptions,
         client_name: str,
     ) -> None:
@@ -82,10 +94,13 @@ class _Renderer:
         self.root_operations = root_operations
         self.nodes = nodes
         self.root_events = root_events
+        self.root_streams = root_streams
         self.options = options
         self.client_name = client_name
 
     def module(self, body: str) -> str:
+        while "\n\n\n" in body:
+            body = body.replace("\n\n\n", "\n\n")
         return render_template(
             "typescript/module.ts.j2",
             source=self.options.source,
@@ -108,6 +123,14 @@ class _Renderer:
             "array": _array,
             "comment": _comment,
             "compact_notification": self._compact_notification,
+            "compact_stream": lambda stream: (
+                len(
+                    "      resolveStreamEndpoint(binaryStreams."
+                    + _identifier(stream.name)
+                    + ", variables, options?.url),"
+                )
+                <= 80
+            ),
             "enum_decl": lambda declaration: isinstance(declaration, EnumDecl),
             "identifier": _identifier,
             "literal": _ts_literal,
@@ -131,12 +154,9 @@ class _Renderer:
         root: bool,
     ) -> bool:
         receiver = "this.#rpc" if root else "this.rpc"
-        arguments = _ts_literal(event.rpc_name)
-        if event.server is not None:
-            arguments += f", {_ts_literal(event.server)}"
         call = (
             f"    return {receiver}.notifications<{self._type(event.payload)}>"
-            f"({arguments});"
+            f"(notifications.{_route_key(event)});"
         )
         return len(call) <= 80
 
@@ -147,24 +167,56 @@ class _Renderer:
         return self.module(self.template("namespace_index", nodes=self.nodes))
 
     def routes(self) -> str:
-        return self.module(self.template("routes", routes=self.ir.operations))
+        return self.module(
+            self.template(
+                "routes",
+                routes=self.ir.operations,
+                notifications=self.ir.notifications,
+            )
+        )
 
     def core(self) -> str:
         body = render_template(
             "typescript/core.ts.j2",
             transport_module=json.dumps(self._transport_module()),
+            binary_streams=bool(self.ir.binary_streams),
         ).rstrip()
         return self.module(body)
 
     def transport(self) -> str:
         return self.module(render_template("typescript/transport.ts.j2").rstrip())
 
+    def streams(self) -> str:
+        return self.module(
+            self.template(
+                "streams",
+                streams=self.ir.binary_streams,
+                with_websocket=self.options.with_transport == "websocket",
+            )
+        )
+
     def api(self, root_node: NamespaceViewNode) -> str:
         root = "../"
         nodes = tuple(_walk((root_node,)))
         imports = [f'import type {{ RpcClientCore }} from "{root}core";']
+        if any(node.streams for node in nodes):
+            imports.append(
+                _value_import(
+                    [
+                        "binaryStreams",
+                        "resolveStreamEndpoint",
+                        "type BinaryStreamConnection",
+                    ],
+                    f"{root}streams",
+                )
+            )
+        route_imports = []
         if any(node.operations for node in nodes):
-            imports.append(f'import {{ routes }} from "{root}routes";')
+            route_imports.append("routes")
+        if any(node.notifications for node in nodes):
+            route_imports.append("notifications")
+        if route_imports:
+            imports.append(_value_import(route_imports, f"{root}routes"))
         model_names: set[str] = set()
         for node in nodes:
             model_names.update(_route_model_names(node.operations))
@@ -183,11 +235,38 @@ class _Renderer:
         return self.module(body)
 
     def client(self) -> str:
-        imports = [
-            'import { RpcClientCore, type RpcTransport } from "./core";',
+        core_imports = [
+            "RpcClientCore",
+            "type RpcClientHook",
+            "type RpcTransport",
+            "type RpcTransportSource",
         ]
+        if self.options.with_transport == "websocket":
+            core_imports.insert(1, "RpcTransportPool")
+        imports = [_value_import(core_imports, "./core")]
+        if self.ir.binary_streams:
+            stream_imports = ["type BinaryStreamOpener"]
+            if self.root_streams:
+                stream_imports = [
+                    "binaryStreams",
+                    "resolveStreamEndpoint",
+                    "type BinaryStreamConnection",
+                    *stream_imports,
+                ]
+            if self.options.with_transport == "websocket":
+                stream_imports = [
+                    "BinaryWebSocketStream",
+                    *stream_imports,
+                    "type BinaryWebSocketFactory",
+                ]
+            imports.append(_value_import(stream_imports, "./streams"))
+        route_imports = []
         if self.root_operations:
-            imports.append('import { routes } from "./routes";')
+            route_imports.append("routes")
+        if self.root_events:
+            route_imports.append("notifications")
+        if route_imports:
+            imports.append(_value_import(route_imports, "./routes"))
         models = _route_model_names(self.root_operations)
         models.update(
             name for event in self.root_events for name in _model_names(event.payload)
@@ -196,10 +275,14 @@ class _Renderer:
             imports.append(_type_import(models, "./models"))
         transports_name = _transports_name(self.client_name)
         if self.ir.servers:
-            endpoint_imports = "type Endpoint, type ServerName"
+            endpoint_imports = ["type Endpoint", "type ServerName"]
             if self.options.with_transport == "websocket":
-                endpoint_imports = f"resolveEndpoints, {endpoint_imports}"
-            imports.append(f'import {{ {endpoint_imports} }} from "./endpoints";')
+                endpoint_imports = [
+                    "resolveEndpoints",
+                    "type EndpointOverrides",
+                    *endpoint_imports,
+                ]
+            imports.append(_value_import(endpoint_imports, "./endpoints"))
         if self.options.with_transport == "websocket":
             imports.extend(
                 [
@@ -208,10 +291,21 @@ class _Renderer:
                 ]
             )
         if self.nodes:
-            namespace_classes = ", ".join(_api_class(node.path) for node in self.nodes)
-            imports.append(f'import {{ {namespace_classes} }} from "./namespaces";')
-        transport_type = (
-            f"RpcTransport | {transports_name}" if self.ir.servers else "RpcTransport"
+            imports.append(
+                _value_import(
+                    [_api_class(node.path) for node in self.nodes],
+                    "./namespaces",
+                )
+            )
+        transport_type = " | ".join(
+            (
+                *(
+                    ("RpcTransport", transports_name)
+                    if self.ir.servers
+                    else ("RpcTransport",)
+                ),
+                "RpcTransportSource",
+            )
         )
         body = self.template(
             "client",
@@ -220,9 +314,19 @@ class _Renderer:
             transports_name=transports_name,
             transport_type=transport_type,
             servers=self.ir.servers,
+            variables=_connect_variables(self.ir),
             nodes=self.nodes,
             operations=self.root_operations,
             notifications=self.root_events,
+            streams=self.root_streams,
+            binary_streams=self.ir.binary_streams,
+            compact_connect=(
+                len(
+                    "  static async connect(options: ConnectOptions = {}): "
+                    f"Promise<{self.client_name}> {{"
+                )
+                <= 80
+            ),
             with_websocket=self.options.with_transport == "websocket",
         )
         return self.module(body)
@@ -264,7 +368,10 @@ class _Renderer:
             transports_name=_transports_name(self.client_name),
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
-            named_errors=_named_errors(self.ir),
+            nodes=self.nodes,
+            routes=self.ir.operations or self.ir.notifications,
+            notifications=self.ir.notifications,
+            binary_streams=self.ir.binary_streams,
         )
         return self.module(body)
 
@@ -291,9 +398,23 @@ class _Renderer:
         raise TypeError(f"Unsupported type: {type(expression).__name__}")
 
 
+def _connect_variables(ir: ClientIr) -> tuple[ServerVariableDecl, ...]:
+    """The URL variables `connect` accepts, shared by servers and streams."""
+    merged: dict[str, ServerVariableDecl] = {}
+    for declaration in (*ir.servers, *ir.binary_streams):
+        for variable in declaration.variables:
+            previous = merged.get(variable.name)
+            if previous is None:
+                merged[variable.name] = variable
+            elif previous.enum != variable.enum:
+                merged[variable.name] = replace(previous, enum=())
+    return tuple(merged.values())
+
+
 def _validate(
     ir: ClientIr,
     root_operations: tuple[RouteDecl, ...],
+    root_streams: tuple[BinaryStreamDecl, ...],
     nodes: tuple[NamespaceViewNode, ...],
     options: TypeScriptClientOptions,
     client_name: str,
@@ -351,7 +472,6 @@ def _validate(
         )
     client_members = [
         ("<client.close>", "close"),
-        ("<client.fromTransport>", "fromTransport"),
         *((node.source_path[-1], _identifier(node.segment)) for node in nodes),
         *(
             (route.rpc_name, _identifier(route.operation_name))
@@ -365,11 +485,31 @@ def _validate(
                 api_names=options.api_names,
             ).root_notifications
         ),
+        *(
+            (stream.rpc_name, _identifier(stream.operation_name))
+            for stream in root_streams
+        ),
     ]
-    if ir.servers:
-        client_members.append(("<client.fromTransports>", "fromTransports"))
+    client_members.append(("<client.withTransports>", "withTransports"))
     if options.with_transport == "websocket":
         client_members.append(("<client.connect>", "connect"))
+        connect_options = [
+            *((option, option) for option in _CONNECT_OPTIONS),
+            *(
+                (variable.name, _identifier(variable.name))
+                for variable in _connect_variables(ir)
+            ),
+        ]
+        if len(ir.servers) == 1:
+            connect_options.append(("<connect.url>", "url"))
+        if ir.binary_streams:
+            connect_options.extend(
+                [
+                    ("<connect.streamSocketFactory>", "streamSocketFactory"),
+                    ("<connect.streamQueueSize>", "streamQueueSize"),
+                ]
+            )
+        assert_unique_names("connect options", connect_options)
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     for node in nodes:
@@ -383,6 +523,10 @@ def _validate(
     assert_unique_names(
         "servers",
         ((server.name, _identifier(server.name)) for server in ir.servers),
+    )
+    assert_unique_names(
+        "binary streams",
+        ((stream.name, _identifier(stream.name)) for stream in ir.binary_streams),
     )
     for server in ir.servers:
         assert_unique_names(
@@ -406,6 +550,10 @@ def _validate_nodes(nodes: tuple[NamespaceViewNode, ...]) -> None:
         values.extend(
             (event.rpc_name, _identifier(event.operation_name))
             for event in node.notifications
+        )
+        values.extend(
+            (stream.rpc_name, _identifier(stream.operation_name))
+            for stream in node.streams
         )
         assert_unique_names(f"API path {'.'.join(node.path)}", values)
         _validate_nodes(node.children)
@@ -473,6 +621,16 @@ def _notification_type(ir: ClientIr) -> TypeExpr | None:
         return None
     members = tuple(item.payload for item in ir.notifications)
     return members[0] if len(members) == 1 else UnionType(members)
+
+
+def _value_import(names: Iterable[str], module: str) -> str:
+    """Render one import, wrapped the way Prettier would wrap it."""
+    values = list(names)
+    inline = f'import {{ {", ".join(values)} }} from "{module}";'
+    if len(inline) <= 80:
+        return inline
+    body = "\n".join(f"  {name}," for name in values)
+    return f'import {{\n{body}\n}} from "{module}";'
 
 
 def _type_import(names: Iterable[str], module: str) -> str:
@@ -561,6 +719,15 @@ _PRIMITIVES = {
     Primitive.DATETIME: "string",
     Primitive.ANY: "unknown",
 }
+
+_CONNECT_OPTIONS = (
+    "eager",
+    "hooks",
+    "notificationQueueSize",
+    "requestTimeoutMs",
+    "servers",
+    "socketFactory",
+)
 
 _VALID_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 

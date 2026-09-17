@@ -70,6 +70,10 @@ def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
         _add(annotations, notification.payload)
     for notification_type in protocol.notification_types:
         _add(annotations, notification_type.payload)
+    for method in protocol.methods:
+        for error in method.raises:
+            if error.details_type is not None:
+                _add(annotations, error.details_type)
     return annotations
 
 

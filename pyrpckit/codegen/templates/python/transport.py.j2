@@ -3,7 +3,9 @@ import json
 from collections.abc import AsyncIterator, Awaitable
 from typing import Any, Protocol, Self
 
-from {{ runtime_module }} import RpcRemoteError, RpcTransportError
+from {{ runtime_module }} import RpcTransportError
+
+from .errors import error_from_response
 
 type JsonObject = dict[str, Any]
 _STREAM_ENDED = object()
@@ -166,11 +168,13 @@ class WebSocketTransport:
             raise RpcTransportError(f"Unknown JSON-RPC response ID: {request_id!r}")
         error = message.get("error")
         if isinstance(error, dict):
+            data = error.get("data")
             response.set_exception(
-                RpcRemoteError(
+                error_from_response(
                     int(error.get("code", 0)),
+                    str(data.get("code", "")) if isinstance(data, dict) else "",
                     str(error.get("message", "Remote RPC error")),
-                    error.get("data"),
+                    data.get("details") if isinstance(data, dict) else None,
                 )
             )
         elif "result" in message:

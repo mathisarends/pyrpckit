@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import ValidationError
 
@@ -8,15 +8,59 @@ class RpcClientError(Exception):
 
 
 class RpcRemoteError(RpcClientError):
-    def __init__(self, code: int, message: str, data: Any = None) -> None:
-        super().__init__(f"RPC error {code}: {message}")
+    code: ClassVar[str] = ""
+
+    def __init__(
+        self,
+        rpc_code: int,
+        code: str,
+        message: str,
+        details: Any = None,
+    ) -> None:
+        super().__init__(f"RPC error {code or rpc_code}: {message}")
+        self.rpc_code = rpc_code
         self.code = code
         self.message = message
-        self.data = data
+        self.details = details
+
+
+class RpcParseError(RpcRemoteError):
+    code = "parse_error"
+
+
+class RpcInvalidRequestError(RpcRemoteError):
+    code = "invalid_request"
+
+
+class RpcMethodNotFoundError(RpcRemoteError):
+    code = "method_not_found"
+
+
+class RpcInvalidParamsError(RpcRemoteError):
+    code = "invalid_params"
+
+
+class RpcInternalError(RpcRemoteError):
+    code = "internal_error"
+
+
+class RpcConnectionClosed(RpcClientError):
+    def __init__(self, code: int | None, reason: str) -> None:
+        super().__init__(f"RPC connection closed ({code}): {reason}")
+        self.code = code
+        self.reason = reason
 
 
 class RpcTransportError(RpcClientError):
     """Raised when the connection cannot serve a request."""
+
+
+class RpcStreamsUnavailableError(RpcClientError):
+    """No binary stream opener was configured for this client."""
+
+
+class RpcStreamClosed(RpcClientError):
+    """Raised when a binary stream ended because the server closed it."""
 
 
 class RpcResponseValidationError(RpcClientError):

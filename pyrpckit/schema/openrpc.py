@@ -23,13 +23,14 @@ def render_openrpc(
     title: str,
     description: str = "Typed JSON-RPC API.",
     servers: Iterable[Server] = (),
+    binary_streams: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Render the protocol as an OpenRPC 1.4.1 document."""
     server_documents = tuple(dict(server) for server in servers)
     server_lookup = _server_lookup(server_documents)
     _validate_server_references(protocol, server_lookup)
     schemas = _rewrite_refs(components(protocol))
-    return {
+    document = {
         "openrpc": OPENRPC_VERSION,
         "info": {
             "title": title,
@@ -62,6 +63,10 @@ def render_openrpc(
             for item in protocol.notification_types
         ],
     }
+    streams = [dict(stream) for stream in binary_streams]
+    if streams:
+        document["x-rpckit-binary-streams"] = streams
+    return document
 
 
 def _method(
@@ -72,9 +77,6 @@ def _method(
     document: dict[str, Any] = {"name": method.name}
     if method.summary is not None:
         document["summary"] = method.summary
-    tags = method.tags
-    if tags:
-        document["tags"] = [{"name": tag} for tag in tags]
     document |= {
         "paramStructure": "by-name",
         "params": _params(method, components),
@@ -83,17 +85,21 @@ def _method(
     }
     if method.params is not None:
         document["x-rpc-params-schema"] = _ref(type_name(method.params))
-    if method.errors:
-        document["errors"] = [
-            {
-                "code": int(error.code),
-                "message": error.message,
-                "x-rpckit-name": error.__name__.removesuffix("Error"),
-            }
-            for error in method.errors
-        ]
+    if method.raises:
+        document["errors"] = [_error(error) for error in method.raises]
     if method.server is not None:
         document["servers"] = [servers[method.server]]
+    return document
+
+
+def _error(error: type) -> dict[str, Any]:
+    document: dict[str, Any] = {
+        "code": int(error.rpc_code),
+        "message": error.message,
+        "x-rpckit-code": error.code,
+    }
+    if error.details_type is not None:
+        document["x-rpckit-details-schema"] = _ref(type_name(error.details_type))
     return document
 
 

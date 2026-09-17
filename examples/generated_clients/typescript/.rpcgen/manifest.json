@@ -1,20 +1,22 @@
 {
   "generator": "pyrpckit",
-  "generatorVersion": "0.5.0",
-  "layoutVersion": 7,
+  "generatorVersion": "0.6.0",
+  "layoutVersion": 9,
   "language": "typescript",
-  "contractSha256": "fe2dbed4811014f3aa2a77b9c123b3ba6c96ae0d22b0800da3e955f01afb1743",
+  "contractSha256": "c5bdcbf382f1d9260fe1bc44df23c74ab2dbe412697acb4772039f99e2ff0c08",
   "files": [
     ".rpcgen/manifest.json",
     "client.ts",
     "core.ts",
     "endpoints.ts",
+    "errors.ts",
     "index.ts",
     "models.ts",
     "namespaces/browser.ts",
     "namespaces/index.ts",
     "namespaces/tasks.ts",
     "routes.ts",
+    "streams.ts",
     "transport.ts"
   ]
 }

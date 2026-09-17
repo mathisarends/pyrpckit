@@ -1,15 +1,20 @@
-{% from "typescript/macros.ts.j2" import operation, notification with context %}{% for line in imports %}{{ line }}
+{% from "typescript/macros.ts.j2" import operation, notification, stream with context %}{% for line in imports %}{{ line }}
 {% endfor %}{% if servers %}
 export type {{ transports_name }} = {
 {% for server in servers %}  readonly {{ server.name | property }}: RpcTransport;
 {% endfor %}};
 {% endif %}{% if with_websocket %}
 export type ConnectOptions = {
-  readonly endpoints?: readonly Endpoint[];
-{% if servers | length == 1 %}  readonly url?: string | URL;
-{% endif %}  readonly requestTimeoutMs?: number;
+{% for variable in variables %}  readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
+{% endfor %}{% if servers | length == 1 %}  readonly url?: string | URL;
+{% endif %}  readonly servers?: EndpointOverrides;
+  readonly eager?: boolean;
+  readonly requestTimeoutMs?: number;
   readonly notificationQueueSize?: number;
   readonly socketFactory?: WebSocketFactory;
+{% if binary_streams %}  readonly streamSocketFactory?: BinaryWebSocketFactory;
+  readonly streamQueueSize?: number;
+{% endif %}  readonly hooks?: readonly RpcClientHook[];
 };
 {% endif %}
 export class {{ client_name }} {
@@ -19,55 +24,80 @@ export class {{ client_name }} {
 
   constructor(
     transport: {{ transport_type }},
-    options?: { readonly closeTransport?: boolean },
+    options?: {
+      readonly closeTransport?: boolean;
+      readonly hooks?: readonly RpcClientHook[];
+{% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
+      readonly variables?: Readonly<Record<string, string>>;
+{% endif %}    },
   ) {
     this.#rpc = new RpcClientCore(transport, options);
 {% for node in nodes %}    this.{{ node.segment | identifier }} = new {{ node.path | api_class }}(this.#rpc);
 {% endfor %}  }
 
-  static fromTransport(transport: RpcTransport): {{ client_name }} {
-    return new {{ client_name }}(transport);
+  /** Build a client on transports the caller owns, for tests and adapters. */
+  static withTransports(
+    transports: {{ "RpcTransport | " ~ transports_name if servers else "RpcTransport" }},
+    options?: {
+      readonly closeTransport?: boolean;
+      readonly hooks?: readonly RpcClientHook[];
+{% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
+{% endif %}    },
+  ): {{ client_name }} {
+    return new {{ client_name }}(transports, options);
   }
-{% if servers %}
-  static fromTransports(transports: {{ transports_name }}): {{ client_name }} {
-    return new {{ client_name }}(transports);
-  }
-{% endif %}{% if with_websocket %}
-  static async connect(
+{% if with_websocket %}
+  /** Connect to every declared server, opening each socket on first use. */
+{% if compact_connect %}  static async connect(options: ConnectOptions = {}): Promise<{{ client_name }}> {
+{% else %}  static async connect(
     options: ConnectOptions = {},
   ): Promise<{{ client_name }}> {
-{% if servers | length == 1 %}    if (options.url !== undefined && options.endpoints !== undefined) {
-      throw new Error("url and endpoints cannot be used together");
+{% endif %}    const variables: Record<string, string | undefined> = {
+{% for variable in variables %}      {{ variable.name | property }}: options.{{ variable.name | property }},
+{% endfor %}    };
+{% if servers | length == 1 %}    const overrides: EndpointOverrides = { ...options.servers };
+    if (options.url !== undefined) {
+      overrides[{{ servers[0].name | literal }}] ??= options.url;
     }
-    const endpointOverrides: readonly Endpoint[] = options.url === undefined
-      ? options.endpoints ?? []
-      : [{ server: {{ servers[0].name | literal }}, url: options.url }];
-{% else %}    const endpointOverrides: readonly Endpoint[] = options.endpoints ?? [];
-{% endif %}    const transports: Partial<Record<ServerName, RpcTransport>> = {};
-    try {
-      for (const endpoint of resolveEndpoints(endpointOverrides)) {
-        transports[endpoint.server] = await WebSocketTransport.open(
-          endpoint.url,
-          {
-            subprotocols: endpoint.subprotocols,
-            requestTimeoutMs: options.requestTimeoutMs,
-            notificationQueueSize: options.notificationQueueSize,
-            socketFactory: options.socketFactory,
-          },
-        );
-      }
-    } catch (error) {
-      await Promise.all(
-        Object.values(transports).map((transport) => transport.close()),
-      );
-      throw error;
-    }
-    return {{ client_name }}.fromTransports(transports as {{ transports_name }});
+{% endif %}    const pool = new RpcTransportPool({
+      endpoints: [...resolveEndpoints(variables, {{ "overrides" if servers | length == 1 else "options.servers" }})],
+      open: (endpoint) =>
+        WebSocketTransport.open(endpoint.url, {
+          subprotocols: endpoint.subprotocols,
+          requestTimeoutMs: options.requestTimeoutMs,
+          notificationQueueSize: options.notificationQueueSize,
+          socketFactory: options.socketFactory,
+        }),
+    });
+    if (options.eager === true) await pool.openAll();
+    return new {{ client_name }}(pool, {
+      hooks: options.hooks,
+{% if binary_streams %}      streamOpener: (endpoint) =>
+        BinaryWebSocketStream.open(endpoint, {
+          socketFactory: options.streamSocketFactory,
+          incomingQueueSize: options.streamQueueSize,
+        }),
+      variables: definedVariables(variables),
+{% endif %}    });
   }
 {% endif %}{% for route in operations %}
 {{ operation(route, true) }}{% endfor %}{% for event in notifications %}
-{{ notification(event, true) }}{% endfor %}
+{{ notification(event, true) }}{% endfor %}{% for item in streams %}
+{{ stream(item, true) }}{% endfor %}
   close(): Promise<void> {
     return this.#rpc.close();
   }
+
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.close();
+  }
 }
+{% if with_websocket and binary_streams %}
+function definedVariables(
+  values: Readonly<Record<string, string | undefined>>,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined),
+  ) as Record<string, string>;
+}
+{% endif %}

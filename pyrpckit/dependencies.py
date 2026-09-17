@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any, Protocol, get_args, get_origin
@@ -39,6 +39,28 @@ class EmptyResolver:
         raise LookupError(
             f"No RPC resolver is configured for dependency {dependency!r}"
         )
+
+
+type RpcResolverLike = RpcResolver | Callable[[type[Any]], Awaitable[Any] | Any]
+
+
+class FunctionResolver:
+    def __init__(self, function: Callable[[type[Any]], Awaitable[Any] | Any]) -> None:
+        self._function = function
+
+    async def resolve[DependencyT](self, dependency: type[DependencyT]) -> DependencyT:
+        value = self._function(dependency)
+        return await value if inspect.isawaitable(value) else value
+
+
+def as_resolver(value: RpcResolverLike | None) -> RpcResolver:
+    if value is None:
+        return EmptyResolver()
+    if hasattr(value, "resolve"):
+        return value  # type: ignore[return-value]
+    if callable(value):
+        return FunctionResolver(value)
+    raise TypeError("resolver must implement resolve() or be callable")
 
 
 class ContextResolver:
@@ -90,7 +112,7 @@ async def connection_scope(
     context: object | Mapping[type[Any], object] | None = None,
 ) -> AsyncGenerator[RpcResolver, None]:
     """Enter a connection lifetime and expose its typed context to handlers."""
-    values = _context_values(context)
+    values = context_values(context)
     enter_connection = getattr(resolver, "enter_connection", None)
     if enter_connection is None:
         yield ContextResolver(resolver, values) if values else resolver
@@ -126,7 +148,7 @@ def injected_parameter(
     return RpcInjectedParameter(name=name, dependency=dependency)
 
 
-def _context_values(
+def context_values(
     context: object | Mapping[type[Any], object] | None,
 ) -> dict[type[Any], object]:
     if context is None:

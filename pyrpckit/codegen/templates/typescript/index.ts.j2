@@ -1,9 +1,34 @@
 export { {{ client_name }} } from "./client";
 {% if servers %}export type { {{ transports_name }} } from "./client";
 {% endif %}{% if with_websocket %}export type { ConnectOptions } from "./client";
+{% endif %}{% if nodes %}export * from "./namespaces";
+{% endif %}export { RpcConnectionClosed, RpcRemoteError } from "./core";
+export type {
+  JsonValue,
+  RpcClientCore,
+  RpcClientHook,
+  RpcRouteInfo,
+  RpcTransport,
+} from "./core";
+export * from "./errors";
+{% if routes %}export {{ "{ routes, notifications }" if notifications else "{ routes }" }} from "./routes";
 {% endif %}{% if servers %}export { endpoints, servers } from "./endpoints";
 export type { Endpoint, ServerName } from "./endpoints";
 {% endif %}{% if with_websocket %}export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
-{% endif %}{% if named_errors %}export * from "./errors";
-{% endif %}export type * from "./models";
+{% endif %}{% if binary_streams %}export {
+  BinaryStreamConnection,
+  RpcStreamClosed,
+  RpcStreamsUnavailableError,
+  binaryStreams,
+  resolveStreamEndpoint,
+} from "./streams";
+export type {
+  BinaryStreamDirection,
+  BinaryStreamEndpoint,
+  BinaryStreamName,
+  BinaryStreamTransport,
+} from "./streams";
+{% if with_websocket %}export { BinaryWebSocketStream } from "./streams";
+export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./streams";
+{% endif %}{% endif %}export type * from "./models";

@@ -14,7 +14,7 @@ class NavigateResult(rpc.RpcModel):
     active_project_id: str
 
 
-NAVIGATION_ROUTER = rpc.RpcModule(namespace="browser.nav")
+NAVIGATION_ROUTER = rpc.RpcChannel("navigation", namespace="browser.nav")
 
 
 class Navigation:
@@ -31,8 +31,7 @@ async def navigate(
     return NavigateResult(active_project_id=params.project_id)
 
 
-NAVIGATION_APP = rpc.RpcChannel()
-NAVIGATION_APP.include(NAVIGATION_ROUTER)
+NAVIGATION_APP = NAVIGATION_ROUTER
 
 
 def test_rpc_models_use_snake_case_in_python_and_camel_case_on_the_wire() -> None:
@@ -93,12 +92,10 @@ def test_contract_rejects_colliding_wire_field_names() -> None:
         foo_bar: str
         fooBar: str
 
-    router = rpc.RpcModule(namespace="collision")
+    router = rpc.RpcChannel("collision")
 
     @router.method("test")
     async def test(params: CollidingParams) -> None: ...
 
-    app = rpc.RpcChannel()
-    app.include(router)
     with pytest.raises(rpc.ProtocolDefinitionError, match="wire field 'fooBar'"):
-        render_openrpc(app.protocol, title="Collision")
+        render_openrpc(router.protocol, title="Collision")

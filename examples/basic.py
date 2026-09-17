@@ -1,7 +1,8 @@
 import asyncio
 from dataclasses import dataclass
 
-from pyrpckit import Inject, RpcChannel, RpcModel, RpcModule
+from pyrpckit import Inject, RpcChannel, RpcModel, RpcService
+from pyrpckit.testing import RpcTestClient
 
 
 class GreetParams(RpcModel):
@@ -17,7 +18,7 @@ class Greeter:
     salutation: str
 
 
-router = RpcModule(namespace="greeting", tags=("greeting",))
+router = RpcChannel("greeting")
 
 
 @router.method()
@@ -26,19 +27,12 @@ async def say(params: GreetParams, greeter: Inject[Greeter]) -> Greeting:
 
 
 async def main() -> None:
-    app = RpcChannel()
-    app.include(router)
-    server = app.server(context={Greeter: Greeter("Hello")})
-    response = await server.handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "greeting.say",
-            "params": {"name": "World"},
-        }
-    )
-    assert response is not None
-    print(response.model_dump_json(indent=2))
+    rpc = RpcService()
+    rpc.socket("/rpc", router)
+    async with RpcTestClient(
+        rpc, "/rpc", context={Greeter: Greeter("Hello")}
+    ) as client:
+        print(await client.request("greeting.say", {"name": "World"}))
 
 
 if __name__ == "__main__":

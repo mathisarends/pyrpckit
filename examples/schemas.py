@@ -1,6 +1,6 @@
 import json
 
-from pyrpckit import RpcChannel, RpcModel, RpcModule
+from pyrpckit import RpcChannel, RpcModel, RpcService
 from pyrpckit.schema import render_openrpc
 
 
@@ -15,7 +15,7 @@ class SearchResult(RpcModel):
     next_page_token: str | None = None
 
 
-router = RpcModule(namespace="search", tags=("search",))
+router = RpcChannel("search")
 
 
 @router.method()
@@ -23,15 +23,16 @@ async def run(params: SearchParams) -> SearchResult:
     return SearchResult(items=[])
 
 
-APP = RpcChannel(version=3)
-APP.include(router)
+app = RpcService(version=3)
+app.socket("/rpc", router)
 
 
 def main() -> None:
+    contract = app.contract(title="Search API", base_url="ws://localhost:8000")
     openrpc = render_openrpc(
-        APP.protocol,
-        title="Search API",
-        servers=({"name": "local", "url": "ws://localhost:8000/rpc"},),
+        contract.protocol,
+        title=contract.title,
+        servers=contract.servers,
     )
     print("OpenRPC method:")
     print(json.dumps(openrpc["methods"][0], indent=2))

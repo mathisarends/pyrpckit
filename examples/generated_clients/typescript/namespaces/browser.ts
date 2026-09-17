@@ -3,13 +3,13 @@
 // Regenerate it from the OpenRPC document instead.
 
 import type { RpcClientCore } from "../core";
+import {
+  binaryStreams,
+  resolveStreamEndpoint,
+  type BinaryStreamConnection,
+} from "../streams";
 import { routes } from "../routes";
-import type {
-  Frame,
-  OpenTabParams,
-  StartScreencastParams,
-  Tab,
-} from "../models";
+import type { OpenTabParams, StartScreencastParams, Tab } from "../models";
 
 export class BrowserTabs {
   constructor(private readonly rpc: RpcClientCore) {}
@@ -28,11 +28,19 @@ export class BrowserScreencast {
     await this.rpc.request<null>(routes.browserScreencastStart, params);
   }
 
-  /** Stream screencast frames. */
-  frames(): AsyncIterable<Frame> {
-    return this.rpc.notifications<Frame>(
-      "browser.screencast.frames",
-      "streaming",
+  /** Raw screencast frames as binary WebSocket messages. */
+  frames(options?: {
+    readonly host?: string;
+    readonly url?: string | URL;
+  }): Promise<BinaryStreamConnection> {
+    return this.rpc.openStream(
+      resolveStreamEndpoint(
+        binaryStreams.browserScreencastFrames,
+        {
+          host: options?.host,
+        },
+        { url: options?.url, defaults: this.rpc.variables },
+      ),
     );
   }
 }
