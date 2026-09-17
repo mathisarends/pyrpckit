@@ -8,7 +8,7 @@ Stand: Die Generator- und Runtime-Änderungen sind inkrementell committet.
 `README.md` wurde parallel vom Nutzer bearbeitet und ist **nicht** Teil dieser
 Arbeit; die Änderung bleibt uncommittet im Working Tree.
 
-Alle Tests grün: `uv run pytest -q` → 178 passed, 1 skipped.
+Alle Tests grün: `uv run pytest -q` → 179 passed, 1 skipped.
 Lint/Format: `uv run ruff check pyrpckit tests examples`,
 `uv run ruff format --check pyrpckit tests examples`,
 `npx prettier --check examples/generated_clients/typescript`.
@@ -111,31 +111,34 @@ greift wieder. Test:
   TypeScript-Schlüssel statt gegen RPC-Namen geprüft.
 - Der eingecheckte Beispiel-Client wurde neu generiert.
 
+### 8. TypeScript-`connect` hat echte Verhaltenstests
+
+- Ein Node-Harness wird zusammen mit einem frisch generierten Client strikt
+  kompiliert und ausgeführt.
+- Abgedeckt sind Lazy- und Eager-Verbindungen, ein einzelner Server-Override
+  sowie Connect-Variablen, die an Binary-Streams vererbt werden.
+
 ---
 
 ## Offen
 
-1. **TS-Verhaltenstests für `connect`** — `tsc --noEmit --strict` deckt die
-   Typseite jetzt ab. Für Lazy-/Eager-Verbindungen, Server-Overrides und geerbte
-   Stream-Variablen fehlt weiterhin ein kleiner Node-Test mit Fake-
-   `socketFactory`, analog zu `tests/codegen/test_connect.py`.
-2. **`session()`-Convenience für Streams** (Punkt 9 der Zielliste): ein Aufruf,
+1. **`session()`-Convenience für Streams** (Punkt 9 der Zielliste): ein Aufruf,
    der `start()` und den Binary-Socket zusammen macht. Braucht eine
    Contract-Erweiterung, die den Stream mit seiner Startmethode verknüpft
    (z. B. `x-rpckit-binary-streams[].startMethod`), plus Serverseite
    (`channel.stream(...)`). Bewusst zurückgestellt.
-3. **Doku**: `docs/clients.md` (in `README.md` verlinkt) existiert nicht;
+2. **Doku**: `docs/clients.md` (in `README.md` verlinkt) existiert nicht;
    `docs/streams.md`, `docs/errors.md` etc. ebenfalls nicht. Die neue
    `connect`-Oberfläche, `with_transports`, `RpcStreamClosed` und das
    Lazy-Verhalten sind nirgends dokumentiert. `examples/README.md` erwähnt noch
    den alten Wurzel-Stream.
-4. **`CHANGELOG.md`** für 0.6 ist noch nicht auf die neue Client-API angepasst
+3. **`CHANGELOG.md`** für 0.6 ist noch nicht auf die neue Client-API angepasst
    (Breaking Changes: `from_transport*` entfällt, `connect`-Signatur,
    Stream-Platzierung, `__await__` weg).
-5. **Prüfen, ob `endpoints.<server>()`-Factories bleiben sollen** — sie sind
+4. **Prüfen, ob `endpoints.<server>()`-Factories bleiben sollen** — sie sind
    jetzt dünne Wrapper um `endpoint(name, variables)`. Entweder behalten (typed
    escape hatch) oder streichen.
-6. Der TS-Client akzeptiert `servers` als `EndpointOverrides`; ein
+5. Der TS-Client akzeptiert `servers` als `EndpointOverrides`; ein
    `Endpoint`-Objekt daraus wird ohne Server-Namensprüfung übernommen — kleiner
    Konsistenzcheck wäre nett (`override.server === name`).
 
@@ -151,3 +154,4 @@ greift wieder. Test:
 6. `2579804 Redesign connect around shared options and lazy sockets`
 7. `b31362f Add generated client fixtures and connect tests`
 8. `e3c84ae Type-check generated TypeScript clients`
+9. `0914767 Test TypeScript client connection behavior`
