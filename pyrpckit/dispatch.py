@@ -72,7 +72,7 @@ def _validated_params(
     try:
         return TypeAdapter(method.params).validate_python(raw_params)
     except ValidationError as error:
-        raise RpcInvalidParamsError(error) from error
+        raise RpcInvalidParamsError.from_validation_error(error) from error
 
 
 def _unexpected_params_error(

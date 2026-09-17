@@ -1,8 +1,11 @@
+import logging
 from collections.abc import Callable
 
 from pydantic import ValidationError
 
+from pyrpckit._logging import LOGGER_NAME
 from pyrpckit.codec import RpcCodec
+from pyrpckit.connection import ConnectionRejected
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
@@ -18,6 +21,7 @@ from pyrpckit.protocol import RpcProtocol
 type RpcErrorMapper = Callable[[Exception], RpcError | None]
 type RpcResponse = RpcSuccess | RpcFailure
 type RpcResponseMessage = RpcResponse | list[RpcResponse] | None
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class RpcServer:
@@ -81,11 +85,17 @@ class RpcServer:
 
     def failure(self, request_id: RpcRequestId, error: Exception) -> RpcFailure:
         rpc_error = self._rpc_error(error)
-        return RpcFailure.of(request_id, rpc_error.code, rpc_error.message)
+        return RpcFailure.from_error(request_id, rpc_error)
 
     def _rpc_error(self, error: Exception) -> RpcError:
         if isinstance(error, RpcError):
             return error
+        if isinstance(error, ConnectionRejected):
+            logger.error(
+                "ConnectionRejected raised after the connection was accepted; "
+                "use RpcConnection.close() instead"
+            )
+            return RpcInternalError()
         if self._error_mapper is not None:
             mapped = self._error_mapper(error)
             if mapped is not None:
@@ -97,7 +107,7 @@ class RpcServer:
 
 def _validation_error(error: ValidationError) -> RpcError:
     if any("params" in issue["loc"] for issue in error.errors(include_url=False)):
-        return RpcInvalidParamsError(error)
+        return RpcInvalidParamsError.from_validation_error(error)
     return RpcInvalidRequestError()
 
 

@@ -88,17 +88,21 @@ def _method(
     }
     if method.params is not None:
         document["x-rpc-params-schema"] = _ref(type_name(method.params))
-    if method.errors:
-        document["errors"] = [
-            {
-                "code": int(error.code),
-                "message": error.message,
-                "x-rpckit-name": error.__name__.removesuffix("Error"),
-            }
-            for error in method.errors
-        ]
+    if method.raises:
+        document["errors"] = [_error(error) for error in method.raises]
     if method.server is not None:
         document["servers"] = [servers[method.server]]
+    return document
+
+
+def _error(error: type) -> dict[str, Any]:
+    document: dict[str, Any] = {
+        "code": int(error.rpc_code),
+        "message": error.message,
+        "x-rpckit-code": error.code,
+    }
+    if error.details_type is not None:
+        document["x-rpckit-details-schema"] = _ref(type_name(error.details_type))
     return document
 
 

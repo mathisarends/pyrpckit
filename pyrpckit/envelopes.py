@@ -9,7 +9,7 @@ from pydantic import (
     field_serializer,
 )
 
-from pyrpckit.errors import RpcErrorCode
+from pyrpckit.errors import RpcError
 
 JSONRPC_VERSION = "2.0"
 
@@ -36,6 +36,21 @@ class RpcRequestEnvelope(RpcSchema):
 class RpcErrorData(RpcSchema):
     code: int
     message: str
+    data: "RpcErrorPayload"
+
+
+class RpcErrorPayload(RpcSchema):
+    code: str
+    details: Any = None
+    _details_annotation: Any = PrivateAttr(default=None)
+
+    @field_serializer("details")
+    def _serialize_details(self, details: Any, info: Any) -> Any:
+        if details is None or self._details_annotation is None:
+            return details
+        return TypeAdapter(self._details_annotation).dump_python(
+            details, mode=info.mode, by_alias=True
+        )
 
 
 class RpcSuccess(RpcSchema):
@@ -72,13 +87,15 @@ class RpcFailure(RpcSchema):
     error: RpcErrorData
 
     @classmethod
-    def of(
-        cls,
-        request_id: RpcRequestId,
-        code: int | RpcErrorCode,
-        message: str,
-    ) -> "RpcFailure":
-        return cls(id=request_id, error=RpcErrorData(code=int(code), message=message))
+    def from_error(cls, request_id: RpcRequestId, error: RpcError) -> "RpcFailure":
+        payload = RpcErrorPayload(code=error.code, details=error.details)
+        payload._details_annotation = error.details_type
+        return cls(
+            id=request_id,
+            error=RpcErrorData(
+                code=int(error.rpc_code), message=error.message, data=payload
+            ),
+        )
 
 
 class RpcNotification(RpcSchema):

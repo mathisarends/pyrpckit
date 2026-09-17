@@ -31,7 +31,7 @@ class RpcMethodDefinition:
     params: type[BaseModel] | None
     result: Any
     summary: str | None = None
-    errors: tuple[type[RpcError], ...] = ()
+    raises: tuple[type[RpcError], ...] = ()
     tags: tuple[str, ...] = ()
     server: str | None = None
     function: FunctionType | None = None
@@ -52,6 +52,18 @@ class RpcNotificationDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class RpcStreamDefinition:
+    name: str
+    function: FunctionType
+    content_type: str
+    summary: str | None
+    tags: tuple[str, ...]
+    injected_parameters: tuple[RpcInjectedParameter, ...]
+    resolver_scope: RpcResolverScope
+    server: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RpcNotificationTypeDefinition:
     name: str
     payload: type[BaseModel]
@@ -66,6 +78,7 @@ class RpcProtocol:
         methods: Iterable[RpcMethodDefinition] = (),
         notifications: Iterable[RpcNotificationDefinition] = (),
         notification_types: Iterable[RpcNotificationTypeDefinition] = (),
+        streams: Iterable[RpcStreamDefinition] = (),
         version: int = 1,
     ) -> None:
         self._version = version
@@ -81,6 +94,7 @@ class RpcProtocol:
             "notification type",
             ((item.name, item) for item in notification_types),
         )
+        self._streams = _unique("stream", ((item.name, item) for item in streams))
 
     @property
     def version(self) -> int:
@@ -98,6 +112,10 @@ class RpcProtocol:
     def notification_types(self) -> tuple[RpcNotificationTypeDefinition, ...]:
         return tuple(self._notification_types.values())
 
+    @property
+    def streams(self) -> tuple[RpcStreamDefinition, ...]:
+        return tuple(self._streams.values())
+
     def method(self, name: str) -> RpcMethodDefinition:
         try:
             return self._methods[name]
@@ -111,7 +129,7 @@ def method_definition(
     function: FunctionType,
     handler_name: str,
     summary: str | None,
-    errors: tuple[type[RpcError], ...],
+    raises: tuple[type[RpcError], ...],
     tags: tuple[str, ...],
     server: str | None,
     resolver_scope: RpcResolverScope,
@@ -126,7 +144,7 @@ def method_definition(
         params=params,
         result=wire_annotation(_result_annotation(function)),
         summary=summary,
-        errors=errors,
+        raises=raises,
         tags=tags,
         server=server,
         function=function,
@@ -227,7 +245,7 @@ def notification_type_definitions(
 def notification_definition(
     *,
     name: str,
-    payload: Any,
+    payload: Any | None,
     function: FunctionType,
     summary: str | None,
     tags: tuple[str, ...],
@@ -250,6 +268,8 @@ def notification_definition(
             "AsyncIterator[Payload]"
         )
     yielded = get_args(result)[0]
+    if payload is None:
+        payload = yielded
     if yielded != payload:
         raise ProtocolDefinitionError(
             f"RPC event source {function.__qualname__} yields {yielded!r}, "
@@ -268,6 +288,46 @@ def notification_definition(
         server=server,
         function=function,
         injected_parameters=injected,
+    )
+
+
+def stream_definition(
+    *,
+    name: str,
+    function: FunctionType,
+    content_type: str,
+    summary: str | None,
+    tags: tuple[str, ...],
+    resolver_scope: RpcResolverScope,
+) -> RpcStreamDefinition:
+    if not inspect.isasyncgenfunction(function):
+        raise ProtocolDefinitionError(
+            f"RPC binary stream {function.__qualname__} must be an async generator"
+        )
+    hints = get_type_hints(function, include_extras=True)
+    result = hints.get("return")
+    if (
+        get_origin(result) not in (AsyncIterator, AsyncGenerator)
+        or get_args(result)[0] is not bytes
+    ):
+        raise ProtocolDefinitionError(
+            "binary streams must yield bytes; only server-to-client streams "
+            "are supported"
+        )
+    params, _, injected = _router_params_model(function)
+    if params is not None:
+        raise ProtocolDefinitionError(
+            "binary stream parameters must use Inject[T]; client-to-server "
+            "streams are not supported"
+        )
+    return RpcStreamDefinition(
+        name=name,
+        function=function,
+        content_type=content_type,
+        summary=summary,
+        tags=tags,
+        injected_parameters=injected,
+        resolver_scope=resolver_scope,
     )
 
 

@@ -1,170 +1,118 @@
-import asyncio
-from collections.abc import Mapping
-from contextlib import suppress
-from typing import Any, Protocol
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-from fastapi import WebSocket
-from pydantic import TypeAdapter
+from fastapi import APIRouter, Response, WebSocket, params
+from starlette.websockets import WebSocketDisconnect
 
-from pyrpckit.app import RpcChannel
-from pyrpckit.codec import RpcCodec
-from pyrpckit.dependencies import EmptyResolver, RpcResolver, connection_scope
-from pyrpckit.envelopes import RpcNotification
-from pyrpckit.protocol import RpcNotificationDefinition
+from pyrpckit.connection import (
+    RpcConnectionClose,
+    RpcDisconnect,
+    RpcHandshake,
+    RpcLimits,
+    RpcRejection,
+)
+from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.server import RpcErrorMapper
+from pyrpckit.service import RpcEndpoint, RpcService
+from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 
-__all__ = ["serve"]
+__all__ = ["FastApiSocket", "create_router"]
 
-
-class WebSocketConnection(Protocol):
-    async def accept(self, subprotocol: str | None = None) -> None: ...
-
-    async def receive(self) -> Mapping[str, Any]: ...
-
-    async def send_text(self, data: str) -> None: ...
-
-
-async def serve(
-    channel: RpcChannel,
-    websocket: WebSocketConnection,
-    *,
-    context: object | Mapping[type[Any], object] | None = None,
-    resolver: RpcResolver | None = None,
-    error_mapper: RpcErrorMapper | None = None,
-    max_concurrency: int = 32,
-    max_queue_size: int = 128,
-    subprotocol: str | None = None,
-) -> None:
-    """Accept and serve one socket until disconnect.
-
-    Call from a normal FastAPI WebSocket endpoint after its dependencies resolve.
-    Context values and the WebSocket are injectable into RPC methods and events.
-    The runtime owns acceptance and RPC task cleanup; FastAPI owns dependency cleanup.
-    """
-    if max_concurrency < 1:
-        raise ValueError("max_concurrency must be at least 1")
-    if max_queue_size < 1:
-        raise ValueError("max_queue_size must be at least 1")
-    values: dict[type[Any], object] = {WebSocket: websocket}
-    if isinstance(context, Mapping):
-        values.update(context)
-    elif context is not None:
-        values[type(context)] = context
-    runtime = _RpcWebSocketRuntime(
-        channel,
-        resolver=resolver if resolver is not None else EmptyResolver(),
-        error_mapper=error_mapper,
-        max_concurrency=max_concurrency,
-        max_queue_size=max_queue_size,
-        subprotocol=subprotocol,
-    )
-    await runtime.serve(websocket, context=values)
+_HTTP_STATUS = {
+    RpcRejection.UNAUTHORIZED: 401,
+    RpcRejection.FORBIDDEN: 403,
+    RpcRejection.NOT_FOUND: 404,
+    RpcRejection.PROTOCOL_ERROR: 400,
+    RpcRejection.UNAVAILABLE: 503,
+    RpcRejection.INTERNAL_ERROR: 500,
+}
 
 
-class _RpcWebSocketRuntime:
-    def __init__(
-        self,
-        channel: RpcChannel,
-        *,
-        resolver: RpcResolver,
-        error_mapper: RpcErrorMapper | None,
-        max_concurrency: int,
-        max_queue_size: int,
-        subprotocol: str | None,
-    ) -> None:
-        self._channel = channel
-        self._resolver = resolver
-        self._error_mapper = error_mapper
-        self._max_concurrency = max_concurrency
-        self._max_queue_size = max_queue_size
-        self._subprotocol = subprotocol
-        self._codec = RpcCodec()
-
-    async def serve(
-        self,
-        websocket: WebSocketConnection,
-        *,
-        context: object | Mapping[type[Any], object] | None = None,
-    ) -> None:
-        async with connection_scope(self._resolver, context) as resolver:
-            server = self._channel.server(
-                resolver=resolver,
-                error_mapper=self._error_mapper,
-            )
-            await websocket.accept(subprotocol=self._subprotocol)
-            outgoing: asyncio.Queue[str] = asyncio.Queue(self._max_queue_size)
-            concurrency = asyncio.Semaphore(self._max_concurrency)
-            tasks: set[asyncio.Task[None]] = set()
-            writer = asyncio.create_task(_send_messages(websocket, outgoing))
-            sources = [
-                asyncio.create_task(
-                    _send_events(event, resolver, outgoing, self._codec)
-                )
-                for event in self._channel.protocol.notifications
-            ]
-            try:
-                while True:
-                    message = await websocket.receive()
-                    if message.get("type") == "websocket.disconnect":
-                        break
-                    payload = message.get("text")
-                    if payload is None:
-                        payload = message.get("bytes")
-                    if not isinstance(payload, str | bytes | bytearray):
-                        continue
-                    await concurrency.acquire()
-                    task = asyncio.create_task(
-                        _serve_message(server, payload, outgoing, concurrency)
-                    )
-                    tasks.add(task)
-                    task.add_done_callback(tasks.discard)
-            finally:
-                for task in (*tasks, *sources, writer):
-                    task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await asyncio.gather(*tasks, *sources, writer)
-
-
-async def _send_events(
-    event: RpcNotificationDefinition,
-    resolver: RpcResolver,
-    outgoing: asyncio.Queue[str],
-    codec: RpcCodec,
-) -> None:
-    if event.function is None:
-        raise TypeError(f"Event {event.name!r} has no source")
-    arguments = {
-        parameter.name: await resolver.resolve(parameter.dependency)
-        for parameter in event.injected_parameters
-    }
-    adapter = TypeAdapter(event.payload)
-    async for payload in event.function(**arguments):
-        validated = adapter.validate_python(payload)
-        message = RpcNotification._with_payload_annotation(
-            event.name,
-            validated,
-            event.payload,
+class FastApiSocket:
+    def __init__(self, websocket: WebSocket) -> None:
+        self._websocket = websocket
+        client = websocket.client
+        self._handshake = RpcHandshake(
+            path=websocket.url.path,
+            headers=dict(websocket.headers),
+            query_params=dict(websocket.query_params),
+            path_params=dict(websocket.path_params),
+            subprotocols=tuple(websocket.scope.get("subprotocols", ())),
+            client=None if client is None else (client.host, client.port),
         )
-        await outgoing.put(codec.encode(message))
+
+    handshake = property(lambda self: self._handshake)
+
+    async def accept(self, subprotocol: str | None = None) -> None:
+        await self._websocket.accept(subprotocol=subprotocol)
+
+    async def reject(self, rejection: RpcRejection, reason: str) -> None:
+        if "websocket.http.response" in self._websocket.scope.get("extensions", {}):
+            await self._websocket.send_denial_response(
+                Response(
+                    reason, status_code=_HTTP_STATUS[rejection], media_type="text/plain"
+                )
+            )
+        else:
+            await self._websocket.close(
+                REJECTION_CLOSE_CODES[rejection], close_reason(reason)
+            )
+
+    async def receive(self) -> str | bytes:
+        message = await self._websocket.receive()
+        if message["type"] == "websocket.disconnect":
+            raise RpcDisconnect(str(message.get("reason", "")))
+        value = message.get("text")
+        return value if value is not None else message.get("bytes", b"")
+
+    async def send(self, message: str) -> None:
+        try:
+            await self._websocket.send_text(message)
+        except (WebSocketDisconnect, RuntimeError) as error:
+            raise RpcDisconnect() from error
+
+    async def send_bytes(self, data: bytes) -> None:
+        try:
+            await self._websocket.send_bytes(data)
+        except (WebSocketDisconnect, RuntimeError) as error:
+            raise RpcDisconnect() from error
+
+    async def close(self, close: RpcConnectionClose, reason: str) -> None:
+        await self._websocket.close(CLOSE_CODES[close], close_reason(reason))
 
 
-async def _serve_message(
-    server: Any,
-    payload: str | bytes | bytearray,
-    outgoing: asyncio.Queue[str],
-    concurrency: asyncio.Semaphore,
-) -> None:
-    try:
-        response = await server.handle_json(payload)
-        if response is not None:
-            await outgoing.put(response)
-    finally:
-        concurrency.release()
+def create_router(
+    service: RpcService,
+    *,
+    resolver: RpcResolverLike | None = None,
+    context: object | Mapping[type[Any], object] | None = None,
+    error_mapper: RpcErrorMapper | None = None,
+    limits: RpcLimits | None = None,
+    prefix: str = "",
+    dependencies: Sequence[params.Depends] | None = None,
+) -> APIRouter:
+    service.freeze()
+    router = APIRouter(prefix=prefix, dependencies=dependencies)
+    for endpoint in service.endpoints:
+        if isinstance(endpoint, RpcEndpoint):
 
+            async def handler(websocket: WebSocket, endpoint=endpoint) -> None:
+                await endpoint.serve(
+                    FastApiSocket(websocket),
+                    resolver=resolver,
+                    context=context,
+                    error_mapper=error_mapper,
+                    limits=limits,
+                )
+        else:
 
-async def _send_messages(
-    websocket: WebSocketConnection,
-    outgoing: asyncio.Queue[str],
-) -> None:
-    while True:
-        await websocket.send_text(await outgoing.get())
+            async def handler(websocket: WebSocket, endpoint=endpoint) -> None:
+                await endpoint.serve(
+                    FastApiSocket(websocket),
+                    resolver=resolver,
+                    context=context,
+                    limits=limits,
+                )
+
+        router.add_api_websocket_route(endpoint.path, handler, name=endpoint.name)
+    return router

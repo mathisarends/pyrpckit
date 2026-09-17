@@ -1,0 +1,324 @@
+import inspect
+import re
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
+from types import FunctionType
+from typing import Any, overload
+
+from pyrpckit.dependencies import (
+    RpcResolverLike,
+    RpcResolverScope,
+    as_resolver,
+    call_scope,
+)
+from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
+from pyrpckit.protocol import (
+    RpcNotificationDefinition,
+    RpcProtocol,
+    RpcStreamDefinition,
+    method_definition,
+    notification_definition,
+    notification_type_definitions,
+    stream_definition,
+)
+from pyrpckit.server import RpcErrorMapper, RpcServer
+
+
+@dataclass(frozen=True, slots=True)
+class RpcRoute:
+    name: str
+    function: FunctionType
+    summary: str | None
+    raises: tuple[type[RpcError], ...]
+    tags: tuple[str, ...]
+    resolver_scope: RpcResolverScope
+
+
+class RpcChannel:
+    def __init__(
+        self,
+        name: str,
+        /,
+        *,
+        namespace: str | None = None,
+        tags: Iterable[str] = (),
+        raises: Iterable[type[RpcError]] = (),
+        resolver_scope: RpcResolverScope = call_scope,
+    ) -> None:
+        self._name = _segment(name, "channel name")
+        self._namespace = (
+            self._name if namespace is None else normalize_namespace(namespace)
+        )
+        self._tags = normalize_tags(tags)
+        self._raises = tuple(dict.fromkeys(declared_error(item) for item in raises))
+        if not callable(resolver_scope):
+            raise ProtocolDefinitionError("RPC resolver scope must be callable")
+        self._resolver_scope = resolver_scope
+        self._routes: list[RpcRoute] = []
+        self._events: list[RpcNotificationDefinition] = []
+        self._streams: list[RpcStreamDefinition] = []
+        self._names: set[str] = set()
+        self._protocol: RpcProtocol | None = None
+
+    name = property(lambda self: self._name)
+    namespace = property(lambda self: self._namespace)
+    tags = property(lambda self: self._tags)
+    raises = property(lambda self: self._raises)
+    resolver_scope = property(lambda self: self._resolver_scope)
+    routes = property(lambda self: tuple(self._routes))
+    events = property(lambda self: tuple(self._events))
+    streams = property(lambda self: tuple(self._streams))
+    protocol = property(lambda self: self.freeze())
+
+    @overload
+    def method(self, function: FunctionType, /) -> FunctionType: ...
+
+    @overload
+    def method(
+        self,
+        name: str | None = None,
+        /,
+        *,
+        summary: str | None = None,
+        tags: Iterable[str] = (),
+        raises: Iterable[type[RpcError]] = (),
+    ) -> Callable[[FunctionType], FunctionType]: ...
+
+    def method(
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        summary: str | None = None,
+        tags: Iterable[str] = (),
+        raises: Iterable[type[RpcError]] = (),
+    ) -> Any:
+        self._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.method()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC method decorator expects a function or name"
+            )
+        local_name = None if name is None else _segment(name, "method name")
+        merged_raises = tuple(
+            dict.fromkeys((*self.raises, *(declared_error(e) for e in raises)))
+        )
+        merged_tags = normalize_tags((*self.tags, *tags))
+
+        def decorate(function: FunctionType) -> FunctionType:
+            self._validate_function(function, "method", coroutine=True)
+            wire_name = join_rpc_name(self.namespace, local_name or function.__name__)
+            self._reserve(wire_name)
+            self._routes.append(
+                RpcRoute(
+                    wire_name,
+                    function,
+                    summary or _docstring_summary(function),
+                    merged_raises,
+                    merged_tags,
+                    self.resolver_scope,
+                )
+            )
+            return function
+
+        return decorate
+
+    def event(
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        payload: Any = None,
+        summary: str | None = None,
+        tags: Iterable[str] = (),
+    ) -> Any:
+        self._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.event()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC event decorator expects a function or name"
+            )
+
+        def decorate(function: FunctionType) -> FunctionType:
+            self._validate_function(function, "event", coroutine=False)
+            wire_name = join_rpc_name(
+                self.namespace, _segment(name or function.__name__, "event name")
+            )
+            definition = notification_definition(
+                name=wire_name,
+                payload=payload,
+                function=function,
+                summary=summary or _docstring_summary(function),
+                tags=normalize_tags((*self.tags, *tags)),
+                server=None,
+            )
+            self._reserve(wire_name)
+            self._events.append(definition)
+            return function
+
+        return decorate
+
+    def stream(
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        content_type: str = "application/octet-stream",
+        summary: str | None = None,
+        tags: Iterable[str] = (),
+    ) -> Any:
+        self._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.stream()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC stream decorator expects a function or name"
+            )
+        if not isinstance(content_type, str) or not content_type:
+            raise ProtocolDefinitionError("RPC stream content_type cannot be empty")
+
+        def decorate(function: FunctionType) -> FunctionType:
+            self._validate_function(function, "stream", coroutine=False)
+            local = _segment(name or function.__name__, "stream name")
+            wire_name = join_rpc_name(self.namespace, local)
+            definition = stream_definition(
+                name=wire_name,
+                function=function,
+                content_type=content_type,
+                summary=summary or _docstring_summary(function),
+                tags=normalize_tags((*self.tags, *tags)),
+                resolver_scope=self.resolver_scope,
+            )
+            self._reserve(wire_name)
+            self._streams.append(definition)
+            function.__pyrpckit_stream__ = self, local
+            return function
+
+        return decorate
+
+    def freeze(self) -> RpcProtocol:
+        if self._protocol is None:
+            definitions = [
+                method_definition(
+                    name=r.name,
+                    function=r.function,
+                    handler_name=r.function.__name__,
+                    summary=r.summary,
+                    raises=r.raises,
+                    tags=r.tags,
+                    server=None,
+                    resolver_scope=r.resolver_scope,
+                )
+                for r in self.routes
+            ]
+            duplicate_requests = {
+                name
+                for name, count in Counter(d.request_name for d in definitions).items()
+                if count > 1
+            }
+            definitions = [
+                replace(
+                    d,
+                    request_name=_request_name(d.name)
+                    if d.request_name in duplicate_requests
+                    else d.request_name,
+                )
+                for d in definitions
+            ]
+            types = tuple(
+                item
+                for event in self.events
+                for item in notification_type_definitions(event.payload)
+            )
+            self._protocol = RpcProtocol(
+                methods=definitions,
+                notifications=self.events,
+                notification_types=types,
+                streams=self.streams,
+            )
+        return self._protocol
+
+    def server(
+        self,
+        *,
+        context: object | Mapping[type[Any], object] | None = None,
+        resolver: RpcResolverLike | None = None,
+        error_mapper: RpcErrorMapper | None = None,
+    ) -> RpcServer:
+        from pyrpckit.dependencies import ContextResolver, context_values
+
+        resolved = as_resolver(resolver)
+        values = context_values(context)
+        if values:
+            resolved = ContextResolver(resolved, values)
+        return RpcServer._from_channel(
+            self.protocol, resolver=resolved, error_mapper=error_mapper
+        )
+
+    def _reserve(self, name: str) -> None:
+        if name in self._names:
+            raise ProtocolDefinitionError(f"Duplicate RPC route: {name}")
+        self._names.add(name)
+
+    def _validate_function(self, function: Any, kind: str, *, coroutine: bool) -> None:
+        if not isinstance(function, FunctionType) or not _is_free_function(function):
+            raise ProtocolDefinitionError(
+                f"RPC {kind} must decorate a free function, got {function!r}"
+            )
+        if coroutine and not inspect.iscoroutinefunction(function):
+            raise ProtocolDefinitionError(
+                f"RPC method {function.__qualname__} must be async"
+            )
+
+    def _ensure_mutable(self) -> None:
+        if self._protocol is not None:
+            raise ProtocolDefinitionError(
+                f"RpcChannel {self.name!r} is frozen because its protocol was "
+                "already materialized (directly or by RpcService)"
+            )
+
+
+def join_rpc_name(*parts: str) -> str:
+    return ".".join(part for part in parts if part)
+
+
+def normalize_namespace(value: object) -> str:
+    namespace = str(value)
+    if namespace:
+        for part in namespace.split("."):
+            _segment(part, "namespace")
+    return namespace
+
+
+def normalize_tags(values: Iterable[str]) -> tuple[str, ...]:
+    result: dict[str, None] = {}
+    for value in values:
+        if not isinstance(value, str) or not value:
+            raise ProtocolDefinitionError("RPC tags cannot be empty")
+        result.setdefault(value, None)
+    return tuple(result)
+
+
+def _segment(value: object, kind: str) -> str:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", value) is None
+    ):
+        raise ProtocolDefinitionError(f"Invalid RPC {kind}: {value!r}")
+    return value
+
+
+def _is_free_function(function: FunctionType) -> bool:
+    return "." not in function.__qualname__.rsplit("<locals>.", 1)[-1]
+
+
+def _docstring_summary(function: Any) -> str | None:
+    doc = inspect.getdoc(function)
+    return None if not doc else doc.splitlines()[0].strip() or None
+
+
+def _request_name(wire_name: str) -> str:
+    return "".join(part.capitalize() for part in wire_name.split(".")) + "Request"
