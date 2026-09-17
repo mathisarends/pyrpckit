@@ -14,25 +14,18 @@
 {% endmacro %}
 
 {% macro stream(item, root) %}{% if item.summary %}  /** {{ item.summary | comment }} */
-{% endif %}{% if item.variables %}  {{ item.operation_name | identifier }}(
-    variables: {
-{% for variable in item.variables %}      readonly {{ variable.name | property }}{{ "?" if variable.default != "{" ~ variable.name ~ "}" else "" }}: {{ variable | server_variable_type }};
-{% endfor %}    },
-    options?: { readonly url?: string | URL },
-  ): Promise<BinaryStreamConnection> {
-{% else %}  {{ item.operation_name | identifier }}(options?: {
-    readonly url?: string | URL;
+{% endif %}  {{ item.operation_name | identifier }}(options?: {
+{% for variable in item.variables %}    readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
+{% endfor %}    readonly url?: string | URL;
   }): Promise<BinaryStreamConnection> {
-{% endif %}    return {{ "this.#rpc" if root else "this.rpc" }}.openStream({% if item.variables and not (item | compact_stream) %}
+    return {{ "this.#rpc" if root else "this.rpc" }}.openStream(
       resolveStreamEndpoint(
         binaryStreams.{{ item.name | identifier }},
-        variables,
-        options?.url,
+        {% if item.variables %}{
+{% for variable in item.variables %}          {{ variable.name | property }}: options?.{{ variable.name | property }},
+{% endfor %}        }{% else %}{}{% endif %},
+        {{ "{ url: options?.url, defaults: this.#rpc.variables }" if root else "{ url: options?.url, defaults: this.rpc.variables }" }},
       ),
-{% elif item.variables %}
-      resolveStreamEndpoint(binaryStreams.{{ item.name | identifier }}, variables, options?.url),
-{% else %}
-      resolveStreamEndpoint(binaryStreams.{{ item.name | identifier }}, {}, options?.url),
-{% endif %}    );
+    );
   }
 {% endmacro %}

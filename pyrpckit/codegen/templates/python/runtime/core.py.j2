@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Mapping
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from pydantic import ValidationError
@@ -37,6 +38,47 @@ class _NotificationHub:
         self.terminal: object | None = None
 
 
+class RpcTransportSource(Protocol):
+    """Where the client gets the transport of one server from."""
+
+    async def get(self, server: str | None) -> RpcTransport: ...
+
+    async def close(self) -> None: ...
+
+
+class _StaticTransports:
+    """The transports a caller passed in, keyed by server."""
+
+    def __init__(self, transports: RpcTransport | Mapping[str, RpcTransport]) -> None:
+        self._single = None if isinstance(transports, Mapping) else transports
+        self._transports = dict(transports) if isinstance(transports, Mapping) else {}
+
+    async def get(self, server: str | None) -> RpcTransport:
+        if self._single is not None:
+            return self._single
+        if server is not None:
+            try:
+                return self._transports[server]
+            except KeyError as error:
+                raise RpcTransportError(
+                    f"No transport is configured for server {server!r}"
+                ) from error
+        if len(self._transports) == 1:
+            return next(iter(self._transports.values()))
+        raise RpcTransportError(
+            "The route has no server and cannot be dispatched across "
+            "multiple transports"
+        )
+
+    async def close(self) -> None:
+        transports = (
+            (self._single,)
+            if self._single is not None
+            else tuple(dict.fromkeys(self._transports.values()))
+        )
+        await asyncio.gather(*(transport.close() for transport in transports))
+
+
 class RpcClientHook(Protocol):
     async def before_request(
         self,
@@ -54,17 +96,22 @@ class RpcClientHook(Protocol):
 class RpcClientCore:
     def __init__(
         self,
-        transports: RpcTransport | Mapping[str, RpcTransport],
+        transports: RpcTransport | Mapping[str, RpcTransport] | RpcTransportSource,
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
         stream_opener: Any = None,
+        variables: Mapping[str, str] | None = None,
     ) -> None:
-        self._single_transport = None if isinstance(transports, Mapping) else transports
-        self._transports = dict(transports) if isinstance(transports, Mapping) else {}
+        self._source: RpcTransportSource = (
+            _StaticTransports(transports)
+            if isinstance(transports, Mapping) or hasattr(transports, "request")
+            else transports
+        )
         self._close_transport = close_transport
         self._hooks = tuple(hooks)
         self.stream_opener = stream_opener
+        self.variables = MappingProxyType(dict(variables or {}))
         self._closed = False
         self._hubs: dict[int, _NotificationHub] = {}
 
@@ -76,7 +123,7 @@ class RpcClientCore:
     ) -> ResultT:
         for hook in self._hooks:
             await hook.before_request(route, params)
-        transport = self._transport_for(route.server)
+        transport = await self._transport_for(route.server)
         result = await transport.request(route.method, params)
         for hook in reversed(self._hooks):
             await hook.after_response(route, result)
@@ -121,7 +168,7 @@ class RpcClientCore:
         method: str | None,
         server: str | None,
     ) -> AsyncIterator[dict[str, Any]]:
-        transport = self._transport_for(server)
+        transport = await self._transport_for(server)
         hub = self._hubs.get(id(transport))
         if hub is None:
             hub = _NotificationHub(transport)
@@ -173,28 +220,9 @@ class RpcClientCore:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self._close_transport:
-            transports = (
-                (self._single_transport,)
-                if self._single_transport is not None
-                else tuple(dict.fromkeys(self._transports.values()))
-            )
-            await asyncio.gather(*(transport.close() for transport in transports))
+            await self._source.close()
 
-    def _transport_for(self, server: str | None) -> RpcTransport:
+    async def _transport_for(self, server: str | None) -> RpcTransport:
         if self._closed:
             raise RpcTransportError("The RPC client is closed")
-        if self._single_transport is not None:
-            return self._single_transport
-        if server is not None:
-            try:
-                return self._transports[server]
-            except KeyError as error:
-                raise RpcTransportError(
-                    f"No transport is configured for server {server!r}"
-                ) from error
-        if len(self._transports) == 1:
-            return next(iter(self._transports.values()))
-        raise RpcTransportError(
-            "The route has no server and cannot be dispatched across "
-            "multiple transports"
-        )
+        return await self._source.get(server)

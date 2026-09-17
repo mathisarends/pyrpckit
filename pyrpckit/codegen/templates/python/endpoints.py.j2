@@ -31,32 +31,49 @@ _SERVERS = {
 {% endif %}        ),
 {% endif %}    ),
 {% endfor %}}
+
+
+def endpoint(
+    server: ServerName, values: Mapping[str, str | None] | None = None
+) -> Endpoint:
+    """Resolve one declared server, ignoring variables it does not declare."""
+    info = _SERVERS[server]
+    supplied = {
+        name: value
+        for name, value in (values or {}).items()
+        if name in info.variables and value is not None
+    }
+    return Endpoint(
+        server=server,
+        url=info.resolve(supplied),
+        subprotocols=info.transport.subprotocols if info.transport else (),
+    )
 {% for server in servers %}
 
 def {{ server.name | identifier }}(
 {% if server.variables %}    *,
 {% for variable in server.variables %}    {{ variable.name | identifier }}: {{ variable | variable_annotation }} = {{ variable.default | literal }},
 {% endfor %}{% endif %}) -> Endpoint:
-    return Endpoint(
-        server=ServerName.{{ server.name | constant }},
-{% if server.variables %}        url=_SERVERS[ServerName.{{ server.name | constant }}].resolve(
-            {
-{% for variable in server.variables %}                {{ variable.name | literal }}: {{ variable.name | identifier }},
-{% endfor %}            }
-        ),
-{% else %}        url=_SERVERS[ServerName.{{ server.name | constant }}].resolve(),
-{% endif %}        subprotocols={{ server | server_subprotocols }},
-    )
+    return endpoint(
+        ServerName.{{ server.name | constant }},
+{% if server.variables %}        {
+{% for variable in server.variables %}            {{ variable.name | literal }}: {{ variable.name | identifier }},
+{% endfor %}        },
+{% endif %}    )
 {% endfor %}
 
-def resolve_endpoints(overrides: Iterable[Endpoint]) -> tuple[Endpoint, ...]:
-    resolved = {
-{% for server in servers %}        ServerName.{{ server.name | constant }}: {{ server.name | identifier }}(),
-{% endfor %}    }
-    supplied: set[ServerName] = set()
-    for endpoint in overrides:
-        if endpoint.server in supplied:
-            raise ValueError(f"Duplicate endpoint for {endpoint.server!r}")
-        supplied.add(endpoint.server)
-        resolved[endpoint.server] = endpoint
+def resolve_endpoints(
+    variables: Mapping[str, str | None] | None = None,
+    overrides: Mapping[ServerName, str | Endpoint] | None = None,
+) -> tuple[Endpoint, ...]:
+    """Resolve every declared server, then apply the caller's overrides."""
+    resolved = {server: endpoint(server, variables) for server in _SERVERS}
+    for server, override in (overrides or {}).items():
+        if server not in resolved:
+            raise ValueError(f"Unknown server {server!r}")
+        resolved[server] = (
+            override
+            if isinstance(override, Endpoint)
+            else replace(resolved[server], url=override)
+        )
     return tuple(resolved.values())

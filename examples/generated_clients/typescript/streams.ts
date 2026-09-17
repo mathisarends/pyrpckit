@@ -52,7 +52,7 @@ export class BinaryStreamConnection implements AsyncIterable<ArrayBuffer> {
   }
 }
 
-type BinaryStreamInfo = {
+export type BinaryStreamInfo = {
   readonly name: BinaryStreamName;
   readonly url: string;
   readonly direction: BinaryStreamDirection;
@@ -84,14 +84,20 @@ export const binaryStreams = {
   },
 } as const satisfies Record<BinaryStreamName, BinaryStreamInfo>;
 
+export type StreamVariables = Readonly<Record<string, string | undefined>>;
+
+/** Fill a stream URL, falling back to the values the client connected with. */
 export function resolveStreamEndpoint(
   stream: BinaryStreamInfo,
-  values: Readonly<Record<string, string>> = {},
-  override?: string | URL,
+  values: StreamVariables = {},
+  options: {
+    readonly url?: string | URL;
+    readonly defaults?: StreamVariables;
+  } = {},
 ): BinaryStreamEndpoint {
   return {
     name: stream.name,
-    url: resolveUrl(stream, values, override),
+    url: resolveUrl(stream, values, options),
     direction: stream.direction,
     contentType: stream.contentType,
     subprotocols: stream.subprotocols,
@@ -100,12 +106,12 @@ export function resolveStreamEndpoint(
 
 function resolveUrl(
   stream: BinaryStreamInfo,
-  values: Readonly<Record<string, string>>,
-  override?: string | URL,
+  values: StreamVariables,
+  options: { readonly url?: string | URL; readonly defaults?: StreamVariables },
 ): string {
-  let url = String(override ?? stream.url);
+  let url = String(options.url ?? stream.url);
   for (const [name, variable] of Object.entries(stream.variables ?? {})) {
-    const value = values[name] ?? variable.default;
+    const value = values[name] ?? options.defaults?.[name] ?? variable.default;
     if (variable.enum !== undefined && !variable.enum.includes(value)) {
       throw new Error(
         `Invalid value for binary stream variable ${name}: ${value}`,

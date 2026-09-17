@@ -32,6 +32,16 @@ export type Endpoint = {
   readonly subprotocols?: readonly string[];
 };
 
+export type ServerVariables = Readonly<Record<string, string | undefined>>;
+
+export type EndpointOverrides = Partial<
+  Record<ServerName, string | URL | Endpoint>
+>;
+
+const serverNames: readonly ServerName[] = [
+{% for server in servers %}  {{ server.name | literal }},
+{% endfor %}];
+
 export const servers = {
 {% for server in servers %}  {{ server.name | identifier }}: {
     name: {{ server.name | literal }},
@@ -59,42 +69,53 @@ export const servers = {
 {% for variable in server.variables %}    {{ variable.name | property }}?: {{ variable | server_variable_type }};
 {% endfor %}  } = {},
 {% endif %}): Endpoint {
-  return {
-    server: {{ server.name | literal }},
-    url: {% if server.variables %}resolveUrl(servers.{{ server.name | identifier }}, variables){% else %}servers.{{ server.name | identifier }}.url{% endif %},
-    subprotocols: {{ server | subprotocols }},
-  };
+  return endpoint({{ server.name | literal }}{% if server.variables %}, variables{% endif %});
 }
 
 {% endfor %}export const endpoints = {
 {% for server in servers %}  {{ server.name | identifier }},
 {% endfor %}} as const;
 
+/** Resolve one declared server, ignoring variables it does not declare. */
+export function endpoint(
+  server: ServerName,
+  variables: ServerVariables = {},
+): Endpoint {
+  const info: RpcServerInfo = servers[server];
+  return {
+    server,
+    url: resolveUrl(info, variables),
+    subprotocols: info.transport?.subprotocols ?? [],
+  };
+}
+
+/** Resolve every declared server, then apply the caller's overrides. */
 export function resolveEndpoints(
-  overrides: readonly Endpoint[],
+  variables: ServerVariables = {},
+  overrides: EndpointOverrides = {},
 ): readonly Endpoint[] {
-  const resolved = new Map<ServerName, Endpoint>([
-{% for server in servers %}    [{{ server.name | literal }}, {{ server.name | identifier }}()],
-{% endfor %}  ]);
-  const supplied = new Set<ServerName>();
-  for (const endpoint of overrides) {
-    if (supplied.has(endpoint.server)) {
-      throw new Error(`Duplicate endpoint for ${endpoint.server}`);
-    }
-    supplied.add(endpoint.server);
-    const declared = resolved.get(endpoint.server);
-    resolved.set(endpoint.server, {
-      ...endpoint,
-      subprotocols: endpoint.subprotocols ?? declared?.subprotocols,
-    });
+  const resolved = new Map<ServerName, Endpoint>(
+    serverNames.map((name) => [name, endpoint(name, variables)]),
+  );
+  for (const [name, override] of Object.entries(overrides)) {
+    const server = name as ServerName;
+    const declared = resolved.get(server);
+    if (declared === undefined) throw new Error(`Unknown server ${name}`);
+    if (override === undefined) continue;
+    resolved.set(
+      server,
+      typeof override === "string" || override instanceof URL
+        ? { ...declared, url: override }
+        : {
+            ...override,
+            subprotocols: override.subprotocols ?? declared.subprotocols,
+          },
+    );
   }
   return [...resolved.values()];
 }
 
-function resolveUrl(
-  server: RpcServerInfo,
-  values: Readonly<Record<string, string>>,
-): string {
+function resolveUrl(server: RpcServerInfo, values: ServerVariables): string {
   let url = server.url;
   for (const [name, variable] of Object.entries(server.variables ?? {})) {
     const value = values[name] ?? variable.default;

@@ -11,6 +11,50 @@ class BinaryStreamEndpoint:
     subprotocols: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class BinaryStreamInfo:
+    """One declared binary stream, before its variables are filled in."""
+
+    name: BinaryStreamName
+    url: str
+    content_type: str
+    direction: str = "server-to-client"
+    subprotocols: tuple[str, ...] = ()
+    variables: Mapping[str, RpcServerVariable] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "variables", MappingProxyType(dict(self.variables)))
+
+
+def resolve_stream_endpoint(
+    stream: BinaryStreamInfo,
+    values: Mapping[str, str | None] | None = None,
+    *,
+    url: str | None = None,
+    defaults: Mapping[str, str] | None = None,
+) -> BinaryStreamEndpoint:
+    """Fill a stream URL, falling back to the values the client connected with."""
+    supplied = {
+        **{
+            name: value
+            for name, value in (defaults or {}).items()
+            if name in stream.variables
+        },
+        **{name: value for name, value in (values or {}).items() if value is not None},
+    }
+    return BinaryStreamEndpoint(
+        name=stream.name,
+        url=resolve_url_template(
+            f"binary stream {stream.name.value!r}",
+            url or stream.url,
+            stream.variables,
+            supplied,
+        ),
+        content_type=stream.content_type,
+        subprotocols=stream.subprotocols,
+    )
+
+
 class BinaryStreamTransport(Protocol):
     async def receive(self) -> bytes: ...
 
@@ -153,11 +197,18 @@ def _closed_normally(error: Exception) -> bool:
 {% endif %}
 
 
-BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamEndpoint] = {
-{% for stream in streams %}    BinaryStreamName.{{ stream.name | constant }}: BinaryStreamEndpoint(
+BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamInfo] = {
+{% for stream in streams %}    BinaryStreamName.{{ stream.name | constant }}: BinaryStreamInfo(
         name=BinaryStreamName.{{ stream.name | constant }},
         url={{ stream.url | literal }},
         content_type={{ stream.content_type | literal }},
-        subprotocols={{ stream.subprotocols | tuple_literal }},
-    ),
+{% if stream.subprotocols %}        subprotocols={{ stream.subprotocols | tuple_literal }},
+{% endif %}{% if stream.variables %}        variables={
+{% for variable in stream.variables %}            {{ variable.name | literal }}: RpcServerVariable(
+                default={{ variable.default | literal }},
+{% if variable.description %}                description={{ variable.description | literal }},
+{% endif %}{% if variable.enum %}                enum={{ variable.enum | tuple_literal }},
+{% endif %}            ),
+{% endfor %}        },
+{% endif %}    ),
 {% endfor %}}

@@ -1,6 +1,7 @@
 import json
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 
 from pyrpckit.codegen.ir import (
     BinaryStreamDecl,
@@ -200,11 +201,14 @@ class _Renderer:
         imports = [f'import type {{ RpcClientCore }} from "{root}core";']
         if any(node.streams for node in nodes):
             imports.append(
-                "import {\n"
-                "  binaryStreams,\n"
-                "  resolveStreamEndpoint,\n"
-                "  type BinaryStreamConnection,\n"
-                f'}} from "{root}streams";'
+                _value_import(
+                    [
+                        "binaryStreams",
+                        "resolveStreamEndpoint",
+                        "type BinaryStreamConnection",
+                    ],
+                    f"{root}streams",
+                )
             )
         route_imports = []
         if any(node.operations for node in nodes):
@@ -212,9 +216,7 @@ class _Renderer:
         if any(node.notifications for node in nodes):
             route_imports.append("notifications")
         if route_imports:
-            imports.append(
-                f'import {{ {", ".join(route_imports)} }} from "{root}routes";'
-            )
+            imports.append(_value_import(route_imports, f"{root}routes"))
         model_names: set[str] = set()
         for node in nodes:
             model_names.update(_route_model_names(node.operations))
@@ -233,33 +235,38 @@ class _Renderer:
         return self.module(body)
 
     def client(self) -> str:
-        imports = [
-            'import { RpcClientCore, type RpcTransport } from "./core";',
+        core_imports = [
+            "RpcClientCore",
+            "type RpcClientHook",
+            "type RpcTransport",
+            "type RpcTransportSource",
         ]
+        if self.options.with_transport == "websocket":
+            core_imports.insert(1, "RpcTransportPool")
+        imports = [_value_import(core_imports, "./core")]
         if self.ir.binary_streams:
-            websocket_stream = (
-                "  BinaryWebSocketStream,\n"
-                if self.options.with_transport == "websocket"
-                else ""
-            )
-            imports.append(
-                "import {\n"
-                f"{websocket_stream}"
-                "  binaryStreams,\n"
-                "  resolveStreamEndpoint,\n"
-                "  type BinaryStreamConnection,\n"
-                "  type BinaryStreamOpener,\n"
-                '} from "./streams";'
-            )
+            stream_imports = ["type BinaryStreamOpener"]
+            if self.root_streams:
+                stream_imports = [
+                    "binaryStreams",
+                    "resolveStreamEndpoint",
+                    "type BinaryStreamConnection",
+                    *stream_imports,
+                ]
+            if self.options.with_transport == "websocket":
+                stream_imports = [
+                    "BinaryWebSocketStream",
+                    *stream_imports,
+                    "type BinaryWebSocketFactory",
+                ]
+            imports.append(_value_import(stream_imports, "./streams"))
         route_imports = []
         if self.root_operations:
             route_imports.append("routes")
         if self.root_events:
             route_imports.append("notifications")
         if route_imports:
-            imports.append(
-                f'import {{ {", ".join(route_imports)} }} from "./routes";'
-            )
+            imports.append(_value_import(route_imports, "./routes"))
         models = _route_model_names(self.root_operations)
         models.update(
             name for event in self.root_events for name in _model_names(event.payload)
@@ -268,10 +275,14 @@ class _Renderer:
             imports.append(_type_import(models, "./models"))
         transports_name = _transports_name(self.client_name)
         if self.ir.servers:
-            endpoint_imports = "type Endpoint, type ServerName"
+            endpoint_imports = ["type Endpoint", "type ServerName"]
             if self.options.with_transport == "websocket":
-                endpoint_imports = f"resolveEndpoints, {endpoint_imports}"
-            imports.append(f'import {{ {endpoint_imports} }} from "./endpoints";')
+                endpoint_imports = [
+                    "resolveEndpoints",
+                    "type EndpointOverrides",
+                    *endpoint_imports,
+                ]
+            imports.append(_value_import(endpoint_imports, "./endpoints"))
         if self.options.with_transport == "websocket":
             imports.extend(
                 [
@@ -280,10 +291,21 @@ class _Renderer:
                 ]
             )
         if self.nodes:
-            namespace_classes = ", ".join(_api_class(node.path) for node in self.nodes)
-            imports.append(f'import {{ {namespace_classes} }} from "./namespaces";')
-        transport_type = (
-            f"RpcTransport | {transports_name}" if self.ir.servers else "RpcTransport"
+            imports.append(
+                _value_import(
+                    [_api_class(node.path) for node in self.nodes],
+                    "./namespaces",
+                )
+            )
+        transport_type = " | ".join(
+            (
+                *(
+                    ("RpcTransport", transports_name)
+                    if self.ir.servers
+                    else ("RpcTransport",)
+                ),
+                "RpcTransportSource",
+            )
         )
         body = self.template(
             "client",
@@ -292,6 +314,7 @@ class _Renderer:
             transports_name=transports_name,
             transport_type=transport_type,
             servers=self.ir.servers,
+            variables=_connect_variables(self.ir),
             nodes=self.nodes,
             operations=self.root_operations,
             notifications=self.root_events,
@@ -375,6 +398,19 @@ class _Renderer:
         raise TypeError(f"Unsupported type: {type(expression).__name__}")
 
 
+def _connect_variables(ir: ClientIr) -> tuple[ServerVariableDecl, ...]:
+    """The URL variables `connect` accepts, shared by servers and streams."""
+    merged: dict[str, ServerVariableDecl] = {}
+    for declaration in (*ir.servers, *ir.binary_streams):
+        for variable in declaration.variables:
+            previous = merged.get(variable.name)
+            if previous is None:
+                merged[variable.name] = variable
+            elif previous.enum != variable.enum:
+                merged[variable.name] = replace(previous, enum=())
+    return tuple(merged.values())
+
+
 def _validate(
     ir: ClientIr,
     root_operations: tuple[RouteDecl, ...],
@@ -436,7 +472,6 @@ def _validate(
         )
     client_members = [
         ("<client.close>", "close"),
-        ("<client.fromTransport>", "fromTransport"),
         *((node.source_path[-1], _identifier(node.segment)) for node in nodes),
         *(
             (route.rpc_name, _identifier(route.operation_name))
@@ -455,10 +490,26 @@ def _validate(
             for stream in root_streams
         ),
     ]
-    if ir.servers:
-        client_members.append(("<client.fromTransports>", "fromTransports"))
+    client_members.append(("<client.withTransports>", "withTransports"))
     if options.with_transport == "websocket":
         client_members.append(("<client.connect>", "connect"))
+        connect_options = [
+            *((option, option) for option in _CONNECT_OPTIONS),
+            *(
+                (variable.name, _identifier(variable.name))
+                for variable in _connect_variables(ir)
+            ),
+        ]
+        if len(ir.servers) == 1:
+            connect_options.append(("<connect.url>", "url"))
+        if ir.binary_streams:
+            connect_options.extend(
+                [
+                    ("<connect.streamSocketFactory>", "streamSocketFactory"),
+                    ("<connect.streamQueueSize>", "streamQueueSize"),
+                ]
+            )
+        assert_unique_names("connect options", connect_options)
     assert_unique_names("root client", client_members)
     _validate_nodes(nodes)
     for node in nodes:
@@ -572,6 +623,16 @@ def _notification_type(ir: ClientIr) -> TypeExpr | None:
     return members[0] if len(members) == 1 else UnionType(members)
 
 
+def _value_import(names: Iterable[str], module: str) -> str:
+    """Render one import, wrapped the way Prettier would wrap it."""
+    values = list(names)
+    inline = f'import {{ {", ".join(values)} }} from "{module}";'
+    if len(inline) <= 80:
+        return inline
+    body = "\n".join(f"  {name}," for name in values)
+    return f'import {{\n{body}\n}} from "{module}";'
+
+
 def _type_import(names: Iterable[str], module: str) -> str:
     values = sorted(set(names))
     inline = f'import type {{ {", ".join(values)} }} from "{module}";'
@@ -658,6 +719,15 @@ _PRIMITIVES = {
     Primitive.DATETIME: "string",
     Primitive.ANY: "unknown",
 }
+
+_CONNECT_OPTIONS = (
+    "eager",
+    "hooks",
+    "notificationQueueSize",
+    "requestTimeoutMs",
+    "servers",
+    "socketFactory",
+)
 
 _VALID_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 

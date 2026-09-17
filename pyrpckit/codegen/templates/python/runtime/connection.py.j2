@@ -1,7 +1,8 @@
-from collections.abc import Awaitable, Callable, Iterable, Mapping
-from contextlib import AsyncExitStack
+import asyncio
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Protocol
 
+from .errors import RpcTransportError
 from .transport import RpcTransport
 
 
@@ -31,45 +32,108 @@ class _TransportFactory(Protocol):
     ) -> Awaitable[RpcTransport]: ...
 
 
-class ClientConnection[ClientT: _Closable, ServerT: str]:
+class RpcTransportPool[ServerT: str]:
+    """One transport per server, opened on first use.
+
+    A client that only talks to one server never opens the sockets of the
+    others; ``open_all`` connects them up front instead, in parallel.
+    """
+
     def __init__(
         self,
         *,
-        client_factory: Callable[[Mapping[ServerT, RpcTransport]], ClientT],
         endpoints: Iterable[_ConnectionEndpoint[ServerT]],
         transport_factory: _TransportFactory,
-        request_timeout: float | None,
-        notification_queue_size: int,
+        request_timeout: float | None = None,
+        notification_queue_size: int = 100,
     ) -> None:
-        self._client_factory = client_factory
-        self._endpoints = tuple(endpoints)
+        self._endpoints = {endpoint.server: endpoint for endpoint in endpoints}
         self._transport_factory = transport_factory
         self._request_timeout = request_timeout
         self._notification_queue_size = notification_queue_size
-        self._entered = False
-        self._client: ClientT | None = None
+        self._transports: dict[ServerT, RpcTransport] = {}
+        self._locks: dict[ServerT, asyncio.Lock] = {}
 
-    async def __aenter__(self) -> ClientT:
-        if self._entered:
-            raise RuntimeError("A client connection cannot be entered more than once")
-        self._entered = True
-
-        async with AsyncExitStack() as cleanup:
-            transports: dict[ServerT, RpcTransport] = {}
-            for endpoint in self._endpoints:
+    async def get(self, server: str | None) -> RpcTransport:
+        name = self._server_name(server)
+        transport = self._transports.get(name)
+        if transport is not None:
+            return transport
+        async with self._locks.setdefault(name, asyncio.Lock()):
+            transport = self._transports.get(name)
+            if transport is None:
+                endpoint = self._endpoints[name]
                 transport = await self._transport_factory(
                     endpoint.url,
                     subprotocols=endpoint.subprotocols,
                     request_timeout=self._request_timeout,
                     notification_queue_size=self._notification_queue_size,
                 )
-                cleanup.push_async_callback(transport.close)
-                transports[endpoint.server] = transport
-            client = self._client_factory(transports)
-            cleanup.pop_all()
+                self._transports[name] = transport
+            return transport
 
-        self._client = client
-        return client
+    async def open_all(self) -> None:
+        opened = await asyncio.gather(
+            *(self.get(server) for server in self._endpoints),
+            return_exceptions=True,
+        )
+        failure = next(
+            (item for item in opened if isinstance(item, BaseException)), None
+        )
+        if failure is not None:
+            await self.close()
+            raise failure
+
+    async def close(self) -> None:
+        transports = tuple(self._transports.values())
+        self._transports.clear()
+        await asyncio.gather(
+            *(transport.close() for transport in transports),
+            return_exceptions=True,
+        )
+
+    def _server_name(self, server: str | None) -> ServerT:
+        if server is not None:
+            if server in self._endpoints:
+                return server  # type: ignore[return-value]
+            raise RpcTransportError(f"No endpoint is configured for server {server!r}")
+        if len(self._endpoints) == 1:
+            return next(iter(self._endpoints))
+        raise RpcTransportError(
+            "The route has no server and cannot be dispatched across "
+            "multiple transports"
+        )
+
+
+class ClientConnection[ClientT: _Closable, ServerT: str]:
+    """The client of a ``connect`` call, entered by ``async with`` or ``open``.
+
+    ``async with`` closes the client again; ``await connection.open()`` hands it
+    over to the caller, who closes it.
+    """
+
+    def __init__(
+        self,
+        *,
+        client_factory: Callable[[RpcTransportPool[ServerT]], ClientT],
+        pool: RpcTransportPool[ServerT],
+        eager: bool = False,
+    ) -> None:
+        self._client_factory = client_factory
+        self._pool = pool
+        self._eager = eager
+        self._client: ClientT | None = None
+
+    async def open(self) -> ClientT:
+        if self._client is not None:
+            raise RuntimeError("A client connection cannot be opened more than once")
+        if self._eager:
+            await self._pool.open_all()
+        self._client = self._client_factory(self._pool)
+        return self._client
+
+    async def __aenter__(self) -> ClientT:
+        return await self.open()
 
     async def __aexit__(self, *args: object) -> None:
         if self._client is not None:

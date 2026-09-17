@@ -36,6 +36,18 @@ export type Endpoint = {
   readonly subprotocols?: readonly string[];
 };
 
+export type ServerVariables = Readonly<Record<string, string | undefined>>;
+
+export type EndpointOverrides = Partial<
+  Record<ServerName, string | URL | Endpoint>
+>;
+
+const serverNames: readonly ServerName[] = [
+  "production",
+  "browser",
+  "streaming",
+];
+
 export const servers = {
   production: {
     name: "production",
@@ -84,11 +96,7 @@ function production(
     host?: string;
   } = {},
 ): Endpoint {
-  return {
-    server: "production",
-    url: resolveUrl(servers.production, variables),
-    subprotocols: [],
-  };
+  return endpoint("production", variables);
 }
 
 function browser(
@@ -96,11 +104,7 @@ function browser(
     host?: string;
   } = {},
 ): Endpoint {
-  return {
-    server: "browser",
-    url: resolveUrl(servers.browser, variables),
-    subprotocols: [],
-  };
+  return endpoint("browser", variables);
 }
 
 function streaming(
@@ -108,11 +112,7 @@ function streaming(
     host?: string;
   } = {},
 ): Endpoint {
-  return {
-    server: "streaming",
-    url: resolveUrl(servers.streaming, variables),
-    subprotocols: ["pyrpckit.jsonrpc"],
-  };
+  return endpoint("streaming", variables);
 }
 
 export const endpoints = {
@@ -121,33 +121,46 @@ export const endpoints = {
   streaming,
 } as const;
 
+/** Resolve one declared server, ignoring variables it does not declare. */
+export function endpoint(
+  server: ServerName,
+  variables: ServerVariables = {},
+): Endpoint {
+  const info: RpcServerInfo = servers[server];
+  return {
+    server,
+    url: resolveUrl(info, variables),
+    subprotocols: info.transport?.subprotocols ?? [],
+  };
+}
+
+/** Resolve every declared server, then apply the caller's overrides. */
 export function resolveEndpoints(
-  overrides: readonly Endpoint[],
+  variables: ServerVariables = {},
+  overrides: EndpointOverrides = {},
 ): readonly Endpoint[] {
-  const resolved = new Map<ServerName, Endpoint>([
-    ["production", production()],
-    ["browser", browser()],
-    ["streaming", streaming()],
-  ]);
-  const supplied = new Set<ServerName>();
-  for (const endpoint of overrides) {
-    if (supplied.has(endpoint.server)) {
-      throw new Error(`Duplicate endpoint for ${endpoint.server}`);
-    }
-    supplied.add(endpoint.server);
-    const declared = resolved.get(endpoint.server);
-    resolved.set(endpoint.server, {
-      ...endpoint,
-      subprotocols: endpoint.subprotocols ?? declared?.subprotocols,
-    });
+  const resolved = new Map<ServerName, Endpoint>(
+    serverNames.map((name) => [name, endpoint(name, variables)]),
+  );
+  for (const [name, override] of Object.entries(overrides)) {
+    const server = name as ServerName;
+    const declared = resolved.get(server);
+    if (declared === undefined) throw new Error(`Unknown server ${name}`);
+    if (override === undefined) continue;
+    resolved.set(
+      server,
+      typeof override === "string" || override instanceof URL
+        ? { ...declared, url: override }
+        : {
+            ...override,
+            subprotocols: override.subprotocols ?? declared.subprotocols,
+          },
+    );
   }
   return [...resolved.values()];
 }
 
-function resolveUrl(
-  server: RpcServerInfo,
-  values: Readonly<Record<string, string>>,
-): string {
+function resolveUrl(server: RpcServerInfo, values: ServerVariables): string {
   let url = server.url;
   for (const [name, variable] of Object.entries(server.variables ?? {})) {
     const value = values[name] ?? variable.default;

@@ -29,17 +29,17 @@ export class BrowserScreencast {
   }
 
   /** Raw screencast frames as binary WebSocket messages. */
-  frames(
-    variables: {
-      readonly host?: string;
-    },
-    options?: { readonly url?: string | URL },
-  ): Promise<BinaryStreamConnection> {
+  frames(options?: {
+    readonly host?: string;
+    readonly url?: string | URL;
+  }): Promise<BinaryStreamConnection> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastFrames,
-        variables,
-        options?.url,
+        {
+          host: options?.host,
+        },
+        { url: options?.url, defaults: this.rpc.variables },
       ),
     );
   }

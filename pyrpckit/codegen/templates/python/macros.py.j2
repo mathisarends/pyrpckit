@@ -26,21 +26,18 @@
 {% macro stream(item) %}    def {{ item.operation_name | identifier }}(
         self,
         *,
-{% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }}{% if variable.default != "{" ~ variable.name ~ "}" %} = {{ variable.default | literal }}{% endif %},
+{% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
 {% endfor %}        url: str | None = None,
     ) -> BinaryStreamOpening:
 {% if item.summary %}        """{{ item.summary | docstring }}"""
-{% endif %}        endpoint_url = url or {{ item.url | literal }}
-{% for variable in item.variables %}{% if variable | compact_variable_replace %}        endpoint_url = endpoint_url.replace({{ variable.name | placeholder }}, {{ variable.name | identifier }})
-{% else %}        endpoint_url = endpoint_url.replace(
-            {{ variable.name | placeholder }}, {{ variable.name | identifier }}
-        )
-{% endif %}{% endfor %}        return BinaryStreamOpening(
-            BinaryStreamEndpoint(
-                name=BinaryStreamName.{{ item.name | constant }},
-                url=endpoint_url,
-                content_type={{ item.content_type | literal }},
-                subprotocols={{ item.subprotocols | tuple_literal }},
+{% endif %}        return BinaryStreamOpening(
+            resolve_stream_endpoint(
+                BINARY_STREAMS[BinaryStreamName.{{ item.name | constant }}],
+{% if item.variables %}                {
+{% for variable in item.variables %}                    {{ variable.name | literal }}: {{ variable.name | identifier }},
+{% endfor %}                },
+{% endif %}                url=url,
+                defaults=self._rpc.variables,
             ),
             self._rpc.stream_opener,
         )
