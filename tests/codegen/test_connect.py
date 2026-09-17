@@ -159,6 +159,20 @@ async def test_a_single_server_can_be_pointed_somewhere_else(
         assert network.urls == ["wss://localhost:8000/rpc"]
 
 
+def test_an_endpoint_override_must_match_its_server(
+    client_module: ModuleType,
+) -> None:
+    mismatched = client_module.Endpoint(
+        server=client_module.ServerName.SECONDARY,
+        url="wss://secondary.example.com/rpc",
+    )
+
+    with pytest.raises(ValueError, match="Endpoint override.*declares"):
+        client_module.GreetingClient.connect(
+            servers={client_module.ServerName.PRIMARY: mismatched}
+        )
+
+
 async def test_binary_streams_reuse_the_host_the_client_connected_with(
     client_module: ModuleType,
 ) -> None:

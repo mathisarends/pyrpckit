@@ -124,6 +124,25 @@ def test_generated_client_connect_behavior_in_node(
             }
 
             async function main(): Promise<void> {
+              let mismatch: unknown;
+              try {
+                await GreetingClient.connect({
+                  servers: {
+                    primary: {
+                      server: "secondary",
+                      url: "wss://secondary.example.com/rpc",
+                    },
+                  },
+                });
+              } catch (error) {
+                mismatch = error;
+              }
+              assert(
+                mismatch instanceof Error &&
+                  mismatch.message.includes("Endpoint override for primary"),
+                "a mismatched endpoint override was accepted",
+              );
+
               const lazyUrls: string[] = [];
               const lazy = await GreetingClient.connect({
                 host: "stage.example.com",

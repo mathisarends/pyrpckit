@@ -71,6 +71,10 @@ def resolve_endpoints(
     for server, override in (overrides or {}).items():
         if server not in resolved:
             raise ValueError(f"Unknown server {server!r}")
+        if isinstance(override, Endpoint) and override.server != server:
+            raise ValueError(
+                f"Endpoint override for {server!r} declares {override.server!r}"
+            )
         resolved[server] = (
             override
             if isinstance(override, Endpoint)

@@ -148,6 +148,15 @@ export function resolveEndpoints(
     const declared = resolved.get(server);
     if (declared === undefined) throw new Error(`Unknown server ${name}`);
     if (override === undefined) continue;
+    if (
+      typeof override !== "string" &&
+      !(override instanceof URL) &&
+      override.server !== server
+    ) {
+      throw new Error(
+        `Endpoint override for ${server} declares ${override.server}`,
+      );
+    }
     resolved.set(
       server,
       typeof override === "string" || override instanceof URL
