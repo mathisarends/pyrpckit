@@ -20,6 +20,11 @@ export type RpcRouteInfo = {
   readonly server?: string;
 };
 
+export type RpcClientHook = {
+  beforeRequest?(route: RpcRouteInfo, params?: object): void | Promise<void>;
+  afterResponse?(route: RpcRouteInfo, result: unknown): void | Promise<void>;
+};
+
 type JsonRpcNotification = {
   readonly method: string;
   readonly params?: unknown;
@@ -28,6 +33,18 @@ type JsonRpcNotification = {
 type Subscriber = {
   readonly method: string;
   readonly queue: AsyncQueue<JsonRpcNotification>;
+};
+
+/**
+ * The single notification pump of one transport and its subscribers.
+ *
+ * `ended` remembers how the pump finished so that a subscriber which arrives
+ * afterwards ends or fails immediately instead of waiting forever.
+ */
+type NotificationHub = {
+  readonly subscribers: Set<Subscriber>;
+  pumping: boolean;
+  ended?: { readonly error?: unknown };
 };
 
 export class RpcRemoteError extends Error {
@@ -58,20 +75,22 @@ export class RpcClientCore {
   readonly #closeTransport: boolean;
   readonly streamOpener?: BinaryStreamOpener;
 
-  readonly #subscribers = new WeakMap<RpcTransport, Set<Subscriber>>();
-  readonly #pumps = new WeakSet<RpcTransport>();
+  readonly #hooks: readonly RpcClientHook[];
+  readonly #hubs = new WeakMap<RpcTransport, NotificationHub>();
   #closed = false;
 
   constructor(
     transport: RpcTransport | Readonly<Record<string, RpcTransport>>,
     options?: {
       readonly closeTransport?: boolean;
+      readonly hooks?: readonly RpcClientHook[];
       readonly streamOpener?: BinaryStreamOpener;
     },
   ) {
     if (isTransport(transport)) this.#singleTransport = transport;
     else this.#transports = transport;
     this.#closeTransport = options?.closeTransport ?? true;
+    this.#hooks = options?.hooks ?? [];
     this.streamOpener = options?.streamOpener;
   }
 
@@ -86,33 +105,43 @@ export class RpcClientCore {
     return new BinaryStreamConnection(await this.streamOpener(endpoint));
   }
 
-  request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {
-    return this.#transportFor(route.server).request(
+  async request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {
+    const payload = params === undefined ? undefined : withoutUndefined(params);
+    for (const hook of this.#hooks) await hook.beforeRequest?.(route, payload);
+    const result = await this.#transportFor(route.server).request(
       route.method,
-      params === undefined ? undefined : withoutUndefined(params),
-    ) as Promise<Result>;
+      payload,
+    );
+    for (const hook of [...this.#hooks].reverse()) {
+      await hook.afterResponse?.(route, result);
+    }
+    return result as Result;
   }
 
   notifications<Notification>(
-    method: string,
-    server?: string,
+    route: RpcRouteInfo,
   ): AsyncIterable<Notification> {
-    const transport = this.#transportFor(server);
+    const transport = this.#transportFor(route.server);
     const subscriber: Subscriber = {
-      method,
+      method: route.method,
       queue: new AsyncQueue<JsonRpcNotification>(),
     };
-    let subscribers = this.#subscribers.get(transport);
-    if (subscribers === undefined) {
-      subscribers = new Set();
-      this.#subscribers.set(transport, subscribers);
+    let hub = this.#hubs.get(transport);
+    if (hub === undefined) {
+      hub = { subscribers: new Set(), pumping: false };
+      this.#hubs.set(transport, hub);
     }
-    subscribers.add(subscriber);
-    if (!this.#pumps.has(transport)) {
-      this.#pumps.add(transport);
-      void this.#pump(transport, subscribers);
+    if (hub.ended !== undefined) {
+      if ("error" in hub.ended) subscriber.queue.fail(hub.ended.error);
+      else subscriber.queue.end();
+    } else {
+      hub.subscribers.add(subscriber);
+      if (!hub.pumping) {
+        hub.pumping = true;
+        void this.#pump(transport, hub);
+      }
     }
-    return this.#notificationValues<Notification>(subscriber, subscribers);
+    return this.#notificationValues<Notification>(subscriber, hub);
   }
 
   async close(): Promise<void> {
@@ -127,21 +156,18 @@ export class RpcClientCore {
 
   async *#notificationValues<Notification>(
     subscriber: Subscriber,
-    subscribers: Set<Subscriber>,
+    hub: NotificationHub,
   ): AsyncIterable<Notification> {
     try {
       for await (const message of subscriber.queue) {
         yield message.params as Notification;
       }
     } finally {
-      subscribers.delete(subscriber);
+      hub.subscribers.delete(subscriber);
     }
   }
 
-  async #pump(
-    transport: RpcTransport,
-    subscribers: Set<Subscriber>,
-  ): Promise<void> {
+  async #pump(transport: RpcTransport, hub: NotificationHub): Promise<void> {
     try {
       for await (const message of transport.notifications()) {
         if (!isNotification(message)) {
@@ -149,14 +175,16 @@ export class RpcClientCore {
             "The transport returned an invalid JSON-RPC notification",
           );
         }
-        for (const subscriber of subscribers) {
+        for (const subscriber of hub.subscribers) {
           if (subscriber.method === message.method)
             subscriber.queue.push(message);
         }
       }
-      for (const subscriber of subscribers) subscriber.queue.end();
+      hub.ended = {};
+      for (const subscriber of hub.subscribers) subscriber.queue.end();
     } catch (error) {
-      for (const subscriber of subscribers) subscriber.queue.fail(error);
+      hub.ended = { error };
+      for (const subscriber of hub.subscribers) subscriber.queue.fail(error);
     }
   }
 

@@ -36,12 +36,24 @@ from pyrpckit.codegen.templating import render_template
 
 
 class _Imports:
-    def __init__(self) -> None:
+    def __init__(self, relative_to: str | None = None) -> None:
         self._modules: dict[str, set[str]] = {}
+        self._relative_to = relative_to
 
     def add(self, module: str, *names: str) -> None:
         if names:
-            self._modules.setdefault(module, set()).update(names)
+            self._modules.setdefault(self._resolve(module), set()).update(names)
+
+    def _resolve(self, module: str) -> str:
+        """Render imports of the own package as relative imports."""
+        package = self._relative_to
+        if package is None:
+            return module
+        if module == package:
+            return "."
+        if module.startswith(f"{package}."):
+            return f".{module[len(package) + 1 :]}"
+        return module
 
     def render(self) -> str:
         groups: dict[int, list[str]] = {}
@@ -124,6 +136,8 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
         "RpcNotificationValidationError",
         "RpcRemoteError",
         "RpcResponseValidationError",
+        "RpcStreamClosed",
+        "RpcStreamsUnavailableError",
         "RpcTransportError",
     )
     imports.add(
@@ -150,6 +164,8 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
             "RpcRouteInfo",
             "RpcServerInfo",
             "RpcServerVariable",
+            "RpcStreamClosed",
+            "RpcStreamsUnavailableError",
             "RpcTransport",
             "RpcTransportDescriptor",
             "RpcTransportError",
@@ -246,6 +262,11 @@ def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports.add("dataclasses", "dataclass")
     imports.add("enum", "StrEnum")
     imports.add("typing", "Protocol", "Self")
+    imports.add(
+        _runtime_module(options),
+        "RpcStreamClosed",
+        "RpcStreamsUnavailableError",
+    )
     if options.with_transport == "websocket":
         imports.add(_runtime_module(options), "RpcTransportError")
     body = render_template(
@@ -406,7 +427,7 @@ def _render_package_init(
     client_name: str,
     nodes: tuple[NamespaceViewNode, ...],
 ) -> str:
-    imports = _Imports()
+    imports = _Imports(relative_to=options.package)
     imports.add(
         _runtime_module(options),
         "RpcClientError",
@@ -456,6 +477,10 @@ def _render_package_init(
             "BinaryStreamOpener",
             "BinaryStreamOpening",
             "BinaryStreamTransport",
+        )
+        imports.add(
+            _runtime_module(options),
+            "RpcStreamClosed",
             "RpcStreamsUnavailableError",
         )
         exported.extend(
@@ -466,6 +491,7 @@ def _render_package_init(
                 "BinaryStreamOpener",
                 "BinaryStreamOpening",
                 "BinaryStreamTransport",
+                "RpcStreamClosed",
                 "RpcStreamsUnavailableError",
                 "streams",
             ]
@@ -1013,6 +1039,7 @@ _STREAM_EXPORTS = (
     "BinaryStreamOpening",
     "BinaryStreamTransport",
     "BinaryWebSocketStream",
+    "RpcStreamClosed",
     "RpcStreamsUnavailableError",
 )
 

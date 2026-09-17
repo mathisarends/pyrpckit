@@ -55,6 +55,14 @@ class RpcTransportError(RpcClientError):
     """Raised when the connection cannot serve a request."""
 
 
+class RpcStreamsUnavailableError(RpcClientError):
+    """No binary stream opener was configured for this client."""
+
+
+class RpcStreamClosed(RpcClientError):
+    """Raised when a binary stream ended because the server closed it."""
+
+
 class RpcResponseValidationError(RpcClientError):
     def __init__(self, method: str, error: ValidationError) -> None:
         super().__init__(f"Invalid response for RPC method {method!r}: {error}")

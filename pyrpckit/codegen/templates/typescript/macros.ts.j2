@@ -6,11 +6,10 @@
 
 {% macro notification(event, root) %}{% if event.summary %}  /** {{ event.summary | comment }} */
 {% endif %}  {{ event.operation_name | identifier }}(): AsyncIterable<{{ event.payload | type }}> {
-{% if event | compact_notification(root) %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>({{ event.rpc_name | literal }}{% if event.server is not none %}, {{ event.server | literal }}{% endif %});
+{% if event | compact_notification(root) %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>(notifications.{{ event | route_key }});
 {% else %}    return {{ "this.#rpc" if root else "this.rpc" }}.notifications<{{ event.payload | type }}>(
-      {{ event.rpc_name | literal }},
-{% if event.server is not none %}      {{ event.server | literal }},
-{% endif %}    );
+      notifications.{{ event | route_key }},
+    );
 {% endif %}  }
 {% endmacro %}
 

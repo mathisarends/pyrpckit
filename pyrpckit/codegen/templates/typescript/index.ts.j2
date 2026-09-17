@@ -6,17 +6,19 @@ export { {{ client_name }} } from "./client";
 export type {
   JsonValue,
   RpcClientCore,
+  RpcClientHook,
   RpcRouteInfo,
   RpcTransport,
 } from "./core";
 export * from "./errors";
-{% if routes %}export { routes } from "./routes";
+{% if routes %}export {{ "{ routes, notifications }" if notifications else "{ routes }" }} from "./routes";
 {% endif %}{% if servers %}export { endpoints, servers } from "./endpoints";
 export type { Endpoint, ServerName } from "./endpoints";
 {% endif %}{% if with_websocket %}export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
 {% endif %}{% if binary_streams %}export {
   BinaryStreamConnection,
+  RpcStreamClosed,
   RpcStreamsUnavailableError,
   binaryStreams,
   resolveStreamEndpoint,

@@ -55,7 +55,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     }
     if ir.declarations:
         files["models.ts"] = renderer.models()
-    if ir.operations:
+    if ir.operations or ir.notifications:
         files["routes.ts"] = renderer.routes()
     files["errors.ts"] = renderer.errors()
     if ir.servers:
@@ -146,12 +146,9 @@ class _Renderer:
         root: bool,
     ) -> bool:
         receiver = "this.#rpc" if root else "this.rpc"
-        arguments = _ts_literal(event.rpc_name)
-        if event.server is not None:
-            arguments += f", {_ts_literal(event.server)}"
         call = (
             f"    return {receiver}.notifications<{self._type(event.payload)}>"
-            f"({arguments});"
+            f"(notifications.{_route_key(event)});"
         )
         return len(call) <= 80
 
@@ -162,7 +159,13 @@ class _Renderer:
         return self.module(self.template("namespace_index", nodes=self.nodes))
 
     def routes(self) -> str:
-        return self.module(self.template("routes", routes=self.ir.operations))
+        return self.module(
+            self.template(
+                "routes",
+                routes=self.ir.operations,
+                notifications=self.ir.notifications,
+            )
+        )
 
     def core(self) -> str:
         body = render_template(
@@ -196,8 +199,15 @@ class _Renderer:
                 "  type BinaryStreamConnection,\n"
                 f'}} from "{root}streams";'
             )
+        route_imports = []
         if any(node.operations for node in nodes):
-            imports.append(f'import {{ routes }} from "{root}routes";')
+            route_imports.append("routes")
+        if any(node.notifications for node in nodes):
+            route_imports.append("notifications")
+        if route_imports:
+            imports.append(
+                f'import {{ {", ".join(route_imports)} }} from "{root}routes";'
+            )
         model_names: set[str] = set()
         for node in nodes:
             model_names.update(_route_model_names(node.operations))
@@ -234,8 +244,15 @@ class _Renderer:
                 "  type BinaryStreamOpener,\n"
                 '} from "./streams";'
             )
+        route_imports = []
         if self.root_operations:
-            imports.append('import { routes } from "./routes";')
+            route_imports.append("routes")
+        if self.root_events:
+            route_imports.append("notifications")
+        if route_imports:
+            imports.append(
+                f'import {{ {", ".join(route_imports)} }} from "./routes";'
+            )
         models = _route_model_names(self.root_operations)
         models.update(
             name for event in self.root_events for name in _model_names(event.payload)
@@ -322,7 +339,8 @@ class _Renderer:
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
             nodes=self.nodes,
-            routes=self.ir.operations,
+            routes=self.ir.operations or self.ir.notifications,
+            notifications=self.ir.notifications,
             binary_streams=self.ir.binary_streams,
         )
         return self.module(body)

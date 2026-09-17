@@ -22,3 +22,10 @@ export const routes = {
     server: "streaming",
   },
 } as const satisfies Record<string, RpcRouteInfo>;
+
+export const notifications = {
+  tasksUpdated: {
+    method: "tasks.updated",
+    server: "production",
+  },
+} as const satisfies Record<string, RpcRouteInfo>;

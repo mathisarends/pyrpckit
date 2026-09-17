@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, Self
 
-from automation_client.internal import RpcTransportError
+from automation_client.internal import (
+    RpcStreamClosed,
+    RpcStreamsUnavailableError,
+    RpcTransportError,
+)
 
 
 class BinaryStreamName(StrEnum):
@@ -31,10 +35,6 @@ type BinaryStreamOpener = Callable[
 ]
 
 
-class RpcStreamsUnavailableError(Exception):
-    """No binary stream opener was configured for this client."""
-
-
 class BinaryStreamConnection:
     def __init__(self, transport: BinaryStreamTransport) -> None:
         self._transport = transport
@@ -48,8 +48,8 @@ class BinaryStreamConnection:
     async def __anext__(self) -> bytes:
         try:
             return await self.receive()
-        except StopAsyncIteration:
-            raise
+        except RpcStreamClosed:
+            raise StopAsyncIteration from None
 
     async def close(self) -> None:
         await self._transport.close()
@@ -62,6 +62,12 @@ class BinaryStreamConnection:
 
 
 class BinaryStreamOpening:
+    """A stream that is opened by ``async with`` or by ``await ....open()``.
+
+    Both forms hand out a connection the caller has to close; only the context
+    manager does it for them.
+    """
+
     def __init__(
         self,
         endpoint: BinaryStreamEndpoint,
@@ -71,23 +77,21 @@ class BinaryStreamOpening:
         self._opener = opener
         self._connection: BinaryStreamConnection | None = None
 
-    async def _open(self) -> BinaryStreamConnection:
+    async def open(self) -> BinaryStreamConnection:
         if self._opener is None:
             raise RpcStreamsUnavailableError(
                 "No binary stream opener configured; pass stream_opener=..."
             )
         return BinaryStreamConnection(await self._opener(self.endpoint))
 
-    def __await__(self):
-        return self._open().__await__()
-
     async def __aenter__(self) -> BinaryStreamConnection:
-        self._connection = await self._open()
+        self._connection = await self.open()
         return self._connection
 
     async def __aexit__(self, *args: object) -> None:
-        if self._connection is not None:
-            await self._connection.close()
+        connection, self._connection = self._connection, None
+        if connection is not None:
+            await connection.close()
 
 
 class BinaryWebSocket(Protocol):
@@ -108,6 +112,7 @@ class BinaryWebSocketFactory(Protocol):
 class BinaryWebSocketStream:
     def __init__(self, socket: BinaryWebSocket) -> None:
         self._socket = socket
+        self._closed = False
 
     @classmethod
     async def open(
@@ -131,13 +136,32 @@ class BinaryWebSocketStream:
         return cls(socket)
 
     async def receive(self) -> bytes:
-        frame = await self._socket.recv()
+        if self._closed:
+            raise RpcStreamClosed("The binary stream is closed")
+        try:
+            frame = await self._socket.recv()
+        except Exception as error:
+            if _closed_normally(error):
+                self._closed = True
+                raise RpcStreamClosed("The server closed the binary stream") from None
+            raise
         if not isinstance(frame, bytes):
             raise RpcTransportError("The binary WebSocket returned a text frame")
         return frame
 
     async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         await self._socket.close()
+
+
+def _closed_normally(error: Exception) -> bool:
+    try:
+        from websockets.exceptions import ConnectionClosedOK
+    except ImportError:
+        return False
+    return isinstance(error, ConnectionClosedOK)
 
 
 BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamEndpoint] = {

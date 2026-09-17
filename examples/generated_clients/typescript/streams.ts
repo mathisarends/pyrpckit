@@ -25,6 +25,9 @@ export type BinaryStreamOpener = (
 
 export class RpcStreamsUnavailableError extends Error {}
 
+/** Raised when a binary stream ended because the server closed it. */
+export class RpcStreamClosed extends Error {}
+
 export class BinaryStreamConnection implements AsyncIterable<ArrayBuffer> {
   constructor(private readonly transport: BinaryStreamTransport) {}
 
@@ -33,7 +36,11 @@ export class BinaryStreamConnection implements AsyncIterable<ArrayBuffer> {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<ArrayBuffer> {
-    while (true) yield await this.receive();
+    try {
+      while (true) yield await this.receive();
+    } catch (error) {
+      if (!(error instanceof RpcStreamClosed)) throw error;
+    }
   }
 
   close(): Promise<void> {
@@ -161,9 +168,7 @@ export class BinaryWebSocketStream implements BinaryStreamTransport {
     socket.addEventListener("error", () =>
       this.#fail(new Error("The binary WebSocket connection failed")),
     );
-    socket.addEventListener("close", () =>
-      this.#fail(new Error("The binary WebSocket connection closed")),
-    );
+    socket.addEventListener("close", () => this.#end());
   }
 
   static async open(
@@ -184,7 +189,7 @@ export class BinaryWebSocketStream implements BinaryStreamTransport {
 
   receive(): Promise<ArrayBuffer> {
     if (this.#closed)
-      return Promise.reject(new Error("The binary WebSocket stream is closed"));
+      return Promise.reject(new RpcStreamClosed("The binary stream is closed"));
     return this.#frames.receive();
   }
 
@@ -192,7 +197,12 @@ export class BinaryWebSocketStream implements BinaryStreamTransport {
     if (this.#closed) return;
     this.#closed = true;
     this.#socket.close();
-    this.#frames.fail(new Error("The binary WebSocket stream was closed"));
+    this.#end();
+  }
+
+  #end(): void {
+    this.#closed = true;
+    this.#frames.fail(new RpcStreamClosed("The binary stream is closed"));
   }
 
   #fail(error: Error): void {

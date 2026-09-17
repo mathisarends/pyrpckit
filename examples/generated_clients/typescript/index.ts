@@ -10,17 +10,19 @@ export { RpcConnectionClosed, RpcRemoteError } from "./core";
 export type {
   JsonValue,
   RpcClientCore,
+  RpcClientHook,
   RpcRouteInfo,
   RpcTransport,
 } from "./core";
 export * from "./errors";
-export { routes } from "./routes";
+export { routes, notifications } from "./routes";
 export { endpoints, servers } from "./endpoints";
 export type { Endpoint, ServerName } from "./endpoints";
 export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
 export {
   BinaryStreamConnection,
+  RpcStreamClosed,
   RpcStreamsUnavailableError,
   binaryStreams,
   resolveStreamEndpoint,

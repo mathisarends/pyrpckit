@@ -7,6 +7,8 @@ from .errors import (
     RpcNotificationValidationError,
     RpcRemoteError,
     RpcResponseValidationError,
+    RpcStreamClosed,
+    RpcStreamsUnavailableError,
     RpcTransportError,
 )
 from .metadata import (
@@ -35,6 +37,8 @@ __all__ = [
     "RpcRouteInfo",
     "RpcServerInfo",
     "RpcServerVariable",
+    "RpcStreamClosed",
+    "RpcStreamsUnavailableError",
     "RpcTransport",
     "RpcTransportDescriptor",
     "RpcTransportError",

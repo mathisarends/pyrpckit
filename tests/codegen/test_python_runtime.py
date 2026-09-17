@@ -161,3 +161,51 @@ async def test_binary_websocket_stream_sends_and_receives_raw_frames(
             if name == package or name.startswith(f"{package}.")
         ]:
             del sys.modules[name]
+
+
+class ClosingTransport:
+    """A transport whose notification stream ends right away."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.closed = 0
+
+    async def request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        return None
+
+    async def notifications(self) -> AsyncIterator[dict[str, Any]]:
+        if self.error is not None:
+            raise self.error
+        if False:
+            yield {}
+
+    async def close(self) -> None:
+        self.closed += 1
+
+
+async def _drain(stream: AsyncIterator[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [message async for message in stream]
+
+
+async def test_subscribing_after_the_pump_ended_stops_instead_of_hanging(
+    runtime: ModuleType,
+) -> None:
+    core = runtime.RpcClientCore(ClosingTransport())
+
+    assert await _drain(core.notifications("tasks.updated")) == []
+    assert await _drain(core.notifications("tasks.updated")) == []
+
+
+async def test_subscribing_after_the_pump_failed_reports_the_failure(
+    runtime: ModuleType,
+) -> None:
+    core = runtime.RpcClientCore(ClosingTransport(RuntimeError("socket died")))
+
+    with pytest.raises(runtime.RpcTransportError):
+        await _drain(core.notifications("tasks.updated"))
+    with pytest.raises(runtime.RpcTransportError):
+        await _drain(core.notifications("tasks.updated"))
