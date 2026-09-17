@@ -12,6 +12,10 @@
   JSON-RPC codes.
 - Generate concrete typed errors and namespaced stream clients for Python and
   TypeScript. Bundled WebSocket clients open stream sockets automatically.
+- Export generated models, namespace classes, errors, routes, transport types,
+  and stream types from each client package root.
+- Add request hooks to both generated clients and async disposal support to the
+  TypeScript client.
 - Add `create_router()` and `FastApiSocket` as the FastAPI integration.
 
 ### Changed
@@ -23,6 +27,17 @@
 - Rename generated `media.py` / `media.ts` to `streams.py` / `streams.ts`.
 - Rename method `errors=` to `raises=` and error extensions to
   `x-rpckit-code` / `x-rpckit-details-schema`.
+- Redesign generated `connect()` around one option set, shared server variables,
+  per-server overrides, injectable socket factories, and lazy sockets. Pass
+  `eager=True` / `eager: true` to open every declared server in parallel.
+- Place binary stream operations on their declared namespace and let their URL
+  templates inherit variables supplied to `connect()`.
+- Let optional Python request parameters remain unset so server-side schema
+  defaults still apply.
+- Treat regular binary stream closure as normal async-iteration completion and
+  report it as `RpcStreamClosed` only for direct reads.
+- Preserve notification pump completion so subscriptions created after a
+  transport ends finish or fail immediately instead of waiting forever.
 
 ### Removed
 
@@ -30,6 +45,10 @@
   `RpcContract.from_channels()`.
 - Remove authoring-side tags and the old FastAPI `serve()` helper.
 - Remove client-to-server and bidirectional binary streams.
+- Replace generated `from_transport*` / `fromTransport*` constructors with
+  `with_transports()` / `withTransports()`.
+- Remove awaiting a Python `BinaryStreamOpening` directly; use `async with` or
+  call `.open()` and close the returned connection explicitly.
 
 ## 0.5.0 - 2026-09-10
 
