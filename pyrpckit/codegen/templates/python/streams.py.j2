@@ -1,6 +1,3 @@
-BinaryStreamDirection = Literal["client-to-server", "server-to-client", "bidirectional"]
-
-
 class BinaryStreamName(StrEnum):
 {% for stream in streams %}    {{ stream.name | constant }} = {{ stream.name | literal }}
 {% endfor %}
@@ -10,23 +7,82 @@ class BinaryStreamName(StrEnum):
 class BinaryStreamEndpoint:
     name: BinaryStreamName
     url: str
-    direction: BinaryStreamDirection
     content_type: str
     subprotocols: tuple[str, ...] = ()
 
 
 class BinaryStreamTransport(Protocol):
-    async def send(self, frame: bytes) -> None: ...
-
     async def receive(self) -> bytes: ...
 
     async def close(self) -> None: ...
+
+
+type BinaryStreamOpener = Callable[
+    [BinaryStreamEndpoint], Awaitable[BinaryStreamTransport]
+]
+
+
+class RpcStreamsUnavailableError(Exception):
+    """No binary stream opener was configured for this client."""
+
+
+class BinaryStreamConnection:
+    def __init__(self, transport: BinaryStreamTransport) -> None:
+        self._transport = transport
+
+    async def receive(self) -> bytes:
+        return await self._transport.receive()
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> bytes:
+        try:
+            return await self.receive()
+        except StopAsyncIteration:
+            raise
+
+    async def close(self) -> None:
+        await self._transport.close()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()
+
+
+class BinaryStreamOpening:
+    def __init__(
+        self,
+        endpoint: BinaryStreamEndpoint,
+        opener: BinaryStreamOpener | None,
+    ) -> None:
+        self.endpoint = endpoint
+        self._opener = opener
+        self._connection: BinaryStreamConnection | None = None
+
+    async def _open(self) -> BinaryStreamConnection:
+        if self._opener is None:
+            raise RpcStreamsUnavailableError(
+                "No binary stream opener configured; pass stream_opener=..."
+            )
+        return BinaryStreamConnection(await self._opener(self.endpoint))
+
+    def __await__(self):
+        return self._open().__await__()
+
+    async def __aenter__(self) -> BinaryStreamConnection:
+        self._connection = await self._open()
+        return self._connection
+
+    async def __aexit__(self, *args: object) -> None:
+        if self._connection is not None:
+            await self._connection.close()
 {% if with_websocket %}
 
 
 class BinaryWebSocket(Protocol):
-    async def send(self, message: bytes) -> None: ...
-
     async def recv(self) -> str | bytes: ...
 
     async def close(self) -> None: ...
@@ -42,14 +98,8 @@ class BinaryWebSocketFactory(Protocol):
 
 
 class BinaryWebSocketStream:
-    def __init__(
-        self,
-        socket: BinaryWebSocket,
-        endpoint: BinaryStreamEndpoint,
-    ) -> None:
+    def __init__(self, socket: BinaryWebSocket) -> None:
         self._socket = socket
-        self.endpoint = endpoint
-        self._closed = False
 
     @classmethod
     async def open(
@@ -70,54 +120,24 @@ class BinaryWebSocketStream:
             endpoint.url,
             subprotocols=list(endpoint.subprotocols) or None,
         )
-        return cls(socket, endpoint)
-
-    async def send(self, frame: bytes) -> None:
-        if self._closed:
-            raise RpcTransportError("The binary WebSocket stream is closed")
-        if self.endpoint.direction == "server-to-client":
-            raise RpcTransportError("This binary stream is receive-only")
-        await self._socket.send(frame)
+        return cls(socket)
 
     async def receive(self) -> bytes:
-        if self._closed:
-            raise RpcTransportError("The binary WebSocket stream is closed")
-        if self.endpoint.direction == "client-to-server":
-            raise RpcTransportError("This binary stream is send-only")
         frame = await self._socket.recv()
         if not isinstance(frame, bytes):
             raise RpcTransportError("The binary WebSocket returned a text frame")
         return frame
 
     async def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
         await self._socket.close()
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        await self.close()
 {% endif %}
-{% for stream in streams %}
 
-def {{ stream.name | identifier }}({% if stream.variables %}
-    *,
-{% for variable in stream.variables %}    {{ variable.name | identifier }}: {{ variable | variable_annotation }} = {{ variable.default | literal }},
-{% endfor %}{% endif %}) -> BinaryStreamEndpoint:
-    url = {{ stream.url | literal }}
-{% for variable in stream.variables %}    url = url.replace({{ variable.name | placeholder }}, {{ variable.name | identifier }})
-{% endfor %}    return BinaryStreamEndpoint(
+
+BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamEndpoint] = {
+{% for stream in streams %}    BinaryStreamName.{{ stream.name | constant }}: BinaryStreamEndpoint(
         name=BinaryStreamName.{{ stream.name | constant }},
-        url=url,
-        direction={{ stream.direction | literal }},
+        url={{ stream.url | literal }},
         content_type={{ stream.content_type | literal }},
         subprotocols={{ stream.subprotocols | tuple_literal }},
-    )
-{% endfor %}
-
-binary_streams: Mapping[BinaryStreamName, BinaryStreamEndpoint] = {
-{% for stream in streams %}    BinaryStreamName.{{ stream.name | constant }}: {{ stream.name | identifier }}(),
+    ),
 {% endfor %}}

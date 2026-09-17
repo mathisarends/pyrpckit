@@ -199,7 +199,7 @@ def test_generate_config_renders_contract_and_clients_together(tmp_path: Path) -
     assert main(["generate", "--config", str(config)]) == 0
     schema = tmp_path / "schemas" / "health.openrpc.json"
     assert json.loads(schema.read_text(encoding="utf-8"))["info"]["title"] == (
-        "Health API"
+        "Control API"
     )
     assert (tmp_path / "generated" / "health" / "client.ts").exists()
     assert main(["generate", "--config", str(config), "--check"]) == 0

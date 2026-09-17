@@ -1,4 +1,4 @@
-{% from "typescript/macros.ts.j2" import operation, notification with context %}{% for line in imports %}{{ line }}
+{% from "typescript/macros.ts.j2" import operation, notification, stream with context %}{% for line in imports %}{{ line }}
 {% endfor %}{% if servers %}
 export type {{ transports_name }} = {
 {% for server in servers %}  readonly {{ server.name | property }}: RpcTransport;
@@ -19,7 +19,10 @@ export class {{ client_name }} {
 
   constructor(
     transport: {{ transport_type }},
-    options?: { readonly closeTransport?: boolean },
+    options?: {
+      readonly closeTransport?: boolean;
+{% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
+{% endif %}    },
   ) {
     this.#rpc = new RpcClientCore(transport, options);
 {% for node in nodes %}    this.{{ node.segment | identifier }} = new {{ node.path | api_class }}(this.#rpc);
@@ -33,9 +36,7 @@ export class {{ client_name }} {
     return new {{ client_name }}(transports);
   }
 {% endif %}{% if with_websocket %}
-  static async connect(
-    options: ConnectOptions = {},
-  ): Promise<{{ client_name }}> {
+  static async connect(options: ConnectOptions = {}): Promise<{{ client_name }}> {
 {% if servers | length == 1 %}    if (options.url !== undefined && options.endpoints !== undefined) {
       throw new Error("url and endpoints cannot be used together");
     }
@@ -62,11 +63,14 @@ export class {{ client_name }} {
       );
       throw error;
     }
-    return {{ client_name }}.fromTransports(transports as {{ transports_name }});
+    return new {{ client_name }}(transports as {{ transports_name }}, {
+{% if binary_streams %}      streamOpener: BinaryWebSocketStream.open,
+{% endif %}    });
   }
 {% endif %}{% for route in operations %}
 {{ operation(route, true) }}{% endfor %}{% for event in notifications %}
-{{ notification(event, true) }}{% endfor %}
+{{ notification(event, true) }}{% endfor %}{% for item in streams %}
+{{ stream(item, true) }}{% endfor %}
   close(): Promise<void> {
     return this.#rpc.close();
   }

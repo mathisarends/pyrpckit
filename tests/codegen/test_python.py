@@ -153,7 +153,7 @@ def test_stably_named_remote_errors_get_their_own_module(
     errors = render_python_client(document, options)["errors.py"]
 
     assert "class UnknownGreetingError(RpcRemoteError):" in errors
-    assert "code: ClassVar[int] = -32001" in errors
+    assert 'code: ClassVar[str] = "unknown_greeting"' in errors
 
 
 def test_client_name_defaults_to_the_contract_title(document: dict[str, Any]) -> None:
@@ -305,7 +305,7 @@ def test_binary_streams_generate_typed_media_clients(
         {
             "name": "voice",
             "url": "wss://media/{sessionId}",
-            "direction": "bidirectional",
+            "direction": "server-to-client",
             "contentType": "audio/pcm;rate=24000",
             "frameType": "binary",
             "variables": {"sessionId": {"default": "demo"}},
@@ -330,15 +330,15 @@ def test_binary_streams_generate_typed_media_clients(
     )
 
     files = render_python_client(deployed, configured)
-    media = files["media.py"]
+    media = files["streams.py"]
 
     assert "class BinaryWebSocketStream:" in media
-    assert "async def send(self, frame: bytes)" in media
+    assert "class BinaryStreamOpening:" in media
     assert "frame = await self._socket.recv()" in media
     assert "json.dumps" not in media
     assert "base64" not in media.lower()
-    assert "def voice(" in media
-    assert 'session_id: str = "demo"' in media
+    assert "def voice(" in files["client.py"]
+    assert 'session_id: str = "demo"' in files["client.py"]
     assert 'content_type="audio/pcm;rate=24000"' in media
     assert "BinaryWebSocketStream" in files["__init__.py"]
 
@@ -386,7 +386,12 @@ def test_generated_python_is_ruff_formatted(
     output = tmp_path / PACKAGE
     deployed = deepcopy(document)
     deployed["x-rpckit-binary-streams"] = [
-        {"name": "voice", "url": "wss://media", "frameType": "binary"}
+        {
+            "name": "voice",
+            "url": "wss://media",
+            "direction": "server-to-client",
+            "frameType": "binary",
+        }
     ]
     generate_python_client(deployed, output, options)
     (tmp_path / "pyproject.toml").write_text(

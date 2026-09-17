@@ -1,4 +1,4 @@
-{% from "typescript/macros.ts.j2" import operation, notification with context %}{% for line in imports %}{{ line }}
+{% from "typescript/macros.ts.j2" import operation, notification, stream with context %}{% for line in imports %}{{ line }}
 {% endfor %}
 {% for node in nodes %}export class {{ node.path | api_class }} {
 {% for child in node.children %}  readonly {{ child.segment | identifier }}: {{ child.path | api_class }};
@@ -9,6 +9,7 @@
 {% else %}  constructor(private readonly rpc: RpcClientCore) {}
 {% endif %}{% for route in node.operations %}
 {{ operation(route, false) }}{% endfor %}{% for event in node.notifications %}
-{{ notification(event, false) }}{% endfor %}}{% if not loop.last %}
+{{ notification(event, false) }}{% endfor %}{% for item in node.streams %}
+{{ stream(item, false) }}{% endfor %}}{% if not loop.last %}
 
 {% endif %}{% endfor %}

@@ -1,4 +1,4 @@
-import { RpcRemoteError } from "./core";
+import { errorFromResponse } from "./errors";
 
 export type RpcTransport = {
   request(method: string, params?: object): Promise<unknown>;
@@ -133,10 +133,13 @@ export class WebSocketTransport implements RpcTransport {
     if (pending.timeout !== undefined) clearTimeout(pending.timeout);
     if (isObject(message.error)) {
       pending.reject(
-        new RpcRemoteError(
+        errorFromResponse(
           Number(message.error.code),
+          isObject(message.error.data) && typeof message.error.data.code === "string"
+            ? message.error.data.code
+            : "",
           String(message.error.message ?? "Remote RPC error"),
-          message.error.data,
+          isObject(message.error.data) ? message.error.data.details : undefined,
         ),
       );
     } else if ("result" in message) pending.resolve(message.result);

@@ -127,8 +127,8 @@ def test_route_metadata_is_preserved(document: dict[str, Any]) -> None:
                 {
                     "code": -32004,
                     "message": "Missing",
-                    "x-rpckit-name": "GreetingMissing",
-                    "x-rpckit-data-schema": {
+                    "x-rpckit-code": "greeting_missing",
+                    "x-rpckit-details-schema": {
                         "$ref": "#/components/schemas/MissingData"
                     },
                 }
@@ -146,9 +146,9 @@ def test_route_metadata_is_preserved(document: dict[str, Any]) -> None:
 
     assert route.description == "A longer explanation."
     assert route.deprecated is True
-    assert route.tags == ("greeting",)
+    assert route.tags == ()
     assert route.server == "secondary"
-    assert route.errors[0].name == "GreetingMissing"
+    assert route.errors[0].code == "greeting_missing"
     assert route.errors[0].data == NamedType("MissingData")
 
 
@@ -192,7 +192,7 @@ def test_binary_stream_extensions_are_lowered(document: dict[str, Any]) -> None:
         {
             "name": "voice",
             "url": "wss://media/{sessionId}",
-            "direction": "bidirectional",
+            "direction": "server-to-client",
             "contentType": "audio/pcm;rate=24000",
             "frameType": "binary",
             "variables": {"sessionId": {"default": "demo"}},
@@ -203,7 +203,7 @@ def test_binary_stream_extensions_are_lowered(document: dict[str, Any]) -> None:
     stream = build_ir(deployed).binary_streams[0]
 
     assert stream.name == "voice"
-    assert stream.direction == "bidirectional"
+    assert stream.direction == "server-to-client"
     assert stream.content_type == "audio/pcm;rate=24000"
     assert stream.variables[0].name == "sessionId"
     assert stream.subprotocols == ("voice.v1",)

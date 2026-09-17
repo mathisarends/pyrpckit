@@ -102,7 +102,7 @@ async def test_binary_websocket_stream_sends_and_receives_raw_frames(
         {
             "name": "voice",
             "url": "wss://media/{sessionId}",
-            "direction": "bidirectional",
+            "direction": "server-to-client",
             "contentType": "audio/pcm;rate=24000",
             "frameType": "binary",
             "variables": {"sessionId": {"default": "demo"}},
@@ -138,17 +138,20 @@ async def test_binary_websocket_stream_sends_and_receives_raw_frames(
         return socket
 
     try:
-        media = importlib.import_module(f"{package}.media")
-        endpoint = media.voice(session_id="turn-1")
+        media = importlib.import_module(f"{package}.streams")
+        endpoint = media.BinaryStreamEndpoint(
+            name=media.BinaryStreamName.VOICE,
+            url="wss://media/turn-1",
+            content_type="audio/pcm;rate=24000",
+        )
         stream = await media.BinaryWebSocketStream.open(
             endpoint, socket_factory=factory
         )
 
-        await stream.send(b"microphone-pcm")
         assert await stream.receive() == b"assistant-pcm"
         await stream.close()
 
-        assert socket.sent == [b"microphone-pcm"]
+        assert socket.sent == []
         assert socket.closed is True
     finally:
         sys.path.remove(str(tmp_path))

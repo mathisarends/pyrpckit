@@ -15,7 +15,7 @@ class LoopbackTransport:
     def __init__(
         self,
         server: RpcServer,
-        remote_error: Callable[[int, str], Exception],
+        remote_error: Callable[[int, str, str, Any], Exception],
     ) -> None:
         self._server = server
         self._remote_error = remote_error
@@ -40,9 +40,13 @@ class LoopbackTransport:
         assert response is not None
         payload = response.model_dump(mode="json")
         if "error" in payload:
+            rpc_error = payload["error"]
+            data = rpc_error["data"]
             raise self._remote_error(
-                payload["error"]["code"],
-                payload["error"]["message"],
+                rpc_error["code"],
+                data["code"],
+                rpc_error["message"],
+                data.get("details"),
             )
         return payload["result"]
 
@@ -71,7 +75,8 @@ def transport(
     from tests.conftest import TestResolver
 
     server = GREETING_APP.server(resolver=TestResolver(handler))
-    return LoopbackTransport(server, generated_client.RpcRemoteError)
+    errors = __import__("greeting_client.errors", fromlist=["error_from_response"])
+    return LoopbackTransport(server, errors.error_from_response)
 
 
 async def test_a_generated_call_reaches_the_handler_and_returns_a_model(
@@ -109,7 +114,8 @@ async def test_a_server_failure_surfaces_as_a_remote_error(
     with pytest.raises(generated_client.RpcRemoteError) as error:
         await client.greeting.forget(name="nobody")
 
-    assert error.value.code == -32001
+    assert error.value.rpc_code == -32001
+    assert error.value.code == "unknown_greeting"
     assert error.value.message == "Unknown greeting: nobody"
 
 

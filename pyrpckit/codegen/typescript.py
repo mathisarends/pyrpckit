@@ -3,6 +3,7 @@ import re
 from collections.abc import Iterable
 
 from pyrpckit.codegen.ir import (
+    BinaryStreamDecl,
     ClientIr,
     EnumDecl,
     EnumLiteralType,
@@ -43,6 +44,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
         view.root_operations,
         view.nodes,
         view.root_notifications,
+        view.root_streams,
         options,
         client_name,
     )
@@ -60,7 +62,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     if ir.servers:
         files["endpoints.ts"] = renderer.endpoints()
     if ir.binary_streams:
-        files["media.ts"] = renderer.media()
+        files["streams.ts"] = renderer.streams()
     if options.with_transport == "websocket":
         files["transport.ts"] = renderer.transport()
     if view.nodes:
@@ -77,6 +79,7 @@ class _Renderer:
         root_operations: tuple[RouteDecl, ...],
         nodes: tuple[NamespaceViewNode, ...],
         root_events: tuple[NotificationDecl, ...],
+        root_streams: tuple[BinaryStreamDecl, ...],
         options: TypeScriptClientOptions,
         client_name: str,
     ) -> None:
@@ -84,10 +87,13 @@ class _Renderer:
         self.root_operations = root_operations
         self.nodes = nodes
         self.root_events = root_events
+        self.root_streams = root_streams
         self.options = options
         self.client_name = client_name
 
     def module(self, body: str) -> str:
+        while "\n\n\n" in body:
+            body = body.replace("\n\n\n", "\n\n")
         return render_template(
             "typescript/module.ts.j2",
             source=self.options.source,
@@ -155,16 +161,17 @@ class _Renderer:
         body = render_template(
             "typescript/core.ts.j2",
             transport_module=json.dumps(self._transport_module()),
+            binary_streams=bool(self.ir.binary_streams),
         ).rstrip()
         return self.module(body)
 
     def transport(self) -> str:
         return self.module(render_template("typescript/transport.ts.j2").rstrip())
 
-    def media(self) -> str:
+    def streams(self) -> str:
         return self.module(
             self.template(
-                "media",
+                "streams",
                 streams=self.ir.binary_streams,
                 with_websocket=self.options.with_transport == "websocket",
             )
@@ -174,6 +181,14 @@ class _Renderer:
         root = "../"
         nodes = tuple(_walk((root_node,)))
         imports = [f'import type {{ RpcClientCore }} from "{root}core";']
+        if any(node.streams for node in nodes):
+            imports.append(
+                "import {\n"
+                "  binaryStreams,\n"
+                "  resolveStreamEndpoint,\n"
+                "  type BinaryStreamConnection,\n"
+                f'}} from "{root}streams";'
+            )
         if any(node.operations for node in nodes):
             imports.append(f'import {{ routes }} from "{root}routes";')
         model_names: set[str] = set()
@@ -197,6 +212,21 @@ class _Renderer:
         imports = [
             'import { RpcClientCore, type RpcTransport } from "./core";',
         ]
+        if self.ir.binary_streams:
+            websocket_stream = (
+                "  BinaryWebSocketStream,\n"
+                if self.options.with_transport == "websocket"
+                else ""
+            )
+            imports.append(
+                "import {\n"
+                f"{websocket_stream}"
+                "  binaryStreams,\n"
+                "  resolveStreamEndpoint,\n"
+                "  type BinaryStreamConnection,\n"
+                "  type BinaryStreamOpener,\n"
+                '} from "./streams";'
+            )
         if self.root_operations:
             imports.append('import { routes } from "./routes";')
         models = _route_model_names(self.root_operations)
@@ -234,6 +264,8 @@ class _Renderer:
             nodes=self.nodes,
             operations=self.root_operations,
             notifications=self.root_events,
+            streams=self.root_streams,
+            binary_streams=self.ir.binary_streams,
             with_websocket=self.options.with_transport == "websocket",
         )
         return self.module(body)

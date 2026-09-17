@@ -12,10 +12,35 @@ export type BinaryStreamEndpoint = {
 };
 
 export type BinaryStreamTransport = {
-  send(frame: ArrayBuffer | ArrayBufferView): Promise<void>;
   receive(): Promise<ArrayBuffer>;
   close(): Promise<void>;
 };
+
+export type BinaryStreamOpener = (
+  endpoint: BinaryStreamEndpoint,
+) => Promise<BinaryStreamTransport>;
+
+export class RpcStreamsUnavailableError extends Error {}
+
+export class BinaryStreamConnection implements AsyncIterable<ArrayBuffer> {
+  constructor(private readonly transport: BinaryStreamTransport) {}
+
+  receive(): Promise<ArrayBuffer> {
+    return this.transport.receive();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<ArrayBuffer> {
+    while (true) yield await this.receive();
+  }
+
+  close(): Promise<void> {
+    return this.transport.close();
+  }
+
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.close();
+  }
+}
 
 type BinaryStreamInfo = {
   readonly name: BinaryStreamName;
@@ -50,29 +75,26 @@ export const binaryStreams = {
 {% endif %}  },
 {% endfor %}} as const satisfies Record<BinaryStreamName, BinaryStreamInfo>;
 
-{% for stream in streams %}function {{ stream.name | identifier }}({% if stream.variables %}
-  variables: {
-{% for variable in stream.variables %}    {{ variable.name | property }}?: {{ variable | server_variable_type }};
-{% endfor %}  } = {},
-{% endif %}): BinaryStreamEndpoint {
+export function resolveStreamEndpoint(
+  stream: BinaryStreamInfo,
+  values: Readonly<Record<string, string>> = {},
+  override?: string | URL,
+): BinaryStreamEndpoint {
   return {
-    name: {{ stream.name | literal }},
-    url: {% if stream.variables %}resolveUrl(binaryStreams.{{ stream.name | identifier }}, variables){% else %}binaryStreams.{{ stream.name | identifier }}.url{% endif %},
-    direction: {{ stream.direction | literal }},
-    contentType: {{ stream.content_type | literal }},
-    subprotocols: {{ stream.subprotocols | array }},
+    name: stream.name,
+    url: resolveUrl(stream, values, override),
+    direction: stream.direction,
+    contentType: stream.contentType,
+    subprotocols: stream.subprotocols,
   };
 }
-
-{% endfor %}export const media = {
-{% for stream in streams %}  {{ stream.name | identifier }},
-{% endfor %}} as const;
 
 function resolveUrl(
   stream: BinaryStreamInfo,
   values: Readonly<Record<string, string>>,
+  override?: string | URL,
 ): string {
-  let url = stream.url;
+  let url = String(override ?? stream.url);
   for (const [name, variable] of Object.entries(stream.variables ?? {})) {
     const value = values[name] ?? variable.default;
     if (variable.enum !== undefined && !variable.enum.includes(value)) {
@@ -97,7 +119,6 @@ export type BinaryWebSocketOptions = {
 type BinaryWebSocket = {
   binaryType: string;
   readonly readyState: number;
-  send(data: ArrayBuffer | ArrayBufferView): void;
   close(): void;
   addEventListener(
     type: "open" | "close" | "error",
@@ -159,20 +180,9 @@ export class BinaryWebSocketStream implements BinaryStreamTransport {
     return new BinaryWebSocketStream(socket, endpoint, incomingQueueSize);
   }
 
-  async send(frame: ArrayBuffer | ArrayBufferView): Promise<void> {
-    if (this.#closed) throw new Error("The binary WebSocket stream is closed");
-    if (this.endpoint.direction === "server-to-client") {
-      throw new Error("This binary stream is receive-only");
-    }
-    this.#socket.send(frame);
-  }
-
   receive(): Promise<ArrayBuffer> {
     if (this.#closed)
       return Promise.reject(new Error("The binary WebSocket stream is closed"));
-    if (this.endpoint.direction === "client-to-server") {
-      return Promise.reject(new Error("This binary stream is send-only"));
-    }
     return this.#frames.receive();
   }
 

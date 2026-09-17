@@ -6,13 +6,13 @@ export type { Endpoint, ServerName } from "./endpoints";
 {% endif %}{% if with_websocket %}export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
 {% endif %}{% if named_errors %}export * from "./errors";
-{% endif %}{% if binary_streams %}export { binaryStreams, media } from "./media";
+{% endif %}{% if binary_streams %}export { binaryStreams } from "./streams";
 export type {
   BinaryStreamDirection,
   BinaryStreamEndpoint,
   BinaryStreamName,
   BinaryStreamTransport,
-} from "./media";
-{% if with_websocket %}export { BinaryWebSocketStream } from "./media";
-export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./media";
+} from "./streams";
+{% if with_websocket %}export { BinaryWebSocketStream } from "./streams";
+export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./streams";
 {% endif %}{% endif %}export type * from "./models";

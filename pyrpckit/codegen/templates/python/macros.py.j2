@@ -22,3 +22,25 @@
 {% if event.summary %}        """{{ event.summary | docstring }}"""
 {% endif %}        return self._rpc.subscribe({{ event.rpc_name | constant }})
 {% endmacro %}
+
+{% macro stream(item) %}    def {{ item.operation_name | identifier }}(
+        self,
+        *,
+{% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }}{% if variable.default != "{" ~ variable.name ~ "}" %} = {{ variable.default | literal }}{% endif %},
+{% endfor %}        url: str | None = None,
+    ) -> BinaryStreamOpening:
+{% if item.summary %}        """{{ item.summary | docstring }}"""
+{% endif %}        endpoint_url = url or {{ item.url | literal }}
+{% for variable in item.variables %}        endpoint_url = endpoint_url.replace(
+            {{ variable.name | placeholder }}, {{ variable.name | identifier }}
+        )
+{% endfor %}        return BinaryStreamOpening(
+            BinaryStreamEndpoint(
+                name=BinaryStreamName.{{ item.name | constant }},
+                url=endpoint_url,
+                content_type={{ item.content_type | literal }},
+                subprotocols={{ item.subprotocols | tuple_literal }},
+            ),
+            self._rpc.stream_opener,
+        )
+{% endmacro %}

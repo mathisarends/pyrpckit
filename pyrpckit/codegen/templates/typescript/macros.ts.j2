@@ -13,3 +13,23 @@
 {% endif %}    );
 {% endif %}  }
 {% endmacro %}
+
+{% macro stream(item, root) %}{% if item.summary %}  /** {{ item.summary | comment }} */
+{% endif %}  {{ item.operation_name | identifier }}(
+{% if item.variables %}    variables: {
+{% for variable in item.variables %}      readonly {{ variable.name | property }}{{ "?" if variable.default != "{" ~ variable.name ~ "}" else "" }}: {{ variable | server_variable_type }};
+{% endfor %}    },
+{% endif %}    options?: { readonly url?: string | URL },
+  ): Promise<BinaryStreamConnection> {
+    return {{ "this.#rpc" if root else "this.rpc" }}.openStream(
+{% if item.variables %}
+      resolveStreamEndpoint(
+        binaryStreams.{{ item.name | identifier }},
+        variables,
+        options?.url,
+      ),
+{% else %}      resolveStreamEndpoint(binaryStreams.{{ item.name | identifier }}, {}, options?.url),
+{% endif %}
+    );
+  }
+{% endmacro %}

@@ -137,10 +137,18 @@ class RouteDecl:
 
 @dataclass(frozen=True, slots=True)
 class ErrorDecl:
-    code: int
+    rpc_code: int
+    code: str
     message: str
-    name: str | None = None
-    data: TypeExpr | None = None
+    details: TypeExpr | None = None
+
+    @property
+    def name(self) -> str:
+        return self.code
+
+    @property
+    def data(self) -> TypeExpr | None:
+        return self.details
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,14 +179,24 @@ class ServerDecl:
 
 @dataclass(frozen=True, slots=True)
 class BinaryStreamDecl:
-    name: str
+    rpc_name: str
+    operation_name: str
+    path: tuple[str, ...]
     url: str
-    direction: str
     content_type: str
     summary: str = ""
     description: str = ""
+    tags: tuple[str, ...] = ()
     variables: tuple[ServerVariableDecl, ...] = ()
     subprotocols: tuple[str, ...] = ()
+
+    @property
+    def name(self) -> str:
+        return self.rpc_name
+
+    @property
+    def direction(self) -> str:
+        return "server-to-client"
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +204,7 @@ class ApiNode:
     segment: str
     path: tuple[str, ...]
     operations: tuple[RouteDecl, ...] = ()
+    streams: tuple[BinaryStreamDecl, ...] = ()
     children: tuple[ApiNode, ...] = ()
 
 
@@ -235,10 +254,13 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     info = document.get("info", {})
     routes = tuple(_route(method) for method in methods)
     root_operations = tuple(route for route in routes if not route.path)
-    api = _api_tree(route for route in routes if route.path)
+    binary_streams = _binary_streams(document)
+    api = _api_tree(
+        (route for route in routes if route.path),
+        (stream for stream in binary_streams if stream.path),
+    )
     notifications = _notifications(document)
     servers = _servers(document)
-    binary_streams = _binary_streams(document)
     _validate_server_references(routes, notifications, servers)
     declarations = (
         *discriminator_enums,
@@ -489,12 +511,15 @@ def _parameter(parameter: dict[str, Any]) -> ParamDecl:
 
 
 def _error(error: dict[str, Any]) -> ErrorDecl:
-    data_schema = error.get("x-rpckit-data-schema")
+    code = error.get("x-rpckit-code")
+    if not isinstance(code, str) or not code:
+        raise UnsupportedSchemaError("OpenRPC errors need a non-empty x-rpckit-code")
+    data_schema = error.get("x-rpckit-details-schema")
     return ErrorDecl(
-        code=error["code"],
+        rpc_code=error["code"],
+        code=code,
         message=error["message"],
-        name=error.get("x-rpckit-name"),
-        data=None if data_schema is None else type_expression(data_schema),
+        details=None if data_schema is None else type_expression(data_schema),
     )
 
 
@@ -552,7 +577,7 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
             raise UnsupportedSchemaError("Binary stream entries must be objects")
         name = value.get("name")
         url = value.get("url")
-        direction = value.get("direction", "bidirectional")
+        direction = value.get("direction")
         content_type = value.get("contentType", "application/octet-stream")
         if not isinstance(name, str) or not name:
             raise UnsupportedSchemaError("Binary streams need a non-empty name")
@@ -563,13 +588,9 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
             raise UnsupportedSchemaError(
                 f"Binary stream {name!r} needs a non-empty URL"
             )
-        if direction not in {
-            "client-to-server",
-            "server-to-client",
-            "bidirectional",
-        }:
+        if direction != "server-to-client":
             raise UnsupportedSchemaError(
-                f"Binary stream {name!r} has invalid direction {direction!r}"
+                "only server-to-client binary streams are supported"
             )
         if not isinstance(content_type, str) or not content_type:
             raise UnsupportedSchemaError(
@@ -591,14 +612,17 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
             raise UnsupportedSchemaError(
                 f"Binary stream {name!r} variables must be an object"
             )
+        *path, operation_name = name.split(".")
         streams.append(
             BinaryStreamDecl(
-                name=name,
+                rpc_name=name,
+                operation_name=operation_name,
+                path=tuple(path),
                 url=url,
-                direction=direction,
                 content_type=content_type,
                 summary=value.get("summary", ""),
                 description=value.get("description", ""),
+                tags=tuple(tag["name"] for tag in value.get("tags", ())),
                 variables=tuple(
                     ServerVariableDecl(
                         name=variable_name,
@@ -681,13 +705,22 @@ def _transport(value: Any, server_name: str) -> TransportDecl | None:
     )
 
 
-def _api_tree(routes: Iterable[RouteDecl]) -> tuple[ApiNode, ...]:
+def _api_tree(
+    routes: Iterable[RouteDecl],
+    streams: Iterable[BinaryStreamDecl] = (),
+) -> tuple[ApiNode, ...]:
     tree: dict[str, Any] = {}
     for route in routes:
         cursor = tree
         for segment in route.path:
             cursor = cursor.setdefault(segment, {"$operations": []})
         cursor["$operations"].append(route)
+    for stream in streams:
+        cursor = tree
+        for segment in stream.path:
+            cursor = cursor.setdefault(segment, {"$operations": [], "$streams": []})
+            cursor.setdefault("$streams", [])
+        cursor.setdefault("$streams", []).append(stream)
     return tuple(_api_node(segment, node, ()) for segment, node in tree.items())
 
 
@@ -697,10 +730,11 @@ def _api_node(segment: str, value: dict[str, Any], parent: tuple[str, ...]) -> A
         segment=segment,
         path=path,
         operations=tuple(value.get("$operations", ())),
+        streams=tuple(value.get("$streams", ())),
         children=tuple(
             _api_node(child_segment, child, path)
             for child_segment, child in value.items()
-            if child_segment != "$operations"
+            if child_segment not in {"$operations", "$streams"}
         ),
     )
 

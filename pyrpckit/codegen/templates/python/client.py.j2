@@ -1,11 +1,16 @@
-{% from "python/macros.py.j2" import operation, notification with context %}class {{ client_name }}:
+{% from "python/macros.py.j2" import operation, notification, stream with context %}class {{ client_name }}:
     def __init__(
         self,
         transport: {{ "RpcTransport | Mapping[str, RpcTransport]" if servers else "RpcTransport" }},
         *,
         close_transport: bool = True,
-    ) -> None:
-        self._rpc = RpcClientCore(transport, close_transport=close_transport)
+{% if binary_streams %}        stream_opener: BinaryStreamOpener | None = None,
+{% endif %}    ) -> None:
+        self._rpc = RpcClientCore(
+            transport,
+            close_transport=close_transport,
+{% if binary_streams %}            stream_opener=stream_opener,
+{% endif %}        )
 {% for node in nodes %}        self.{{ node.segment | identifier }} = {{ node.path | api_class }}(self._rpc)
 {% endfor %}
     @classmethod
@@ -44,15 +49,20 @@
         notification_queue_size: int = 100,
     ) -> ClientConnection[Self, ServerName]:
         return ClientConnection(
-            client_factory=cls.from_transport_map,
-            endpoints=resolve_endpoints(endpoint_overrides),
+{% if binary_streams %}            client_factory=lambda transports: cls(
+                transports,
+                stream_opener=BinaryWebSocketStream.open,
+            ),
+{% else %}            client_factory=cls.from_transport_map,
+{% endif %}            endpoints=resolve_endpoints(endpoint_overrides),
             transport_factory=WebSocketTransport.open,
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
         )
 {% endif %}{% for route in operations %}
 {{ operation(route) }}{% endfor %}{% for event in notifications %}
-{{ notification(event) }}{% endfor %}
+{{ notification(event) }}{% endfor %}{% for item in streams %}
+{{ stream(item) }}{% endfor %}
     async def close(self) -> None:
         await self._rpc.close()
 

@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from pyrpckit.codegen.ir import (
+    BinaryStreamDecl,
     ClientIr,
     EnumDecl,
     EnumLiteralType,
@@ -70,6 +71,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
             view.root_operations,
             view.nodes,
             view.root_notifications,
+            view.root_streams,
             options,
             client_name,
         ),
@@ -83,7 +85,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     if ir.servers:
         files["endpoints.py"] = _render_endpoints(ir, options)
     if ir.binary_streams:
-        files["media.py"] = _render_media(ir, options)
+        files["streams.py"] = _render_streams(ir, options)
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
@@ -238,18 +240,16 @@ def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
     return _module(options, imports, body)
 
 
-def _render_media(ir: ClientIr, options: PythonClientOptions) -> str:
+def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add("collections.abc", "Mapping")
+    imports.add("collections.abc", "Awaitable", "Callable", "Mapping")
     imports.add("dataclasses", "dataclass")
     imports.add("enum", "StrEnum")
-    imports.add("typing", "Literal", "Protocol")
+    imports.add("typing", "Protocol", "Self")
     if options.with_transport == "websocket":
-        imports.add("collections.abc", "Awaitable")
-        imports.add("typing", "Self")
         imports.add(_runtime_module(options), "RpcTransportError")
     body = render_template(
-        "python/media.py.j2",
+        "python/streams.py.j2",
         filters=_template_filters(imports, options),
         streams=ir.binary_streams,
         with_websocket=options.with_transport == "websocket",
@@ -266,6 +266,8 @@ def _server_subprotocols(server: ServerDecl) -> str:
 
 def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
+    imports.add("typing", "Any")
+    imports.add("pydantic", "ValidationError")
     errors = []
     seen: set[str] = set()
     for route in ir.operations:
@@ -276,6 +278,7 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
             imports.add("typing", "ClassVar")
             imports.add(_runtime_module(options), "RpcRemoteError")
             if error.data is not None:
+                imports.add("pydantic", "TypeAdapter")
                 imports.add(f"{options.package}.models", *_model_names(error.data))
             errors.append(error)
     body = render_template(
@@ -303,6 +306,13 @@ def _render_api(
     imports = _Imports()
     imports.add(_runtime_module(options), "RpcClientCore")
     nodes = tuple(_walk_postorder((root,)))
+    if any(node.streams for node in nodes):
+        imports.add(
+            f"{options.package}.streams",
+            "BinaryStreamEndpoint",
+            "BinaryStreamName",
+            "BinaryStreamOpening",
+        )
     for node in nodes:
         for route in node.operations:
             _add_operation_imports(route, imports, options)
@@ -322,12 +332,23 @@ def _render_client(
     root_operations: tuple[RouteDecl, ...],
     nodes: tuple[NamespaceViewNode, ...],
     root_events: tuple[NotificationDecl, ...],
+    root_streams: tuple[BinaryStreamDecl, ...],
     options: PythonClientOptions,
     client_name: str,
 ) -> str:
     imports = _Imports()
     imports.add("typing", "Self")
     imports.add(_runtime_module(options), "RpcClientCore", "RpcTransport")
+    if ir.binary_streams:
+        imports.add(
+            f"{options.package}.streams",
+            "BinaryStreamEndpoint",
+            "BinaryStreamName",
+            "BinaryStreamOpener",
+            "BinaryStreamOpening",
+        )
+        if options.with_transport == "websocket":
+            imports.add(f"{options.package}.streams", "BinaryWebSocketStream")
     if ir.servers:
         imports.add("collections.abc", "Mapping")
         imports.add(f"{options.package}.endpoints", "ServerName")
@@ -354,6 +375,8 @@ def _render_client(
         nodes=nodes,
         operations=root_operations,
         notifications=root_events,
+        streams=root_streams,
+        binary_streams=ir.binary_streams,
         with_websocket=options.with_transport == "websocket",
     )
     return _module(options, imports, body)
@@ -390,25 +413,31 @@ def _render_package_init(
         imports.add(f"{options.package}.transport", "WebSocketTransport")
         exported.append("WebSocketTransport")
     if ir.binary_streams:
-        imports.add(options.package, "media")
+        imports.add(options.package, "streams")
         imports.add(
-            f"{options.package}.media",
-            "BinaryStreamDirection",
+            f"{options.package}.streams",
             "BinaryStreamEndpoint",
             "BinaryStreamName",
+            "BinaryStreamConnection",
+            "BinaryStreamOpener",
+            "BinaryStreamOpening",
             "BinaryStreamTransport",
+            "RpcStreamsUnavailableError",
         )
         exported.extend(
             [
-                "BinaryStreamDirection",
                 "BinaryStreamEndpoint",
                 "BinaryStreamName",
+                "BinaryStreamConnection",
+                "BinaryStreamOpener",
+                "BinaryStreamOpening",
                 "BinaryStreamTransport",
-                "media",
+                "RpcStreamsUnavailableError",
+                "streams",
             ]
         )
         if options.with_transport == "websocket":
-            imports.add(f"{options.package}.media", "BinaryWebSocketStream")
+            imports.add(f"{options.package}.streams", "BinaryWebSocketStream")
             exported.append("BinaryWebSocketStream")
     body = render_template(
         "python/package_init.py.j2",

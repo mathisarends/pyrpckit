@@ -90,7 +90,7 @@ def test_stably_named_remote_errors_get_their_own_module(
     errors = render_typescript_client(document, options())["errors.ts"]
 
     assert "class UnknownGreetingError extends RpcRemoteError" in errors
-    assert "static readonly code = -32001" in errors
+    assert 'static readonly code = "unknown_greeting"' in errors
 
 
 def test_transport_module_can_be_configured(document: dict[str, Any]) -> None:
@@ -204,7 +204,7 @@ def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -
         {
             "name": "voice",
             "url": "wss://media/{sessionId}",
-            "direction": "bidirectional",
+            "direction": "server-to-client",
             "contentType": "audio/pcm;rate=24000",
             "frameType": "binary",
             "variables": {"sessionId": {"default": "demo"}},
@@ -224,16 +224,17 @@ def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -
     configured = TypeScriptClientOptions(with_transport="websocket")
 
     files = render_typescript_client(deployed, configured)
-    media = files["media.ts"]
+    media = files["streams.ts"]
+    client = files["client.ts"]
 
     assert "class BinaryWebSocketStream" in media
-    assert "send(frame: ArrayBuffer | ArrayBufferView)" in media
+    assert "send(frame: ArrayBuffer | ArrayBufferView)" not in media
     assert 'socket.binaryType = "arraybuffer"' in media
     assert "JSON.stringify" not in media
     assert "base64" not in media.lower()
-    assert "voice(" in media
+    assert "voice(" in client
     assert 'contentType: "audio/pcm;rate=24000"' in media
-    assert 'from "./media"' in files["index.ts"]
+    assert 'from "./streams"' in files["index.ts"]
 
 
 def test_the_index_exports_all_public_models(document: dict[str, Any]) -> None:
@@ -273,7 +274,12 @@ def test_generated_typescript_is_prettier_formatted(
     second["name"] = "tasks.status.set"
     nested["methods"] = [first, second]
     nested["x-rpckit-binary-streams"] = [
-        {"name": "voice", "url": "wss://media", "frameType": "binary"}
+        {
+            "name": "voice",
+            "url": "wss://media",
+            "direction": "server-to-client",
+            "frameType": "binary",
+        }
     ]
     generate_typescript_client(nested, output, options())
     nested["servers"] = [
@@ -291,7 +297,7 @@ def test_generated_typescript_is_prettier_formatted(
         source="greeting.openrpc.json",
         with_transport="websocket",
     )
-    websocket_media = render_typescript_client(nested, configured)["media.ts"]
+    websocket_media = render_typescript_client(nested, configured)["streams.ts"]
     with (output / "media-websocket.ts").open(
         "w", encoding="utf-8", newline="\n"
     ) as handle:
