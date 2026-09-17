@@ -7,9 +7,9 @@
 
 {% endif %}{% endfor %}
 
-ERROR_TYPES: dict[str, type[RpcRemoteError]] = {
+{% if errors %}ERROR_TYPES: dict[str, type[RpcRemoteError]] = {
 {% for error in errors %}    {{ error.code | literal }}: {{ error.code | schema_name }}Error,
-{% endfor %}}
+{% endfor %}}{% else %}ERROR_TYPES: dict[str, type[RpcRemoteError]] = {}{% endif %}
 
 
 def error_from_response(

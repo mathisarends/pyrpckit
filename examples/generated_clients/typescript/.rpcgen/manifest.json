@@ -9,6 +9,7 @@
     "client.ts",
     "core.ts",
     "endpoints.ts",
+    "errors.ts",
     "index.ts",
     "models.ts",
     "namespaces/browser.ts",

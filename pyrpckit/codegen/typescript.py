@@ -57,8 +57,7 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
         files["models.ts"] = renderer.models()
     if ir.operations:
         files["routes.ts"] = renderer.routes()
-    if _named_errors(ir):
-        files["errors.ts"] = renderer.errors()
+    files["errors.ts"] = renderer.errors()
     if ir.servers:
         files["endpoints.ts"] = renderer.endpoints()
     if ir.binary_streams:

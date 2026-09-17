@@ -1,3 +1,5 @@
+import posixpath
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -47,3 +49,86 @@ def test_nested_apis_share_top_level_namespace_modules(
     )
     assert 'from "../core"' in typescript_files["namespaces/tasks.ts"]
     assert 'from "./status"' not in typescript_files["namespaces/tasks.ts"]
+
+
+def _without_named_errors(document: dict[str, Any]) -> dict[str, Any]:
+    plain = deepcopy(document)
+    for method in plain["methods"]:
+        method.pop("errors", None)
+    plain["servers"] = [
+        {
+            "name": "control",
+            "url": "wss://api.example.com/rpc",
+            "x-rpckit-transport": {"type": "websocket", "messageEncoding": "json"},
+        }
+    ]
+    return plain
+
+
+def _python_modules(files: dict[str, str], package: str) -> set[str]:
+    modules = set()
+    for name in files:
+        if not name.endswith(".py"):
+            continue
+        parts = name[: -len(".py")].split("/")
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        modules.add(".".join((package, *parts)) if parts else package)
+    return modules
+
+
+def _python_imports(content: str, package: str) -> set[str]:
+    imported = set()
+    for line in content.splitlines():
+        if not line.startswith("from "):
+            continue
+        target = line.split()[1]
+        if not target.startswith("."):
+            imported.add(target)
+            continue
+        dots = len(target) - len(target.lstrip("."))
+        parent = package.rsplit(".", dots - 1)[0] if dots > 1 else package
+        imported.add(f"{parent}.{target[dots:]}".rstrip("."))
+    return imported
+
+
+def test_generated_python_modules_only_import_generated_modules(
+    document: dict[str, Any],
+) -> None:
+    plain = _without_named_errors(document)
+
+    files = render_python_client(
+        plain,
+        PythonClientOptions(package="plain_client", with_transport="websocket"),
+    )
+
+    modules = _python_modules(files, "plain_client")
+    for name, content in files.items():
+        if not name.endswith(".py"):
+            continue
+        package = ".".join(("plain_client", *name.split("/")[:-1]))
+        for imported in _python_imports(content, package):
+            if imported.startswith("plain_client"):
+                assert imported in modules, f"{name} imports missing {imported}"
+
+
+def test_generated_typescript_modules_only_import_generated_modules(
+    document: dict[str, Any],
+) -> None:
+    plain = _without_named_errors(document)
+
+    files = render_typescript_client(
+        plain,
+        TypeScriptClientOptions(client_name="PlainClient", with_transport="websocket"),
+    )
+
+    emitted = {name[: -len(".ts")] for name in files if name.endswith(".ts")}
+    for name, content in files.items():
+        if not name.endswith(".ts"):
+            continue
+        directory = name.rsplit("/", 1)[0] if "/" in name else ""
+        for target in re.findall(r'from "(\.[^"]+)"', content):
+            resolved = posixpath.normpath(posixpath.join(directory, target))
+            assert resolved in emitted or f"{resolved}/index" in emitted, (
+                f"{name} imports missing {target}"
+            )

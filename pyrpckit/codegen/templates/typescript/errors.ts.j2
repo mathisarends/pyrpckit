@@ -8,9 +8,9 @@ import { RpcRemoteError } from "./core";
 {% endif %}}
 {% if not loop.last %}
 {% endif %}{% endfor %}
-const errorTypes: Readonly<Record<string, typeof RpcRemoteError>> = {
+{% if errors %}const errorTypes: Readonly<Record<string, typeof RpcRemoteError>> = {
 {% for error in errors %}  {{ error.code | property }}: {{ error.code | schema_name }}Error,
-{% endfor %}};
+{% endfor %}};{% else %}const errorTypes: Readonly<Record<string, typeof RpcRemoteError>> = {};{% endif %}
 
 export function errorFromResponse(
   rpcCode: number,

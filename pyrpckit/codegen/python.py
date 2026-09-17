@@ -80,8 +80,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
         files["models.py"] = _render_models(ir, options)
     if ir.operations or ir.notifications:
         files["routes.py"] = _render_routes(ir, options)
-    if _named_errors(ir):
-        files["errors.py"] = _render_errors(ir, options)
+    files["errors.py"] = _render_errors(ir, options)
     if ir.servers:
         files["endpoints.py"] = _render_endpoints(ir, options)
     if ir.binary_streams:
@@ -269,6 +268,7 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     imports.add("typing", "Any")
     imports.add("pydantic", "ValidationError")
+    imports.add(_runtime_module(options), "RpcRemoteError")
     errors = []
     seen: set[str] = set()
     for route in ir.operations:
@@ -277,7 +277,6 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
                 continue
             seen.add(error.name)
             imports.add("typing", "ClassVar")
-            imports.add(_runtime_module(options), "RpcRemoteError")
             if error.data is not None:
                 imports.add("pydantic", "TypeAdapter")
                 imports.add(f"{options.package}.models", *_model_names(error.data))
@@ -287,6 +286,7 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
         filters=_template_filters(imports, options),
         errors=errors,
     )
+    body = _collapse_blank_lines(body.lstrip("\n"))
     return _module(options, imports, body)
 
 
