@@ -1,9 +1,9 @@
 {
   "generator": "pyrpckit",
-  "generatorVersion": "0.5.0",
-  "layoutVersion": 7,
+  "generatorVersion": "0.6.0",
+  "layoutVersion": 8,
   "language": "python",
-  "contractSha256": "fe2dbed4811014f3aa2a77b9c123b3ba6c96ae0d22b0800da3e955f01afb1743",
+  "contractSha256": "21c7441bc91d8588d0b837a4bd428a96b9c1877b1dbb1f15c6cecf94eeab8f23",
   "files": [
     ".rpcgen/manifest.json",
     "__init__.py",
@@ -16,6 +16,7 @@
     "internal/metadata.py",
     "internal/transport.py",
     "internal/unset.py",
+    "media.py",
     "models.py",
     "namespaces/browser.py",
     "namespaces/tasks.py",
