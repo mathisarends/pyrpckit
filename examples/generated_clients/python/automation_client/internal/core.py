@@ -39,11 +39,13 @@ class RpcClientCore:
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
+        stream_opener: Any = None,
     ) -> None:
         self._single_transport = None if isinstance(transports, Mapping) else transports
         self._transports = dict(transports) if isinstance(transports, Mapping) else {}
         self._close_transport = close_transport
         self._hooks = tuple(hooks)
+        self.stream_opener = stream_opener
         self._closed = False
         self._streams: dict[
             int,

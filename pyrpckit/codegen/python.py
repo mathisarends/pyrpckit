@@ -550,6 +550,16 @@ def _template_filters(
         "annotation": lambda expression: _annotation(expression, imports),
         "api_class": _api_class,
         "constant": _constant,
+        "compact_variable_replace": lambda variable: (
+            len(
+                "        endpoint_url = endpoint_url.replace("
+                + _literal(f"{{{variable.name}}}")
+                + ", "
+                + _identifier(variable.name)
+                + ")"
+            )
+            <= 88
+        ),
         "direct_params": lambda parameters: all(
             parameter.required or parameter.has_default for parameter in parameters
         ),

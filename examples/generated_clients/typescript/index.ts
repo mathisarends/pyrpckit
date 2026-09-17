@@ -9,13 +9,13 @@ export { endpoints, servers } from "./endpoints";
 export type { Endpoint, ServerName } from "./endpoints";
 export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
-export { binaryStreams, media } from "./media";
+export { binaryStreams } from "./streams";
 export type {
   BinaryStreamDirection,
   BinaryStreamEndpoint,
   BinaryStreamName,
   BinaryStreamTransport,
-} from "./media";
-export { BinaryWebSocketStream } from "./media";
-export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./media";
+} from "./streams";
+export { BinaryWebSocketStream } from "./streams";
+export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./streams";
 export type * from "./models";

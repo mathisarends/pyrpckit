@@ -10,12 +10,12 @@
     "core.ts",
     "endpoints.ts",
     "index.ts",
-    "media.ts",
     "models.ts",
     "namespaces/browser.ts",
     "namespaces/index.ts",
     "namespaces/tasks.ts",
     "routes.ts",
+    "streams.ts",
     "transport.ts"
   ]
 }

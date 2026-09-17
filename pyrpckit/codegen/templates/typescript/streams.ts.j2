@@ -1,5 +1,4 @@
-export type BinaryStreamDirection =
-  "client-to-server" | "server-to-client" | "bidirectional";
+export type BinaryStreamDirection = "server-to-client";
 
 export type BinaryStreamName = {% for stream in streams %}{{ " | " if not loop.first else "" }}{{ stream.name | literal }}{% endfor %};
 

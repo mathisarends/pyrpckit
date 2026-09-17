@@ -135,7 +135,8 @@ export class WebSocketTransport implements RpcTransport {
       pending.reject(
         errorFromResponse(
           Number(message.error.code),
-          isObject(message.error.data) && typeof message.error.data.code === "string"
+          isObject(message.error.data) &&
+            typeof message.error.data.code === "string"
             ? message.error.data.code
             : "",
           String(message.error.message ?? "Remote RPC error"),

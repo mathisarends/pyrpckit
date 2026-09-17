@@ -1,16 +1,35 @@
 # Changelog
 
-## 0.6.0 - 2026-09-15
+## 0.6.0 - 2026-09-17
 
 ### Added
 
-- Describe raw binary WebSocket media channels with the
-  `x-rpckit-binary-streams` OpenRPC extension and the public `BinaryStream`
-  contract type.
-- Generate typed binary-stream endpoint helpers and transport interfaces for
-  Python and TypeScript. Bundled WebSocket clients exchange native binary
-  frames, enforce stream direction, and keep media traffic separate from the
-  JSON-RPC control connection.
+- Add `RpcService`, socket endpoints, connection hooks, transport-independent
+  serving, and an in-memory `RpcTestClient`.
+- Add receive-only binary stream definitions and endpoints, represented by the
+  `x-rpckit-binary-streams` OpenRPC extension.
+- Add stable string error codes and typed error details alongside numeric
+  JSON-RPC codes.
+- Generate concrete typed errors and namespaced stream clients for Python and
+  TypeScript. Bundled WebSocket clients open stream sockets automatically.
+- Add `create_router()` and `FastApiSocket` as the FastAPI integration.
+
+### Changed
+
+- Make `RpcChannel` a lightweight group of methods, events, and streams; the
+  channel name is positional and supplies the default namespace.
+- Generate contracts from mounted services, including endpoint paths,
+  variables, subprotocols, protocol version, errors, and streams.
+- Rename generated `media.py` / `media.ts` to `streams.py` / `streams.ts`.
+- Rename method `errors=` to `raises=` and error extensions to
+  `x-rpckit-code` / `x-rpckit-details-schema`.
+
+### Removed
+
+- Remove the old app/router/module composition API, channel inclusion, and
+  `RpcContract.from_channels()`.
+- Remove authoring-side tags and the old FastAPI `serve()` helper.
+- Remove client-to-server and bidirectional binary streams.
 
 ## 0.5.0 - 2026-09-10
 

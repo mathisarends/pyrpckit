@@ -40,8 +40,12 @@ export class RpcRemoteError extends Error {
 }
 
 export class RpcConnectionClosed extends Error {
-  constructor(readonly code: number | undefined, readonly reason: string) {
-    super(`RPC connection closed (${code}): ${reason}`);
+{% if binary_streams %}  constructor(
+    readonly code: number | undefined,
+    readonly reason: string,
+  ) {
+{% else %}  constructor(readonly code: number | undefined, readonly reason: string) {
+{% endif %}    super(`RPC connection closed (${code}): ${reason}`);
     this.name = "RpcConnectionClosed";
   }
 }
@@ -67,8 +71,7 @@ export class RpcClientCore {
     else this.#transports = transport;
     this.#closeTransport = options?.closeTransport ?? true;
 {% if binary_streams %}    this.streamOpener = options?.streamOpener;
-{% endif %}
-  }
+{% endif %}  }
 {% if binary_streams %}
 
   async openStream(

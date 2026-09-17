@@ -116,6 +116,14 @@ class _Renderer:
             "array": _array,
             "comment": _comment,
             "compact_notification": self._compact_notification,
+            "compact_stream": lambda stream: (
+                len(
+                    "      resolveStreamEndpoint(binaryStreams."
+                    + _identifier(stream.name)
+                    + ", variables, options?.url),"
+                )
+                <= 80
+            ),
             "enum_decl": lambda declaration: isinstance(declaration, EnumDecl),
             "identifier": _identifier,
             "literal": _ts_literal,
@@ -266,6 +274,13 @@ class _Renderer:
             notifications=self.root_events,
             streams=self.root_streams,
             binary_streams=self.ir.binary_streams,
+            compact_connect=(
+                len(
+                    "  static async connect(options: ConnectOptions = {}): "
+                    f"Promise<{self.client_name}> {{"
+                )
+                <= 80
+            ),
             with_websocket=self.options.with_transport == "websocket",
         )
         return self.module(body)

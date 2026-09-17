@@ -3,6 +3,12 @@
 // Regenerate it from the OpenRPC document instead.
 
 import type { RpcTransport } from "./transport";
+import {
+  BinaryStreamConnection,
+  RpcStreamsUnavailableError,
+  type BinaryStreamEndpoint,
+  type BinaryStreamOpener,
+} from "./streams";
 
 export type { RpcTransport } from "./transport";
 
@@ -26,12 +32,23 @@ type Subscriber = {
 
 export class RpcRemoteError extends Error {
   constructor(
-    readonly code: number,
+    readonly rpcCode: number,
+    readonly code: string,
     message: string,
-    readonly data?: unknown,
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "RpcRemoteError";
+  }
+}
+
+export class RpcConnectionClosed extends Error {
+  constructor(
+    readonly code: number | undefined,
+    readonly reason: string,
+  ) {
+    super(`RPC connection closed (${code}): ${reason}`);
+    this.name = "RpcConnectionClosed";
   }
 }
 
@@ -39,17 +56,34 @@ export class RpcClientCore {
   readonly #singleTransport?: RpcTransport;
   readonly #transports?: Readonly<Record<string, RpcTransport>>;
   readonly #closeTransport: boolean;
+  readonly streamOpener?: BinaryStreamOpener;
+
   readonly #subscribers = new WeakMap<RpcTransport, Set<Subscriber>>();
   readonly #pumps = new WeakSet<RpcTransport>();
   #closed = false;
 
   constructor(
     transport: RpcTransport | Readonly<Record<string, RpcTransport>>,
-    options?: { readonly closeTransport?: boolean },
+    options?: {
+      readonly closeTransport?: boolean;
+      readonly streamOpener?: BinaryStreamOpener;
+    },
   ) {
     if (isTransport(transport)) this.#singleTransport = transport;
     else this.#transports = transport;
     this.#closeTransport = options?.closeTransport ?? true;
+    this.streamOpener = options?.streamOpener;
+  }
+
+  async openStream(
+    endpoint: BinaryStreamEndpoint,
+  ): Promise<BinaryStreamConnection> {
+    if (this.streamOpener === undefined) {
+      throw new RpcStreamsUnavailableError(
+        "No binary stream opener configured; pass streamOpener",
+      );
+    }
+    return new BinaryStreamConnection(await this.streamOpener(endpoint));
   }
 
   request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {

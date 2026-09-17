@@ -3,6 +3,13 @@
 // Regenerate it from the OpenRPC document instead.
 
 import { RpcClientCore, type RpcTransport } from "./core";
+import {
+  BinaryWebSocketStream,
+  binaryStreams,
+  resolveStreamEndpoint,
+  type BinaryStreamConnection,
+  type BinaryStreamOpener,
+} from "./streams";
 import { resolveEndpoints, type Endpoint, type ServerName } from "./endpoints";
 import { WebSocketTransport, type WebSocketFactory } from "./transport";
 import { Tasks, Browser } from "./namespaces";
@@ -28,7 +35,10 @@ export class AutomationClient {
 
   constructor(
     transport: RpcTransport | AutomationTransports,
-    options?: { readonly closeTransport?: boolean },
+    options?: {
+      readonly closeTransport?: boolean;
+      readonly streamOpener?: BinaryStreamOpener;
+    },
   ) {
     this.#rpc = new RpcClientCore(transport, options);
     this.tasks = new Tasks(this.#rpc);
@@ -66,7 +76,21 @@ export class AutomationClient {
       );
       throw error;
     }
-    return AutomationClient.fromTransports(transports as AutomationTransports);
+    return new AutomationClient(transports as AutomationTransports, {
+      streamOpener: BinaryWebSocketStream.open,
+    });
+  }
+
+  /** Raw screencast frames as binary WebSocket messages. */
+  screencast(
+    variables: {
+      readonly host?: string;
+    },
+    options?: { readonly url?: string | URL },
+  ): Promise<BinaryStreamConnection> {
+    return this.#rpc.openStream(
+      resolveStreamEndpoint(binaryStreams.screencast, variables, options?.url),
+    );
   }
 
   close(): Promise<void> {

@@ -1,4 +1,4 @@
-from pyrpckit import RpcChannel, RpcModel, RpcModule
+from pyrpckit import RpcChannel, RpcModel, RpcService
 
 
 class StatusResult(RpcModel):
@@ -9,8 +9,8 @@ class ProfileResult(RpcModel):
     name: str
 
 
-system = RpcModule(namespace="system", tags=("system",))
-account = RpcModule(namespace="account", tags=("account",))
+system = RpcChannel("system")
+account = RpcChannel("account")
 
 
 @system.method()
@@ -23,14 +23,15 @@ async def profile() -> ProfileResult:
     return ProfileResult(name="Mathis")
 
 
-APP = RpcChannel(version=2, modules=(system, account))
+app = RpcService(version=2)
+app.socket("/rpc", system, account)
 
 
 def main() -> None:
-    protocol = APP.freeze()
+    protocol = app.freeze()
     print(f"Protocol version: {protocol.version}")
     for method in protocol.methods:
-        print(f"{method.tags[0]}: {method.name}")
+        print(method.name)
 
 
 if __name__ == "__main__":

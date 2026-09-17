@@ -36,8 +36,11 @@ export class {{ client_name }} {
     return new {{ client_name }}(transports);
   }
 {% endif %}{% if with_websocket %}
-  static async connect(options: ConnectOptions = {}): Promise<{{ client_name }}> {
-{% if servers | length == 1 %}    if (options.url !== undefined && options.endpoints !== undefined) {
+{% if compact_connect %}  static async connect(options: ConnectOptions = {}): Promise<{{ client_name }}> {
+{% else %}  static async connect(
+    options: ConnectOptions = {},
+  ): Promise<{{ client_name }}> {
+{% endif %}{% if servers | length == 1 %}    if (options.url !== undefined && options.endpoints !== undefined) {
       throw new Error("url and endpoints cannot be used together");
     }
     const endpointOverrides: readonly Endpoint[] = options.url === undefined

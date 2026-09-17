@@ -31,10 +31,11 @@
     ) -> BinaryStreamOpening:
 {% if item.summary %}        """{{ item.summary | docstring }}"""
 {% endif %}        endpoint_url = url or {{ item.url | literal }}
-{% for variable in item.variables %}        endpoint_url = endpoint_url.replace(
+{% for variable in item.variables %}{% if variable | compact_variable_replace %}        endpoint_url = endpoint_url.replace({{ variable.name | placeholder }}, {{ variable.name | identifier }})
+{% else %}        endpoint_url = endpoint_url.replace(
             {{ variable.name | placeholder }}, {{ variable.name | identifier }}
         )
-{% endfor %}        return BinaryStreamOpening(
+{% endif %}{% endfor %}        return BinaryStreamOpening(
             BinaryStreamEndpoint(
                 name=BinaryStreamName.{{ item.name | constant }},
                 url=endpoint_url,

@@ -7,6 +7,13 @@ from automation_client.endpoints import Endpoint, ServerName, resolve_endpoints
 from automation_client.internal import ClientConnection, RpcClientCore, RpcTransport
 from automation_client.namespaces.browser import Browser
 from automation_client.namespaces.tasks import Tasks
+from automation_client.streams import (
+    BinaryStreamEndpoint,
+    BinaryStreamName,
+    BinaryStreamOpener,
+    BinaryStreamOpening,
+    BinaryWebSocketStream,
+)
 from automation_client.transport import WebSocketTransport
 
 
@@ -16,8 +23,13 @@ class AutomationClient:
         transport: RpcTransport | Mapping[str, RpcTransport],
         *,
         close_transport: bool = True,
+        stream_opener: BinaryStreamOpener | None = None,
     ) -> None:
-        self._rpc = RpcClientCore(transport, close_transport=close_transport)
+        self._rpc = RpcClientCore(
+            transport,
+            close_transport=close_transport,
+            stream_opener=stream_opener,
+        )
         self.tasks = Tasks(self._rpc)
         self.browser = Browser(self._rpc)
 
@@ -61,11 +73,33 @@ class AutomationClient:
         notification_queue_size: int = 100,
     ) -> ClientConnection[Self, ServerName]:
         return ClientConnection(
-            client_factory=cls.from_transport_map,
+            client_factory=lambda transports: cls(
+                transports,
+                stream_opener=BinaryWebSocketStream.open,
+            ),
             endpoints=resolve_endpoints(endpoint_overrides),
             transport_factory=WebSocketTransport.open,
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
+        )
+
+    def screencast(
+        self,
+        *,
+        host: str = "stream.example.com",
+        url: str | None = None,
+    ) -> BinaryStreamOpening:
+        """Raw screencast frames as binary WebSocket messages."""
+        endpoint_url = url or "wss://{host}/browser/screencast"
+        endpoint_url = endpoint_url.replace("{host}", host)
+        return BinaryStreamOpening(
+            BinaryStreamEndpoint(
+                name=BinaryStreamName.SCREENCAST,
+                url=endpoint_url,
+                content_type="image/jpeg",
+                subprotocols=("pyrpckit.binary",),
+            ),
+            self._rpc.stream_opener,
         )
 
     async def close(self) -> None:

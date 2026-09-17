@@ -16,11 +16,11 @@
     "internal/metadata.py",
     "internal/transport.py",
     "internal/unset.py",
-    "media.py",
     "models.py",
     "namespaces/browser.py",
     "namespaces/tasks.py",
     "routes.py",
+    "streams.py",
     "transport.py"
   ]
 }
