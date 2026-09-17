@@ -64,7 +64,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     client_name = _client_name(ir, options)
     _validate(ir, view.root_operations, view.nodes, options, client_name)
     files = {
-        "__init__.py": _render_package_init(ir, options, client_name),
+        "__init__.py": _render_package_init(ir, options, client_name, view.nodes),
         **_render_runtime(options),
         "client.py": _render_client(
             ir,
@@ -404,6 +404,7 @@ def _render_package_init(
     ir: ClientIr,
     options: PythonClientOptions,
     client_name: str,
+    nodes: tuple[NamespaceViewNode, ...],
 ) -> str:
     imports = _Imports()
     imports.add(
@@ -423,6 +424,21 @@ def _render_package_init(
         "RpcResponseValidationError",
         "RpcTransportError",
     ]
+    error_names = [_schema_name(name) + "Error" for name in _named_error_codes(ir)]
+    if error_names:
+        imports.add(f"{options.package}.errors", *error_names)
+        exported.extend(error_names)
+    declaration_names = [
+        _schema_name(declaration.name) for declaration in ir.declarations
+    ]
+    if declaration_names:
+        imports.add(options.package, "models")
+        imports.add(f"{options.package}.models", *declaration_names)
+        exported.extend([*declaration_names, "models"])
+    if nodes:
+        namespace_classes = [_api_class(node.path) for node in nodes]
+        imports.add(_namespaces_module(options), *namespace_classes)
+        exported.extend(namespace_classes)
     if ir.servers:
         imports.add(options.package, "endpoints")
         imports.add(f"{options.package}.endpoints", "Endpoint", "ServerName")
@@ -697,6 +713,7 @@ def _validate(
     if options.with_transport == "websocket":
         client_members.append(("<client.connect>", "connect"))
     assert_unique_names("root client", client_members)
+    _assert_unique_package_exports(ir, options, nodes, client_name)
     _validate_nodes(nodes)
     for node in nodes:
         assert_unique_names(
@@ -722,6 +739,37 @@ def _validate(
                 for variable in server.variables
             ),
         )
+
+
+def _assert_unique_package_exports(
+    ir: ClientIr,
+    options: PythonClientOptions,
+    nodes: tuple[NamespaceViewNode, ...],
+    client_name: str,
+) -> None:
+    exports: list[tuple[str, str]] = [("<client>", client_name)]
+    exports.extend(("<runtime>", name) for name in _PACKAGE_EXPORTS)
+    if ir.servers:
+        exports.extend(("<endpoints>", name) for name in ("Endpoint", "ServerName"))
+        exports.append(("<endpoints>", "endpoints"))
+    if options.with_transport == "websocket":
+        exports.append(("<transport>", "WebSocketTransport"))
+    if ir.binary_streams:
+        exports.extend(("<streams>", name) for name in _STREAM_EXPORTS)
+        exports.append(("<streams>", "streams"))
+    if ir.declarations:
+        exports.append(("<models>", "models"))
+    exports.extend(
+        (declaration.name, _schema_name(declaration.name))
+        for declaration in ir.declarations
+    )
+    exports.extend(
+        (".".join(node.source_path), _api_class(node.path)) for node in nodes
+    )
+    exports.extend(
+        (code, f"{_schema_name(code)}Error") for code in _named_error_codes(ir)
+    )
+    assert_unique_names("package exports", exports)
 
 
 def _validate_nodes(nodes: tuple[NamespaceViewNode, ...]) -> None:
@@ -815,9 +863,16 @@ def _walk_postorder(
 
 
 def _named_errors(ir: ClientIr) -> bool:
-    return any(
-        error.name is not None for route in ir.operations for error in route.errors
-    )
+    return bool(_named_error_codes(ir))
+
+
+def _named_error_codes(ir: ClientIr) -> tuple[str, ...]:
+    codes: dict[str, None] = {}
+    for route in ir.operations:
+        for error in route.errors:
+            if error.name is not None:
+                codes.setdefault(error.code, None)
+    return tuple(codes)
 
 
 def _render_websocket_transport(options: PythonClientOptions) -> str:
@@ -943,6 +998,25 @@ def _import_group(module: str) -> int:
         return 1
     return 2
 
+
+_PACKAGE_EXPORTS = (
+    "RpcClientError",
+    "RpcNotificationValidationError",
+    "RpcRemoteError",
+    "RpcResponseValidationError",
+    "RpcTransportError",
+)
+
+_STREAM_EXPORTS = (
+    "BinaryStreamConnection",
+    "BinaryStreamEndpoint",
+    "BinaryStreamName",
+    "BinaryStreamOpener",
+    "BinaryStreamOpening",
+    "BinaryStreamTransport",
+    "BinaryWebSocketStream",
+    "RpcStreamsUnavailableError",
+)
 
 _RUNTIME_NAMES = frozenset(
     {

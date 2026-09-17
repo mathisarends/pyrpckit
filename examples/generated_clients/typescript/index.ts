@@ -5,11 +5,26 @@
 export { AutomationClient } from "./client";
 export type { AutomationTransports } from "./client";
 export type { ConnectOptions } from "./client";
+export * from "./namespaces";
+export { RpcConnectionClosed, RpcRemoteError } from "./core";
+export type {
+  JsonValue,
+  RpcClientCore,
+  RpcRouteInfo,
+  RpcTransport,
+} from "./core";
+export * from "./errors";
+export { routes } from "./routes";
 export { endpoints, servers } from "./endpoints";
 export type { Endpoint, ServerName } from "./endpoints";
 export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
-export { binaryStreams } from "./streams";
+export {
+  BinaryStreamConnection,
+  RpcStreamsUnavailableError,
+  binaryStreams,
+  resolveStreamEndpoint,
+} from "./streams";
 export type {
   BinaryStreamDirection,
   BinaryStreamEndpoint,

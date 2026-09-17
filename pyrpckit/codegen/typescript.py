@@ -321,7 +321,8 @@ class _Renderer:
             transports_name=_transports_name(self.client_name),
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
-            named_errors=_named_errors(self.ir),
+            nodes=self.nodes,
+            routes=self.ir.operations,
             binary_streams=self.ir.binary_streams,
         )
         return self.module(body)

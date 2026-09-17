@@ -237,13 +237,19 @@ def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -
     assert 'from "./streams"' in files["index.ts"]
 
 
-def test_the_index_exports_all_public_models(document: dict[str, Any]) -> None:
+def test_the_index_exports_everything_a_caller_needs(
+    document: dict[str, Any],
+) -> None:
     index = render_typescript_client(document, options())["index.ts"]
 
     assert 'export { GreetingClient } from "./client";' in index
     assert 'export type * from "./models";' in index
-    assert "GreetingApi" not in index
-    assert "RpcClientCore" not in index
+    assert 'export * from "./namespaces";' in index
+    assert 'export * from "./errors";' in index
+    assert 'export { routes } from "./routes";' in index
+    assert 'export { RpcConnectionClosed, RpcRemoteError } from "./core";' in index
+    assert "export type {" in index
+    assert "  RpcClientCore," in index
 
 
 def test_writing_is_idempotent_and_check_does_not_write(
