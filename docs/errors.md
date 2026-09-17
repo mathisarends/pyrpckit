@@ -64,4 +64,45 @@ retain the original failure for operators.
 Validation, parse, invalid-request, and unknown-method failures use pyrpckit's
 built-in JSON-RPC errors and do not need to be declared.
 
+## Generated client behavior
+
+Declared error classes are exported from generated Python and TypeScript
+packages. Catching the concrete class preserves the stable application code and
+gives typed access to declared details:
+
+```python
+from tasks_client import MissingTaskError
+
+try:
+    await client.tasks.get(task_id=42)
+except MissingTaskError as error:
+    print(error.details.task_id)
+```
+
+```ts
+import { MissingTaskError } from "./tasks-client";
+
+try {
+  await client.tasks.get({ taskId: 42 });
+} catch (error) {
+  if (error instanceof MissingTaskError) {
+    console.log(error.details.taskId);
+  }
+}
+```
+
+An undeclared application code becomes `RpcRemoteError`, retaining its numeric
+`rpc_code` / `rpcCode`, string `code`, message, and raw details. Python also
+validates declared error details, responses, and notifications against their
+generated Pydantic models. Invalid payloads fall back to `RpcRemoteError` for
+error details or raise `RpcResponseValidationError` /
+`RpcNotificationValidationError` for successful data. TypeScript types these
+payloads at compile time but does not perform runtime schema validation.
+
+Connection and stream lifecycle failures are separate from remote application
+errors. TypeScript exports `RpcConnectionClosed`; Python transport failures are
+available through `RpcClientError` and its exported subclasses. Direct binary
+stream reads use `RpcStreamClosed` for a regular remote close, while async
+iteration treats that condition as normal completion.
+
 [Back to documentation](README.md)

@@ -13,12 +13,17 @@ client, or application structure. Each file is standalone and executable.
   same protocol definition.
 - [`generated_clients`](generated_clients) contains inspectable Python and
   TypeScript clients generated from the same OpenRPC document. Its
-  `x-rpckit-binary-streams` entry (a `screencast` stream) generates
+  `x-rpckit-binary-streams` entry (`browser.screencast.frames`) generates a
+  stream at `client.browser.screencast.frames()`, plus
   [`streams.py`](generated_clients/python/automation_client/streams.py) and
   [`streams.ts`](generated_clients/typescript/streams.ts), the binary
-  WebSocket stream helpers alongside the regular JSON-RPC client. See the
-  root README for a single `rpcgen.toml` workflow that exports a contract
-  and all configured clients together.
+  WebSocket helpers alongside the regular JSON-RPC client. Regenerate both
+  examples from this directory's [`rpcgen.toml`](generated_clients/rpcgen.toml):
+
+  ```bash
+  uv run python -m pyrpckit.codegen.cli generate \
+    --config examples/generated_clients/rpcgen.toml
+  ```
 
 Run an example from the repository root:
 

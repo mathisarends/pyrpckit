@@ -56,6 +56,55 @@ and expose stream operations beside the regular namespace APIs. With the
 generated WebSocket transport, the client also receives a ready-to-use binary
 stream opener.
 
+The stream is placed on the same namespace tree as its wire name. For the
+`media.preview` stream above:
+
+```python
+async with MediaClient.connect(host="api.example.com") as client:
+    async with client.media.preview() as frames:
+        async for frame in frames:
+            render(frame)
+```
+
+The context manager closes the dedicated stream socket. Code that cannot use a
+context manager must open and close the connection explicitly; the opening
+object itself is intentionally not awaitable:
+
+```python
+opening = client.media.preview()
+frames = await opening.open()
+try:
+    frame = await frames.receive()
+finally:
+    await frames.close()
+```
+
+TypeScript opens the stream asynchronously and supports explicit resource
+management:
+
+```ts
+await using client = await MediaClient.connect({ host: "api.example.com" });
+await using frames = await client.media.preview();
+
+for await (const frame of frames) {
+  render(frame);
+}
+```
+
+Variables supplied to `connect()` are inherited by stream URL templates. A
+stream call can override its own variables or its complete `url` without
+changing the JSON-RPC connections.
+
+Iteration ends normally when the server closes a stream. Calling `receive()`
+directly after a regular close raises `RpcStreamClosed`, which lets code that
+does not iterate distinguish end-of-stream from an empty frame. A client built
+with custom transports needs a `stream_opener` / `streamOpener`; otherwise a
+stream call raises `RpcStreamsUnavailableError`.
+
+Starting an operation and opening its byte stream remain two explicit actions.
+For example, call a regular `start()` RPC method first and then open its sibling
+stream. The contract does not currently link a stream to a start method.
+
 ## Test a stream
 
 ```python

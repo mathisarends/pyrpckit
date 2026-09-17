@@ -100,8 +100,13 @@ stream extensions.
 
 ## Use a generated client
 
+The generated package root exports the client, models, namespace classes,
+declared error classes, endpoint metadata, routes, and transport building
+blocks. Applications normally need only the client and their domain models.
+
 With the generated WebSocket transport, Python exposes an async connection
-context:
+context. `connect()` itself is synchronous; enter the returned context rather
+than awaiting it:
 
 ```python
 from tasks_client import TasksClient
@@ -122,6 +127,107 @@ try {
   await client.close();
 }
 ```
+
+TypeScript projects with explicit resource management can express the same
+lifecycle with `await using`:
+
+```ts
+await using client = await TasksClient.connect({ host: "api.example.com" });
+const task = await client.tasks.create({ title: "Write docs" });
+```
+
+Closing a generated client is idempotent and closes every transport the client
+owns.
+
+## Lazy connections and multiple servers
+
+Contracts may route different methods to different WebSocket servers. A
+generated client still presents one namespace tree and selects the declared
+server for each call. By default, `connect()` resolves all endpoints but opens
+each socket only when a method routed to that server is first called. Concurrent
+first calls share the same connection attempt.
+
+Pass `eager=True` in Python or `eager: true` in TypeScript to open all declared
+servers in parallel while connecting:
+
+```python
+async with TasksClient.connect(host="stage.example.com", eager=True) as client:
+    ...
+```
+
+```ts
+const client = await TasksClient.connect({
+  host: "stage.example.com",
+  eager: true,
+});
+```
+
+Top-level server variables such as `host` apply to every server and binary
+stream that declares that variable. Override only exceptional deployments with
+the generated server names:
+
+```python
+from tasks_client import ServerName, TasksClient
+
+async with TasksClient.connect(
+    host="stage.example.com",
+    servers={
+        ServerName.MEDIA: "wss://media.stage.example.com/rpc",
+    },
+) as client:
+    ...
+```
+
+```ts
+const client = await TasksClient.connect({
+  host: "stage.example.com",
+  servers: { media: "wss://media.stage.example.com/rpc" },
+});
+```
+
+An endpoint override may also be a generated `Endpoint` object when its URL and
+subprotocols need to be supplied together. Unknown server names and values
+outside a variable's declared enum are rejected instead of being silently
+accepted.
+
+The generated `endpoints.<server>()` factories are the typed escape hatch for
+that advanced case. Each factory exposes only the variables declared by its
+server and preserves the server's default subprotocols:
+
+```python
+from tasks_client import ServerName, TasksClient, endpoints
+
+async with TasksClient.connect(
+    servers={
+        ServerName.MEDIA: endpoints.media(host="media.stage.example.com"),
+    },
+) as client:
+    ...
+```
+
+```ts
+import { endpoints, TasksClient } from "./tasks-client";
+
+const client = await TasksClient.connect({
+  servers: {
+    media: endpoints.media({ host: "media.stage.example.com" }),
+  },
+});
+```
+
+The map key and the endpoint returned by the factory must name the same server.
+
+## Custom transports and hooks
+
+Use `with_transports()` in Python or `withTransports()` in TypeScript for tests
+and custom adapters. Pass either one transport for a single-server contract or
+a transport map keyed by the generated server names. Set `close_transport=False`
+or `closeTransport: false` when another component owns those transports.
+
+Client hooks can observe or wrap every request through the `hooks` option on
+`connect()` and the custom-transport constructor. Socket factories are also
+injectable, which keeps the generated runtime independent of a particular
+WebSocket package and makes connection behavior testable without a network.
 
 The exact client class, method arguments, endpoint names, and server variables
 come from the document. See
