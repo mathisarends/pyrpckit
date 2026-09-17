@@ -5,10 +5,10 @@ Befunde und Zielbild. Diese Datei hält fest, was davon **umgesetzt** ist, was
 **offen** ist und **wie committet** werden soll.
 
 Stand: Die Generator- und Runtime-Änderungen sind inkrementell committet.
-`README.md` wurde parallel vom Nutzer bearbeitet und ist **nicht** Teil dieser
-Arbeit; die Änderung bleibt uncommittet im Working Tree.
+`README.md` und die grundlegenden Guides wurden parallel im separaten Commit
+`7dbfb36` überarbeitet und anschließend um die Client-Details ergänzt.
 
-Alle Tests grün: `uv run pytest -q` → 179 passed, 1 skipped.
+Alle Tests grün: `uv run pytest -q` → 180 passed, 1 skipped.
 Lint/Format: `uv run ruff check pyrpckit tests examples`,
 `uv run ruff format --check pyrpckit tests examples`,
 `npx prettier --check examples/generated_clients/typescript`.
@@ -118,6 +118,23 @@ greift wieder. Test:
 - Abgedeckt sind Lazy- und Eager-Verbindungen, ein einzelner Server-Override
   sowie Connect-Variablen, die an Binary-Streams vererbt werden.
 
+### 9. Client-Dokumentation und Changelog
+
+- `docs/clients.md` dokumentiert Lebenszyklus, Lazy-/Eager-Verbindungen,
+  Multi-Server-Overrides, Endpoint-Factories, Custom-Transports und Hooks.
+- `docs/streams.md` zeigt namespaced Streams, beide Python-Lebenszyklusformen,
+  `await using` in TypeScript, Variablenvererbung und reguläres Streamende.
+- `docs/errors.md`, `examples/README.md` und `CHANGELOG.md` wurden an die
+  generierte 0.6-API angepasst.
+
+### 10. Endpoint-Factories und Overrides
+
+- `endpoints.<server>()` bleibt als typisierter Escape Hatch für
+  serverspezifische Variablen und vertragliche Subprotokolle erhalten.
+- Python und TypeScript lehnen ein Endpoint-Objekt sofort ab, wenn dessen
+  `server` nicht zum Schlüssel im `servers`-Override passt.
+- Verhaltenstests decken den Mismatch in beiden Sprachen ab.
+
 ---
 
 ## Offen
@@ -127,21 +144,6 @@ greift wieder. Test:
    Contract-Erweiterung, die den Stream mit seiner Startmethode verknüpft
    (z. B. `x-rpckit-binary-streams[].startMethod`), plus Serverseite
    (`channel.stream(...)`). Bewusst zurückgestellt.
-2. **Doku**: `docs/clients.md` (in `README.md` verlinkt) existiert nicht;
-   `docs/streams.md`, `docs/errors.md` etc. ebenfalls nicht. Die neue
-   `connect`-Oberfläche, `with_transports`, `RpcStreamClosed` und das
-   Lazy-Verhalten sind nirgends dokumentiert. `examples/README.md` erwähnt noch
-   den alten Wurzel-Stream.
-3. **`CHANGELOG.md`** für 0.6 ist noch nicht auf die neue Client-API angepasst
-   (Breaking Changes: `from_transport*` entfällt, `connect`-Signatur,
-   Stream-Platzierung, `__await__` weg).
-4. **Prüfen, ob `endpoints.<server>()`-Factories bleiben sollen** — sie sind
-   jetzt dünne Wrapper um `endpoint(name, variables)`. Entweder behalten (typed
-   escape hatch) oder streichen.
-5. Der TS-Client akzeptiert `servers` als `EndpointOverrides`; ein
-   `Endpoint`-Objekt daraus wird ohne Server-Namensprüfung übernommen — kleiner
-   Konsistenzcheck wäre nett (`override.server === name`).
-
 ---
 
 ## Commits
@@ -155,3 +157,6 @@ greift wieder. Test:
 7. `b31362f Add generated client fixtures and connect tests`
 8. `e3c84ae Type-check generated TypeScript clients`
 9. `0914767 Test TypeScript client connection behavior`
+10. `48c82f8 Document generated client lifecycle and streams`
+11. `daea196 Document generated client breaking changes`
+12. `420029f Reject mismatched endpoint overrides`
