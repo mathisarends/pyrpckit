@@ -323,3 +323,72 @@ def test_generated_typescript_is_prettier_formatted(
     )
 
     assert formatting.returncode == 0, formatting.stdout + formatting.stderr
+
+
+def test_generated_typescript_passes_strict_type_checking(
+    document: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    npx = shutil.which("npx.cmd") or shutil.which("npx")
+    if npx is None:
+        pytest.skip("npx is not installed")
+
+    output = tmp_path / "generated"
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "primary",
+            "url": "wss://{host}/rpc",
+            "variables": {"host": {"default": "api.example.com"}},
+            "x-rpckit-transport": {
+                "type": "websocket",
+                "messageEncoding": "json",
+            },
+        }
+    ]
+    deployed["x-rpckit-binary-streams"] = [
+        {
+            "name": "greeting.frames",
+            "url": "wss://{host}/frames",
+            "direction": "server-to-client",
+            "contentType": "image/jpeg",
+            "frameType": "binary",
+            "variables": {"host": {"default": "api.example.com"}},
+        }
+    ]
+    generate_typescript_client(
+        deployed,
+        output,
+        TypeScriptClientOptions(
+            client_name="GreetingClient",
+            source="greeting.openrpc.json",
+            with_transport="websocket",
+        ),
+    )
+
+    type_check = subprocess.run(
+        [
+            npx,
+            "--yes",
+            "--package",
+            "typescript",
+            "tsc",
+            "--noEmit",
+            "--strict",
+            "--target",
+            "ES2022",
+            "--module",
+            "ESNext",
+            "--moduleResolution",
+            "Bundler",
+            "--lib",
+            "ES2022,DOM,ESNext.Disposable",
+            "--skipLibCheck",
+            str(output / "index.ts"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert type_check.returncode == 0, type_check.stdout + type_check.stderr

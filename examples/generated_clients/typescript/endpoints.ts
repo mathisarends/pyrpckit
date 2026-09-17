@@ -10,6 +10,7 @@ export type RpcTransportDescriptor =
     }
   | {
       readonly type: string;
+      readonly subprotocols?: readonly string[];
       readonly [option: string]: unknown;
     };
 

@@ -82,7 +82,7 @@ export const binaryStreams = {
       },
     },
   },
-} as const satisfies Record<BinaryStreamName, BinaryStreamInfo>;
+} as const satisfies Record<string, BinaryStreamInfo>;
 
 export type StreamVariables = Readonly<Record<string, string | undefined>>;
 
