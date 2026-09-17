@@ -3,6 +3,11 @@
 from automation_client.internal import UNSET, RpcClientCore, UnsetType
 from automation_client.models import OpenTabParams, StartScreencastParams, Tab
 from automation_client.routes import BROWSER_SCREENCAST_START, BROWSER_TABS_OPEN
+from automation_client.streams import (
+    BinaryStreamEndpoint,
+    BinaryStreamName,
+    BinaryStreamOpening,
+)
 
 
 class BrowserTabs:
@@ -41,6 +46,25 @@ class BrowserScreencast:
         await self._rpc.request(
             BROWSER_SCREENCAST_START,
             params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+        )
+
+    def frames(
+        self,
+        *,
+        host: str = "stream.example.com",
+        url: str | None = None,
+    ) -> BinaryStreamOpening:
+        """Raw screencast frames as binary WebSocket messages."""
+        endpoint_url = url or "wss://{host}/browser/screencast"
+        endpoint_url = endpoint_url.replace("{host}", host)
+        return BinaryStreamOpening(
+            BinaryStreamEndpoint(
+                name=BinaryStreamName.BROWSER_SCREENCAST_FRAMES,
+                url=endpoint_url,
+                content_type="image/jpeg",
+                subprotocols=("pyrpckit.binary",),
+            ),
+            self._rpc.stream_opener,
         )
 
 

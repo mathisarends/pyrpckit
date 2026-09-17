@@ -4,7 +4,7 @@
 
 export type BinaryStreamDirection = "server-to-client";
 
-export type BinaryStreamName = "screencast";
+export type BinaryStreamName = "browser.screencast.frames";
 
 export type BinaryStreamEndpoint = {
   readonly name: BinaryStreamName;
@@ -70,8 +70,8 @@ type BinaryStreamInfo = {
 };
 
 export const binaryStreams = {
-  screencast: {
-    name: "screencast",
+  browserScreencastFrames: {
+    name: "browser.screencast.frames",
     url: "wss://{host}/browser/screencast",
     direction: "server-to-client",
     contentType: "image/jpeg",

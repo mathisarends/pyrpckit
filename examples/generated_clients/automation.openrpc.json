@@ -194,7 +194,7 @@
   },
   "x-rpckit-binary-streams": [
     {
-      "name": "screencast",
+      "name": "browser.screencast.frames",
       "url": "wss://{host}/browser/screencast",
       "direction": "server-to-client",
       "contentType": "image/jpeg",

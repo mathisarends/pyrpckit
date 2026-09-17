@@ -6,13 +6,7 @@ from typing import Self
 from automation_client.endpoints import Endpoint, ServerName, resolve_endpoints
 from automation_client.internal import ClientConnection, RpcClientCore, RpcTransport
 from automation_client.namespaces import Browser, Tasks
-from automation_client.streams import (
-    BinaryStreamEndpoint,
-    BinaryStreamName,
-    BinaryStreamOpener,
-    BinaryStreamOpening,
-    BinaryWebSocketStream,
-)
+from automation_client.streams import BinaryStreamOpener, BinaryWebSocketStream
 from automation_client.transport import WebSocketTransport
 
 
@@ -80,25 +74,6 @@ class AutomationClient:
             transport_factory=WebSocketTransport.open,
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
-        )
-
-    def screencast(
-        self,
-        *,
-        host: str = "stream.example.com",
-        url: str | None = None,
-    ) -> BinaryStreamOpening:
-        """Raw screencast frames as binary WebSocket messages."""
-        endpoint_url = url or "wss://{host}/browser/screencast"
-        endpoint_url = endpoint_url.replace("{host}", host)
-        return BinaryStreamOpening(
-            BinaryStreamEndpoint(
-                name=BinaryStreamName.SCREENCAST,
-                url=endpoint_url,
-                content_type="image/jpeg",
-                subprotocols=("pyrpckit.binary",),
-            ),
-            self._rpc.stream_opener,
         )
 
     async def close(self) -> None:

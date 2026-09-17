@@ -13,7 +13,7 @@ from automation_client.internal import (
 
 
 class BinaryStreamName(StrEnum):
-    SCREENCAST = "screencast"
+    BROWSER_SCREENCAST_FRAMES = "browser.screencast.frames"
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,8 +165,8 @@ def _closed_normally(error: Exception) -> bool:
 
 
 BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamEndpoint] = {
-    BinaryStreamName.SCREENCAST: BinaryStreamEndpoint(
-        name=BinaryStreamName.SCREENCAST,
+    BinaryStreamName.BROWSER_SCREENCAST_FRAMES: BinaryStreamEndpoint(
+        name=BinaryStreamName.BROWSER_SCREENCAST_FRAMES,
         url="wss://{host}/browser/screencast",
         content_type="image/jpeg",
         subprotocols=("pyrpckit.binary",),

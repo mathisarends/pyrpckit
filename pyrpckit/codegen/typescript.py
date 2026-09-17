@@ -38,7 +38,14 @@ def render_files(ir: ClientIr, options: TypeScriptClientOptions) -> dict[str, st
     """Render one generated TypeScript leaf package."""
     view = client_view(ir, api_root=options.api_root, api_names=options.api_names)
     client_name = _client_name(ir, options)
-    _validate(ir, view.root_operations, view.nodes, options, client_name)
+    _validate(
+        ir,
+        view.root_operations,
+        view.root_streams,
+        view.nodes,
+        options,
+        client_name,
+    )
     renderer = _Renderer(
         ir,
         view.root_operations,
@@ -371,6 +378,7 @@ class _Renderer:
 def _validate(
     ir: ClientIr,
     root_operations: tuple[RouteDecl, ...],
+    root_streams: tuple[BinaryStreamDecl, ...],
     nodes: tuple[NamespaceViewNode, ...],
     options: TypeScriptClientOptions,
     client_name: str,
@@ -442,6 +450,10 @@ def _validate(
                 api_names=options.api_names,
             ).root_notifications
         ),
+        *(
+            (stream.rpc_name, _identifier(stream.operation_name))
+            for stream in root_streams
+        ),
     ]
     if ir.servers:
         client_members.append(("<client.fromTransports>", "fromTransports"))
@@ -487,6 +499,10 @@ def _validate_nodes(nodes: tuple[NamespaceViewNode, ...]) -> None:
         values.extend(
             (event.rpc_name, _identifier(event.operation_name))
             for event in node.notifications
+        )
+        values.extend(
+            (stream.rpc_name, _identifier(stream.operation_name))
+            for stream in node.streams
         )
         assert_unique_names(f"API path {'.'.join(node.path)}", values)
         _validate_nodes(node.children)

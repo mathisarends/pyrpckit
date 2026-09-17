@@ -3,7 +3,10 @@ import re
 from copy import deepcopy
 from typing import Any
 
+import pytest
+
 from pyrpckit.codegen import render_python_client, render_typescript_client
+from pyrpckit.codegen.ir import UnsupportedSchemaError
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 
@@ -132,3 +135,30 @@ def test_generated_typescript_modules_only_import_generated_modules(
             assert resolved in emitted or f"{resolved}/index" in emitted, (
                 f"{name} imports missing {target}"
             )
+
+
+def test_a_stream_that_shadows_a_namespace_is_rejected(
+    document: dict[str, Any],
+) -> None:
+    clashing = deepcopy(document)
+    clashing["methods"][0]["name"] = "browser.screencast.start"
+    clashing["methods"] = [clashing["methods"][0]]
+    clashing["x-rpc-notifications"] = []
+    clashing["x-rpckit-binary-streams"] = [
+        {
+            "name": "browser.screencast",
+            "url": "wss://media/frames",
+            "direction": "server-to-client",
+            "contentType": "image/jpeg",
+            "frameType": "binary",
+        }
+    ]
+
+    for render, client_options in (
+        (render_python_client, PythonClientOptions(package="browser_client")),
+        (render_typescript_client, TypeScriptClientOptions(client_name="BrowserApi")),
+    ):
+        with pytest.raises(UnsupportedSchemaError) as error:
+            render(clashing, client_options)
+
+        assert "browser.screencast" in str(error.value)

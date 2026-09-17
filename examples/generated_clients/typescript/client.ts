@@ -81,18 +81,6 @@ export class AutomationClient {
     });
   }
 
-  /** Raw screencast frames as binary WebSocket messages. */
-  screencast(
-    variables: {
-      readonly host?: string;
-    },
-    options?: { readonly url?: string | URL },
-  ): Promise<BinaryStreamConnection> {
-    return this.#rpc.openStream(
-      resolveStreamEndpoint(binaryStreams.screencast, variables, options?.url),
-    );
-  }
-
   close(): Promise<void> {
     return this.#rpc.close();
   }
