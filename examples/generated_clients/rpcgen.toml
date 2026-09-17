@@ -1,0 +1,14 @@
+version = 1
+
+[[clients]]
+schema = "automation.openrpc.json"
+language = "python"
+output = "python/automation_client"
+package = "automation_client"
+with_transport = "websocket"
+
+[[clients]]
+schema = "automation.openrpc.json"
+language = "typescript"
+output = "typescript"
+with_transport = "websocket"
