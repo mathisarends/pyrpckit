@@ -20,6 +20,10 @@
 
 ### Changed
 
+- Configure FastAPI prefixes and dependencies through `include_router()` so
+  `create_router()` only exposes pyrpckit runtime options.
+- Keep FastAPI WebSocket handler signatures free of captured endpoint
+  parameters and preserve unexpected WebSocket state errors.
 - Make `RpcChannel` a lightweight group of methods, events, and streams; the
   channel name is positional and supplies the default namespace.
 - Generate contracts from mounted services, including endpoint paths,

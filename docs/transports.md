@@ -26,22 +26,31 @@ web.include_router(create_router(app))
 Common runtime options are configured once on the router:
 
 ```python
+from fastapi import Depends
+
+
 web.include_router(
     create_router(
         app,
-        prefix="/api",
         resolver=resolver,
         context={Settings: settings},
         limits=limits,
         error_mapper=map_error,
-    )
+    ),
+    prefix="/api",
+    dependencies=[Depends(authenticate)],
 )
 ```
 
-FastAPI dependencies can also be supplied through `dependencies=`. The adapter
-registers JSON-RPC and binary-stream endpoints as WebSocket routes and maps
-pre-acceptance rejections to HTTP denial responses when the server supports
-the WebSocket denial extension.
+Configure FastAPI concerns such as the prefix and dependencies through
+`include_router()`. The adapter registers JSON-RPC and binary-stream endpoints
+as WebSocket routes and maps pre-acceptance rejections to HTTP denial responses
+when the server supports the WebSocket denial extension. Without that extension,
+the ASGI server falls back to a generic HTTP 403 denial.
+
+FastAPI dependencies are useful for transport-level checks such as
+authentication. Their return values are not injected into RPC methods; use
+`context=` or `resolver=` for application dependencies.
 
 ## Custom adapters
 

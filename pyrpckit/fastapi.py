@@ -1,8 +1,7 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
-from fastapi import APIRouter, Response, WebSocket, params
-from starlette.websockets import WebSocketDisconnect
+from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
 
 from pyrpckit.connection import (
     RpcConnectionClose,
@@ -13,7 +12,7 @@ from pyrpckit.connection import (
 )
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.server import RpcErrorMapper
-from pyrpckit.service import RpcEndpoint, RpcService
+from pyrpckit.service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 
 _HTTP_STATUS = {
@@ -66,13 +65,13 @@ class FastApiSocket:
     async def send(self, message: str) -> None:
         try:
             await self._websocket.send_text(message)
-        except (WebSocketDisconnect, RuntimeError) as error:
+        except WebSocketDisconnect as error:
             raise RpcDisconnect() from error
 
     async def send_bytes(self, data: bytes) -> None:
         try:
             await self._websocket.send_bytes(data)
-        except (WebSocketDisconnect, RuntimeError) as error:
+        except WebSocketDisconnect as error:
             raise RpcDisconnect() from error
 
     async def close(self, close: RpcConnectionClose, reason: str) -> None:
@@ -86,31 +85,45 @@ def create_router(
     context: object | Mapping[type[Any], object] | None = None,
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
-    prefix: str = "",
-    dependencies: Sequence[params.Depends] | None = None,
 ) -> APIRouter:
     service.freeze()
-    router = APIRouter(prefix=prefix, dependencies=dependencies)
+    router = APIRouter()
     for endpoint in service.endpoints:
-        if isinstance(endpoint, RpcEndpoint):
-
-            async def handler(websocket: WebSocket, endpoint=endpoint) -> None:
-                await endpoint.serve(
-                    FastApiSocket(websocket),
-                    resolver=resolver,
-                    context=context,
-                    error_mapper=error_mapper,
-                    limits=limits,
-                )
-        else:
-
-            async def handler(websocket: WebSocket, endpoint=endpoint) -> None:
-                await endpoint.serve(
-                    FastApiSocket(websocket),
-                    resolver=resolver,
-                    context=context,
-                    limits=limits,
-                )
-
+        handler = _create_handler(
+            endpoint,
+            resolver=resolver,
+            context=context,
+            error_mapper=error_mapper,
+            limits=limits,
+        )
         router.add_api_websocket_route(endpoint.path, handler, name=endpoint.name)
     return router
+
+
+def _create_handler(
+    endpoint: RpcEndpoint | RpcStreamEndpoint,
+    *,
+    resolver: RpcResolverLike | None,
+    context: object | Mapping[type[Any], object] | None,
+    error_mapper: RpcErrorMapper | None,
+    limits: RpcLimits | None,
+):
+    async def handler(websocket: WebSocket) -> None:
+        socket = FastApiSocket(websocket)
+        if isinstance(endpoint, RpcEndpoint):
+            await endpoint.serve(
+                socket,
+                resolver=resolver,
+                context=context,
+                error_mapper=error_mapper,
+                limits=limits,
+            )
+        else:
+            await endpoint.serve(
+                socket,
+                resolver=resolver,
+                context=context,
+                limits=limits,
+            )
+
+    return handler
