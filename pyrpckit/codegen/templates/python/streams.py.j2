@@ -65,6 +65,14 @@ def resolve_stream_endpoint(
     )
 
 
+class BinaryInputEnd(BaseModel):
+    """The text message that ends a stream's input; output keeps flowing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["end"]
+
+
 class BinaryStreamTransport(Protocol):
     async def receive(self) -> bytes: ...
 
@@ -293,7 +301,7 @@ class BinaryWebSocketStream:
         if self._closed:
             raise RpcStreamClosed("The binary stream is closed")
         try:
-            await self._socket.send('{"type":"end"}')
+            await self._socket.send(BinaryInputEnd(type="end").model_dump_json())
         except Exception as error:
             self._raise_closed(error)
             raise

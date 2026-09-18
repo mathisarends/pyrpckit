@@ -18,6 +18,9 @@ export type BinaryStreamEndpoint = {
 
 export type BinaryFrame = ArrayBuffer | ArrayBufferView;
 
+/** The text message that ends a stream's input; output keeps flowing. */
+export type BinaryInputEnd = { readonly type: "end" };
+
 export type BinaryStreamTransport = {
   receive(): Promise<ArrayBuffer>;
   close(): Promise<void>;
@@ -327,7 +330,8 @@ export class BinaryWebSocketStream implements BinaryStreamTransport {
   endInput(): Promise<void> {
     if (this.#closed)
       return Promise.reject(new RpcStreamClosed("The binary stream is closed"));
-    this.#socket.send('{"type":"end"}');
+    const end: BinaryInputEnd = { type: "end" };
+    this.#socket.send(JSON.stringify(end));
     return Promise.resolve();
   }
 

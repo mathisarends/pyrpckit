@@ -26,6 +26,7 @@ export type { WebSocketFactory, WebSocketOptions } from "./transport";
   resolveStreamEndpoint,
 } from "./streams";
 export type {
+  BinaryInputEnd,
   BinaryInputTransport,
   BinaryStreamDirection,
   BinaryStreamEndpoint,
@@ -34,4 +35,4 @@ export type {
 } from "./streams";
 {% if with_websocket %}export { BinaryWebSocketStream } from "./streams";
 export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./streams";
-{% endif %}{% endif %}export type * from "./models";
+{% endif %}{% endif %}{% if models %}export type * from "./models";{% endif %}

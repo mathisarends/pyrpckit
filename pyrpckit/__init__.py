@@ -38,6 +38,7 @@ from .streams import (
     RpcBinaryInput,
     RpcBinaryOutput,
     RpcInputEnded,
+    RpcInputEndMessage,
     RpcStreamDirection,
 )
 
@@ -62,6 +63,7 @@ __all__ = [
     "RpcErrorMapper",
     "RpcFailure",
     "RpcHandshake",
+    "RpcInputEndMessage",
     "RpcInputEnded",
     "RpcInternalError",
     "RpcInvalidParamsError",

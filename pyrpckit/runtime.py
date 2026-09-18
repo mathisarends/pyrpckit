@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Mapping
@@ -28,7 +27,7 @@ from pyrpckit.envelopes import RpcNotification
 from pyrpckit.observer import RpcConnectionContext, notify_observer
 from pyrpckit.server import RpcErrorMapper, RpcServer
 from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
-from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput
+from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcInputEndMessage
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -376,6 +375,7 @@ async def serve_stream_endpoint(
 
 def _is_input_end(frame: str) -> bool:
     try:
-        return json.loads(frame) == {"type": "end"}
-    except ValueError:
+        RpcInputEndMessage.model_validate_json(frame)
+    except ValidationError:
         return False
+    return True

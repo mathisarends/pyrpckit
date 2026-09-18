@@ -128,7 +128,8 @@ class LoopbackStream:
         await self.socket.client_send(frame)
 
     async def end_input(self) -> None:
-        await self.socket.client_send('{"type":"end"}')
+        end = self._package.BinaryInputEnd(type="end")
+        await self.socket.client_send(end.model_dump_json())
 
     async def close(self) -> None:
         await self.socket.client_disconnect()

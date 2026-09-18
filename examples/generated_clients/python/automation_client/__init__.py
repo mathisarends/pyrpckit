@@ -27,6 +27,7 @@ from .models import (
 from .namespaces import Browser, Tasks
 from .streams import (
     BinaryDuplexConnection,
+    BinaryInputEnd,
     BinaryInputTransport,
     BinarySinkConnection,
     BinaryStreamConnection,
@@ -42,6 +43,7 @@ from .transport import WebSocketTransport
 __all__ = [
     "AutomationClient",
     "BinaryDuplexConnection",
+    "BinaryInputEnd",
     "BinaryInputTransport",
     "BinarySinkConnection",
     "BinaryStreamConnection",

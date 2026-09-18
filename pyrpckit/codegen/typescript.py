@@ -354,6 +354,7 @@ class _Renderer:
             routes=self.ir.operations or self.ir.notifications,
             notifications=self.ir.notifications,
             binary_streams=self.ir.binary_streams,
+            models=bool(self.ir.declarations),
         )
         return self.module(body)
 

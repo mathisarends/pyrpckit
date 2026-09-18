@@ -6,6 +6,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Literal, Protocol, Self
 
+from pydantic import BaseModel, ConfigDict
+
 from automation_client.internal import (
     RpcServerVariable,
     RpcStreamClosed,
@@ -81,6 +83,14 @@ def resolve_stream_endpoint(
         direction=stream.direction,
         input_content_type=stream.input_content_type,
     )
+
+
+class BinaryInputEnd(BaseModel):
+    """The text message that ends a stream's input; output keeps flowing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["end"]
 
 
 class BinaryStreamTransport(Protocol):
@@ -310,7 +320,7 @@ class BinaryWebSocketStream:
         if self._closed:
             raise RpcStreamClosed("The binary stream is closed")
         try:
-            await self._socket.send('{"type":"end"}')
+            await self._socket.send(BinaryInputEnd(type="end").model_dump_json())
         except Exception as error:
             self._raise_closed(error)
             raise

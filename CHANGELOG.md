@@ -9,7 +9,8 @@
   `RpcBinaryOutput`, and async generators remain server-to-client. The client
   ends its input with the text message `{"type":"end"}`. A disconnect before the
   end aborts the handler. Incoming frames use a bounded queue, which applies
-  backpressure.
+  backpressure. `RpcInputEndMessage` and the generated `BinaryInputEnd` model
+  describe the end message.
 - Treat stream handler parameters without `Inject[...]` as typed path
   variables. They are validated before the handshake is accepted and rejected
   as `NOT_FOUND`.
@@ -28,6 +29,8 @@
 - Keep generated Python clients `ruff check` and `ruff format` clean for
   contracts without events or without methods, servers without variables, and
   single-letter model names.
+- Omit the `./models` export from generated TypeScript clients whose contract
+  declares no models, so they compile.
 - Ignore leading underscores when deriving error codes, so private error
   classes such as `_MissingError` produce `missing`.
 

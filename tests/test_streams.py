@@ -248,6 +248,8 @@ async def test_push_based_output_without_input() -> None:
         ((b"a", '{"type":"end"}', b"late"), "Binary input after end"),
         (('{"type":"stop"}',), "Unexpected text frame on a binary stream"),
         (("not json",), "Unexpected text frame on a binary stream"),
+        (("{}",), "Unexpected text frame on a binary stream"),
+        (('{"type":"end","reason":"x"}',), "Unexpected text frame"),
         (('{"type":"end"}', '{"type":"end"}'), "Unexpected text frame"),
     ],
 )

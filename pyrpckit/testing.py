@@ -15,6 +15,7 @@ from pyrpckit.connection import (
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.server import RpcErrorMapper
 from pyrpckit.service import RpcService, RpcStreamEndpoint
+from pyrpckit.streams import RpcInputEndMessage
 
 _DISCONNECT = object()
 
@@ -215,7 +216,7 @@ class RpcTestClient:
     async def end_input(self) -> None:
         if not self._input:
             raise TypeError("end_input() is only available for streams with input")
-        await self.socket.client_send(json.dumps({"type": "end"}))
+        await self.socket.client_send(RpcInputEndMessage(type="end").model_dump_json())
 
     async def closed(self) -> tuple[RpcConnectionClose, str] | None:
         """Wait until the server finished the connection and return its close."""

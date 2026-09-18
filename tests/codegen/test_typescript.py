@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+import pyrpckit as rpc
 from pyrpckit.codegen import generate_typescript_client, render_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 from pyrpckit.codegen.writer import MANIFEST
@@ -233,7 +234,9 @@ def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -
     assert "class BinaryWebSocketStream" in media
     assert "send(frame: ArrayBuffer | ArrayBufferView)" not in media
     assert 'socket.binaryType = "arraybuffer"' in media
-    assert "JSON.stringify" not in media
+    assert "this.#socket.send(frame);" in media
+    assert media.count("JSON.stringify") == 1
+    assert "JSON.stringify(end)" in media
     assert "base64" not in media.lower()
     assert "voice(" in client
     assert 'contentType: "audio/pcm;rate=24000"' in media
@@ -408,3 +411,20 @@ def test_generated_typescript_passes_strict_type_checking(
     )
 
     assert type_check.returncode == 0, type_check.stdout + type_check.stderr
+
+
+def test_contracts_without_models_do_not_export_a_models_module() -> None:
+    channel = rpc.RpcChannel("control")
+
+    @channel.method
+    async def ping() -> str:
+        return "pong"
+
+    service = rpc.RpcService()
+    service.socket("/rpc", channels=[channel])
+    document = service.contract(title="Control", base_url="ws://localhost")
+
+    files = render_typescript_client(document.to_openrpc(), options())
+
+    assert "models.ts" not in files
+    assert "./models" not in files["index.ts"]

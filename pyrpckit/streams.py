@@ -1,6 +1,8 @@
 import asyncio
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
+
+from pydantic import BaseModel, ConfigDict
 
 from pyrpckit.connection import RpcConnection, RpcDisconnect, RpcSocket
 
@@ -11,6 +13,14 @@ class RpcStreamDirection(StrEnum):
     SERVER_TO_CLIENT = "server-to-client"
     CLIENT_TO_SERVER = "client-to-server"
     BIDIRECTIONAL = "bidirectional"
+
+
+class RpcInputEndMessage(BaseModel):
+    """The text message a client sends to end its input; output keeps flowing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["end"]
 
 
 class RpcInputEnded(Exception):

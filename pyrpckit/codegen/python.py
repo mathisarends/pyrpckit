@@ -288,6 +288,7 @@ def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports.add("enum", "StrEnum")
     imports.add("types", "MappingProxyType")
     imports.add("typing", "Any", "Literal", "Protocol", "Self")
+    imports.add("pydantic", "BaseModel", "ConfigDict")
     imports.add(
         _runtime_module(options),
         "RpcServerVariable",
@@ -534,6 +535,7 @@ def _render_package_init(
         imports.add(
             f"{options.package}.streams",
             "BinaryDuplexConnection",
+            "BinaryInputEnd",
             "BinaryInputTransport",
             "BinarySinkConnection",
             "BinaryStreamEndpoint",
@@ -553,6 +555,7 @@ def _render_package_init(
         exported.extend(
             [
                 "BinaryDuplexConnection",
+                "BinaryInputEnd",
                 "BinaryInputTransport",
                 "BinarySinkConnection",
                 "BinaryStreamEndpoint",
@@ -1161,6 +1164,7 @@ _PACKAGE_EXPORTS = (
 
 _STREAM_EXPORTS = (
     "BinaryDuplexConnection",
+    "BinaryInputEnd",
     "BinaryInputTransport",
     "BinarySinkConnection",
     "BinaryStreamConnection",

@@ -30,6 +30,7 @@ export {
   resolveStreamEndpoint,
 } from "./streams";
 export type {
+  BinaryInputEnd,
   BinaryInputTransport,
   BinaryStreamDirection,
   BinaryStreamEndpoint,
