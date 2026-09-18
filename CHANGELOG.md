@@ -23,13 +23,16 @@
 - Derive application error codes by stripping either `Error` or `RpcError`,
   allow `RpcInvalidParamsError(message=...)` without synthetic validation
   issues, and suggest `message=` for accidental positional strings.
-- Add async `on_request` and `on_response` server hooks with structured request,
-  outcome, and duration context for logging and instrumentation.
+- Add a service-bound `observer=` for request start, request finish, and
+  connection close events with structured outcome and duration contexts.
 - Expose `close_code` and `close_reason` on `RpcConnection`, including close
   information received from the peer.
 - Let generated Python WebSocket clients accept `headers=`, make their
   connection object directly awaitable, and eagerly open single-server clients
   by default. Multi-server clients remain lazy unless requested otherwise.
+- Accept HTTP base URLs when building contracts and translate them to WebSocket
+  schemes. Add `RpcContract.to_openrpc()` and render committed JSON with Unicode
+  characters intact.
 - Resolve FastAPI dependencies per connection with `resolver_factory=`. Add
   `dishka_router()` to read Dishka's APP container from `app.state` and reject
   accidentally supplied SESSION containers with a targeted error.

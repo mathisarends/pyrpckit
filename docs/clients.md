@@ -19,7 +19,7 @@ from pyrpckit import ServerVariable
 contract = app.contract(
     title="Tasks API",
     description="Realtime task operations.",
-    base_url="wss://{host}",
+    base_url="https://{host}",
     variables={
         "host": ServerVariable(
             default="api.example.com",
@@ -30,8 +30,13 @@ contract = app.contract(
 ```
 
 Endpoint paths, names, subprotocols, protocol version, typed errors, and binary
-streams are derived from the service. `base_url` must be a WebSocket URL or a
-URL template. Every supplied variable must occur in the resulting server URLs.
+streams are derived from the service. `base_url` accepts either an HTTP or
+WebSocket URL (or a URL template); `http` and `https` are translated to `ws`
+and `wss`. Every supplied variable must occur in the resulting server URLs.
+
+`contract.to_openrpc()` returns the complete document, including binary stream
+extensions, for integrations that need a dictionary instead of rendered JSON.
+The built-in renderer preserves Unicode characters.
 
 ## One configuration for contract and clients
 

@@ -62,6 +62,17 @@ class RpcContract:
             ),
         )
 
+    def to_openrpc(self) -> dict[str, Any]:
+        from pyrpckit.schema.openrpc import render_openrpc
+
+        return render_openrpc(
+            self.protocol,
+            title=self.title,
+            description=self.description,
+            servers=self.servers,
+            binary_streams=self.binary_streams,
+        )
+
 
 def contract_from_service(
     service,
@@ -76,9 +87,15 @@ def contract_from_service(
     if (
         not isinstance(base_url, str)
         or not base_url
-        or not (base_url.startswith(("ws://", "wss://", "{")))
+        or not (base_url.startswith(("http://", "https://", "ws://", "wss://", "{")))
     ):
-        raise ProtocolDefinitionError("RPC contract base_url must be a WebSocket URL")
+        raise ProtocolDefinitionError(
+            "RPC contract base_url must be an HTTP or WebSocket URL"
+        )
+    if base_url.startswith("https://"):
+        base_url = "wss://" + base_url.removeprefix("https://")
+    elif base_url.startswith("http://"):
+        base_url = "ws://" + base_url.removeprefix("http://")
     base_url = base_url.rstrip("/")
     supplied = dict(variables or {})
     used: set[str] = set()
