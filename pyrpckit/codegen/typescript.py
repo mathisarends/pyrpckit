@@ -273,9 +273,8 @@ class _Renderer:
         )
         if models:
             imports.append(_type_import(models, "./models"))
-        transports_name = _transports_name(self.client_name)
         if self.ir.servers:
-            endpoint_imports = ["type Endpoint", "type ServerName"]
+            endpoint_imports = ["type ServerName"]
             if self.options.with_transport == "websocket":
                 endpoint_imports = [
                     "resolveEndpoints",
@@ -297,22 +296,10 @@ class _Renderer:
                     "./namespaces",
                 )
             )
-        transport_type = " | ".join(
-            (
-                *(
-                    ("RpcTransport", transports_name)
-                    if self.ir.servers
-                    else ("RpcTransport",)
-                ),
-                "RpcTransportSource",
-            )
-        )
         body = self.template(
             "client",
             imports=imports,
             client_name=self.client_name,
-            transports_name=transports_name,
-            transport_type=transport_type,
             servers=self.ir.servers,
             variables=_connect_variables(self.ir),
             nodes=self.nodes,
@@ -320,13 +307,6 @@ class _Renderer:
             notifications=self.root_events,
             streams=self.root_streams,
             binary_streams=self.ir.binary_streams,
-            compact_connect=(
-                len(
-                    "  static async connect(options: ConnectOptions = {}): "
-                    f"Promise<{self.client_name}> {{"
-                )
-                <= 80
-            ),
             with_websocket=self.options.with_transport == "websocket",
         )
         return self.module(body)
@@ -365,7 +345,6 @@ class _Renderer:
         body = self.template(
             "index",
             client_name=self.client_name,
-            transports_name=_transports_name(self.client_name),
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
             nodes=self.nodes,
@@ -696,11 +675,6 @@ def _walk_postorder(
     for node in nodes:
         yield from _walk_postorder(node.children)
         yield node
-
-
-def _transports_name(client_name: str) -> str:
-    stem = client_name.removesuffix("Client") or client_name
-    return f"{stem}Transports"
 
 
 def _named_errors(ir: ClientIr) -> bool:

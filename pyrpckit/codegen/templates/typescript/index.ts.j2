@@ -1,7 +1,5 @@
 export { {{ client_name }} } from "./client";
-{% if servers %}export type { {{ transports_name }} } from "./client";
-{% endif %}{% if with_websocket %}export type { ConnectOptions } from "./client";
-{% endif %}{% if nodes %}export * from "./namespaces";
+{% if nodes %}export * from "./namespaces";
 {% endif %}export { RpcConnectionClosed, RpcRemoteError } from "./core";
 export type {
   JsonValue,

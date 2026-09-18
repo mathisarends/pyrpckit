@@ -1,29 +1,15 @@
 {% from "typescript/macros.ts.j2" import operation, notification, stream with context %}{% for line in imports %}{{ line }}
-{% endfor %}{% if servers %}
-export type {{ transports_name }} = {
-{% for server in servers %}  readonly {{ server.name | property }}: RpcTransport;
-{% endfor %}};
-{% endif %}{% if with_websocket %}
-export type ConnectOptions = {
-{% for variable in variables %}  readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
-{% endfor %}{% if servers | length == 1 %}  readonly url?: string | URL;
-{% endif %}  readonly servers?: EndpointOverrides;
-  readonly eager?: boolean;
-  readonly requestTimeoutMs?: number;
-  readonly notificationQueueSize?: number;
-  readonly socketFactory?: WebSocketFactory;
-{% if binary_streams %}  readonly streamSocketFactory?: BinaryWebSocketFactory;
-  readonly streamQueueSize?: number;
-{% endif %}  readonly hooks?: readonly RpcClientHook[];
-};
-{% endif %}
+{% endfor %}
 export class {{ client_name }} {
 {% for node in nodes %}  readonly {{ node.segment | identifier }}: {{ node.path | api_class }};
 {% endfor %}{% if nodes %}
 {% endif %}  readonly #rpc: RpcClientCore;
 
   constructor(
-    transport: {{ transport_type }},
+    transport:
+      | RpcTransport
+      | Readonly<Record<string, RpcTransport>>
+      | RpcTransportSource,
     options?: {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
@@ -37,8 +23,9 @@ export class {{ client_name }} {
 
   /** Build a client on transports the caller owns, for tests and adapters. */
   static withTransports(
-    transports: {{ "RpcTransport | " ~ transports_name if servers else "RpcTransport" }},
-    options?: {
+{% if servers %}    transports: RpcTransport | Readonly<Record<ServerName, RpcTransport>>,
+{% else %}    transports: RpcTransport,
+{% endif %}    options?: {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
 {% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
@@ -48,11 +35,21 @@ export class {{ client_name }} {
   }
 {% if with_websocket %}
   /** Connect to every declared server, opening each socket on first use. */
-{% if compact_connect %}  static async connect(options: ConnectOptions = {}): Promise<{{ client_name }}> {
-{% else %}  static async connect(
-    options: ConnectOptions = {},
+  static async connect(
+    options: {
+{% for variable in variables %}      readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
+{% endfor %}{% if servers | length == 1 %}      readonly url?: string | URL;
+{% endif %}      readonly servers?: EndpointOverrides;
+      readonly eager?: boolean;
+      readonly requestTimeoutMs?: number;
+      readonly notificationQueueSize?: number;
+      readonly socketFactory?: WebSocketFactory;
+{% if binary_streams %}      readonly streamSocketFactory?: BinaryWebSocketFactory;
+      readonly streamQueueSize?: number;
+{% endif %}      readonly hooks?: readonly RpcClientHook[];
+    } = {},
   ): Promise<{{ client_name }}> {
-{% endif %}    const variables: Record<string, string | undefined> = {
+    const variables: Record<string, string | undefined> = {
 {% for variable in variables %}      {{ variable.name | property }}: options.{{ variable.name | property }},
 {% endfor %}    };
 {% if servers | length == 1 %}    const overrides: EndpointOverrides = { ...options.servers };

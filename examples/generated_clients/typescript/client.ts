@@ -17,29 +17,10 @@ import {
 import {
   resolveEndpoints,
   type EndpointOverrides,
-  type Endpoint,
   type ServerName,
 } from "./endpoints";
 import { WebSocketTransport, type WebSocketFactory } from "./transport";
 import { Tasks, Browser } from "./namespaces";
-
-export type AutomationTransports = {
-  readonly production: RpcTransport;
-  readonly browser: RpcTransport;
-  readonly streaming: RpcTransport;
-};
-
-export type ConnectOptions = {
-  readonly host?: string;
-  readonly servers?: EndpointOverrides;
-  readonly eager?: boolean;
-  readonly requestTimeoutMs?: number;
-  readonly notificationQueueSize?: number;
-  readonly socketFactory?: WebSocketFactory;
-  readonly streamSocketFactory?: BinaryWebSocketFactory;
-  readonly streamQueueSize?: number;
-  readonly hooks?: readonly RpcClientHook[];
-};
 
 export class AutomationClient {
   readonly tasks: Tasks;
@@ -48,7 +29,10 @@ export class AutomationClient {
   readonly #rpc: RpcClientCore;
 
   constructor(
-    transport: RpcTransport | AutomationTransports | RpcTransportSource,
+    transport:
+      | RpcTransport
+      | Readonly<Record<string, RpcTransport>>
+      | RpcTransportSource,
     options?: {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
@@ -63,7 +47,7 @@ export class AutomationClient {
 
   /** Build a client on transports the caller owns, for tests and adapters. */
   static withTransports(
-    transports: RpcTransport | AutomationTransports,
+    transports: RpcTransport | Readonly<Record<ServerName, RpcTransport>>,
     options?: {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
@@ -75,7 +59,17 @@ export class AutomationClient {
 
   /** Connect to every declared server, opening each socket on first use. */
   static async connect(
-    options: ConnectOptions = {},
+    options: {
+      readonly host?: string;
+      readonly servers?: EndpointOverrides;
+      readonly eager?: boolean;
+      readonly requestTimeoutMs?: number;
+      readonly notificationQueueSize?: number;
+      readonly socketFactory?: WebSocketFactory;
+      readonly streamSocketFactory?: BinaryWebSocketFactory;
+      readonly streamQueueSize?: number;
+      readonly hooks?: readonly RpcClientHook[];
+    } = {},
   ): Promise<AutomationClient> {
     const variables: Record<string, string | undefined> = {
       host: options.host,

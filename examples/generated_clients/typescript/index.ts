@@ -3,8 +3,6 @@
 // Regenerate it from the OpenRPC document instead.
 
 export { AutomationClient } from "./client";
-export type { AutomationTransports } from "./client";
-export type { ConnectOptions } from "./client";
 export * from "./namespaces";
 export { RpcConnectionClosed, RpcRemoteError } from "./core";
 export type {
