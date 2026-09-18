@@ -483,10 +483,13 @@ def _render_client(
 
 
 def _connect_variables(ir: ClientIr) -> tuple[ServerVariableDecl, ...]:
-    """The URL variables ``connect`` accepts, shared by servers and streams."""
+    """The server URL variables ``connect`` accepts; streams inherit them too."""
+    declared = {variable.name for server in ir.servers for variable in server.variables}
     merged: dict[str, ServerVariableDecl] = {}
     for declaration in (*ir.servers, *ir.binary_streams):
         for variable in declaration.variables:
+            if variable.name not in declared:
+                continue
             previous = merged.get(variable.name)
             if previous is None:
                 merged[variable.name] = variable
