@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
@@ -15,6 +15,8 @@ from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.server import RpcErrorMapper
 from pyrpckit.service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
+
+type FastApiResolverFactory = Callable[[WebSocket], RpcResolverLike]
 
 _HTTP_STATUS = {
     RpcRejection.NOT_FOUND: 404,
@@ -81,16 +83,20 @@ def create_router(
     service: RpcService,
     *,
     resolver: RpcResolverLike | None = None,
+    resolver_factory: FastApiResolverFactory | None = None,
     context: object | Mapping[type[Any], object] | None = None,
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
 ) -> APIRouter:
+    if resolver is not None and resolver_factory is not None:
+        raise ValueError("resolver and resolver_factory are mutually exclusive")
     service.freeze()
     router = APIRouter()
     for endpoint in service.endpoints:
         handler = _create_handler(
             endpoint,
             resolver=resolver,
+            resolver_factory=resolver_factory,
             context=context,
             error_mapper=error_mapper,
             limits=limits,
@@ -103,17 +109,21 @@ def _create_handler(
     endpoint: RpcEndpoint | RpcStreamEndpoint,
     *,
     resolver: RpcResolverLike | None,
+    resolver_factory: FastApiResolverFactory | None,
     context: object | Mapping[type[Any], object] | None,
     error_mapper: RpcErrorMapper | None,
     limits: RpcLimits | None,
 ):
     async def handler(websocket: WebSocket) -> None:
         socket = FastApiSocket(websocket)
+        connection_resolver = (
+            resolver_factory(websocket) if resolver_factory is not None else resolver
+        )
         try:
             if isinstance(endpoint, RpcEndpoint):
                 await endpoint.serve(
                     socket,
-                    resolver=resolver,
+                    resolver=connection_resolver,
                     context=context,
                     error_mapper=error_mapper,
                     limits=limits,
@@ -121,7 +131,7 @@ def _create_handler(
             else:
                 await endpoint.serve(
                     socket,
-                    resolver=resolver,
+                    resolver=connection_resolver,
                     context=context,
                     limits=limits,
                 )

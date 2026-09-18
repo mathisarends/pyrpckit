@@ -95,6 +95,19 @@ resolver = DishkaResolver(container)
 ```
 
 The adapter maps a connection to Dishka's `SESSION` scope and each RPC call to
-a child scope. Supply it anywhere a pyrpckit resolver is accepted.
+a child scope. Supply it anywhere a pyrpckit resolver is accepted. For FastAPI,
+prefer the router integration, which reads the root container when each socket
+connects:
+
+```python
+from pyrpckit.dishka import dishka_router
+
+web.include_router(dishka_router(app))
+```
+
+The integration reads `web.state.dishka_container`; pass the APP container to
+`DishkaResolver` when constructing one manually. A SESSION container from
+`websocket.state` is rejected because pyrpckit opens that scope itself and adds
+`RpcConnection` to its context.
 
 [Back to documentation](README.md)

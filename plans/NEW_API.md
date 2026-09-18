@@ -9,10 +9,11 @@ for the pre-0.6 composition API.
 - `RpcChannel(name, /, *, namespace=None, raises=(), resolver_scope=call_scope)`
   groups methods, events, and streams. `name` is positional; its default
   namespace is the same name. `namespace=""` creates root operations.
-- `RpcService(*, version=1)` owns the complete application.
+- `RpcService(*, version=1, error_mapper=None, limits=None)` owns the complete
+  application and its serving defaults.
   Examples call the instance `app`, matching common FastAPI usage.
-- Mount JSON-RPC with `app.socket(path, *channels, name=None, subprotocol=None,
-  summary=None)`.
+- Mount JSON-RPC with `app.socket(path, *, channels, name=None,
+  error_mapper=None, limits=None, subprotocol=None, summary=None)`.
 - Mount a binary stream with `app.stream(path, decorated_stream, name=None,
   subprotocol=None, summary=None)`.
 - A channel may be mounted only once; a stream may be mounted only once.

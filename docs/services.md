@@ -37,7 +37,7 @@ async def health() -> None:
 
 
 app = RpcService(version=1)
-app.socket("/rpc", tasks)
+app.socket("/rpc", channels=(tasks,))
 ```
 
 The methods are exposed as `tasks.create` and `tasks.health`. Use an explicit
@@ -75,8 +75,7 @@ Mount several channels on one JSON-RPC socket:
 app = RpcService(version=2)
 endpoint = app.socket(
     "/projects/{project_id}/rpc",
-    tasks,
-    admin,
+    channels=(tasks, admin),
     name="project-rpc",
     subprotocol="rpc.v2",
     summary="Project control API.",
@@ -96,6 +95,21 @@ point.
 `RpcService(version=...)` takes a positive integer. The version is emitted as
 `<version>.0.0` in OpenRPC, so changing a wire contract can be reflected in the
 service definition and generated artifacts together.
+
+Configure shared serving defaults once and override them only where an endpoint
+differs:
+
+```python
+app = RpcService(error_mapper=map_error, limits=RpcLimits(max_concurrency=16))
+app.socket(
+    "/rpc",
+    channels=(tasks,),
+    limits=RpcLimits(max_concurrency=4),
+)
+```
+
+`serve()`, `create_router()`, and `RpcTestClient` use these defaults unless an
+explicit call-site override is supplied.
 
 ## Use Pydantic directly
 

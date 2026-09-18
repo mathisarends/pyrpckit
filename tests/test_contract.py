@@ -28,7 +28,7 @@ async def frames() -> AsyncIterator[bytes]:
 
 
 service = RpcService(version=2)
-service.socket("/projects/{project_id}/rpc", channel, subprotocol="rpc.v2")
+service.socket("/projects/{project_id}/rpc", channels=(channel,), subprotocol="rpc.v2")
 service.stream("/projects/{project_id}/frames", frames)
 contract = service.contract(
     title="Control API",

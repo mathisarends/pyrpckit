@@ -24,7 +24,7 @@ async def run(params: SearchParams) -> SearchResult:
 
 
 app = RpcService(version=3)
-app.socket("/rpc", router)
+app.socket("/rpc", channels=(router,))
 
 
 def main() -> None:

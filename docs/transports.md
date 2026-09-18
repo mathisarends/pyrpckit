@@ -42,6 +42,18 @@ web.include_router(
 )
 ```
 
+When a resolver can only be built after the app exists, use
+`resolver_factory=`. It receives the live `WebSocket` once per connection:
+
+```python
+web.include_router(
+    create_router(
+        app,
+        resolver_factory=lambda websocket: Resolver(websocket.app.state.container),
+    )
+)
+```
+
 Configure FastAPI concerns such as the prefix and dependencies through
 `include_router()`. The adapter registers JSON-RPC and binary-stream endpoints
 as WebSocket routes and maps pre-acceptance rejections to HTTP denial responses

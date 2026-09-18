@@ -27,7 +27,7 @@ async def echo(params: Params, connection: Inject[RpcConnection]) -> Params:
 
 
 service = RpcService()
-service.socket("/rpc", channel)
+service.socket("/rpc", channels=(channel,))
 
 
 async def test_request_and_connection_context() -> None:

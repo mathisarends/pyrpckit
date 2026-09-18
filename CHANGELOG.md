@@ -12,6 +12,13 @@
 - Keep authentication in the hosting framework before `serve()` instead of
   coupling it to the RPC service lifecycle. `RpcConnection` remains injectable
   in handlers for connection metadata and controlled closure.
+- Configure default error mapping and runtime limits on `RpcService`, with
+  optional endpoint overrides, so production routes and `RpcTestClient` share
+  the same serving behavior.
+- Pass mounted channels through the explicit `channels=` sequence argument.
+- Resolve FastAPI dependencies per connection with `resolver_factory=`. Add
+  `dishka_router()` to read Dishka's APP container from `app.state` and reject
+  accidentally supplied SESSION containers with a targeted error.
 
 ### Removed
 

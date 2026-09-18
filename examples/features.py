@@ -24,7 +24,7 @@ async def profile() -> ProfileResult:
 
 
 app = RpcService(version=2)
-app.socket("/rpc", system, account)
+app.socket("/rpc", channels=(system, account))
 
 
 def main() -> None:

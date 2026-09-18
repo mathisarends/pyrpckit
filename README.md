@@ -107,7 +107,7 @@ async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
 
 
 app = RpcService(version=1)
-app.socket("/rpc", tasks)
+app.socket("/rpc", channels=(tasks,))
 
 
 async def test_create() -> None:

@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import FunctionType
 from typing import Any
@@ -20,6 +20,8 @@ class RpcEndpoint:
     name: str
     path: str
     channels: tuple[RpcChannel, ...]
+    error_mapper: RpcErrorMapper | None
+    limits: RpcLimits
     subprotocol: str | None
     summary: str | None
     path_variables: tuple[str, ...]
@@ -59,8 +61,8 @@ class RpcEndpoint:
             socket,
             resolver=resolver,
             context=context,
-            error_mapper=error_mapper,
-            limits=limits,
+            error_mapper=error_mapper or self.error_mapper,
+            limits=limits or self.limits,
         )
 
     def server(
@@ -77,7 +79,9 @@ class RpcEndpoint:
         if values:
             resolved = ContextResolver(resolved, values)
         return RpcServer._from_channel(
-            self.protocol, resolver=resolved, error_mapper=error_mapper
+            self.protocol,
+            resolver=resolved,
+            error_mapper=error_mapper or self.error_mapper,
         )
 
 
@@ -87,6 +91,7 @@ class RpcStreamEndpoint:
     name: str
     path: str
     stream: RpcStreamDefinition
+    limits: RpcLimits
     subprotocol: str | None
     summary: str | None
     path_variables: tuple[str, ...]
@@ -105,17 +110,29 @@ class RpcStreamEndpoint:
         from pyrpckit.runtime import serve_stream_endpoint
 
         await serve_stream_endpoint(
-            self, socket, resolver=resolver, context=context, limits=limits
+            self,
+            socket,
+            resolver=resolver,
+            context=context,
+            limits=limits or self.limits,
         )
 
 
 class RpcService:
-    def __init__(self, *, version: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        version: int = 1,
+        error_mapper: RpcErrorMapper | None = None,
+        limits: RpcLimits | None = None,
+    ) -> None:
         if not isinstance(version, int) or version < 1:
             raise ProtocolDefinitionError(
                 "RPC service version must be a positive integer"
             )
         self._version = version
+        self._error_mapper = error_mapper
+        self._limits = limits or RpcLimits()
         self._endpoints: list[RpcEndpoint | RpcStreamEndpoint] = []
         self._channels: set[RpcChannel] = set()
         self._mounted_streams: set[FunctionType] = set()
@@ -129,8 +146,11 @@ class RpcService:
         self,
         path: str,
         /,
-        *channels: RpcChannel,
+        *,
+        channels: Sequence[RpcChannel],
         name: str | None = None,
+        error_mapper: RpcErrorMapper | None = None,
+        limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
     ) -> RpcEndpoint:
@@ -150,6 +170,8 @@ class RpcService:
             name or _endpoint_name(path),
             path,
             tuple(channels),
+            error_mapper or self._error_mapper,
+            limits or self._limits,
             subprotocol,
             summary,
             variables,
@@ -165,6 +187,7 @@ class RpcService:
         /,
         *,
         name: str | None = None,
+        limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
     ) -> RpcStreamEndpoint:
@@ -184,6 +207,7 @@ class RpcService:
             name or _endpoint_name(path),
             path,
             definition,
+            limits or self._limits,
             subprotocol,
             summary,
             variables,

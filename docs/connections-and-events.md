@@ -17,7 +17,7 @@ from pyrpckit import (
 
 tasks = RpcChannel("tasks")
 app = RpcService()
-app.socket("/rpc", tasks)
+app.socket("/rpc", channels=(tasks,))
 ```
 
 Headers are case-insensitive. `RpcConnection` also exposes `endpoint`, `path`,

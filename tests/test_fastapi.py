@@ -24,7 +24,7 @@ def create_service(
         return params
 
     service = RpcService()
-    service.socket(path, channel)
+    service.socket(path, channels=(channel,))
     return service
 
 
