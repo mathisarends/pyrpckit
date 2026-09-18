@@ -93,8 +93,10 @@ inherit declared errors and the resolver scope:
 voice = RpcChannel("voice", raises=(ResourceNotFoundError,))
 turn = voice.child("turn")
 
+
 @turn.method()
 async def start() -> None: ...  # voice.turn.start
+
 
 app.socket("/rpc", channels=(voice,))
 ```
