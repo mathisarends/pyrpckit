@@ -4,6 +4,8 @@
 
 import type { RpcClientCore } from "../core";
 import {
+  BinaryDuplexConnection,
+  BinarySinkConnection,
   BinaryStreamConnection,
   binaryStreams,
   resolveStreamEndpoint,
@@ -42,6 +44,40 @@ export class BrowserScreencast {
         { url: options?.url, defaults: this.rpc.variables },
       ),
       (transport) => new BinaryStreamConnection(transport),
+    );
+  }
+
+  /** Upload a recorded screencast as binary WebSocket messages. */
+  upload(options?: {
+    readonly host?: string;
+    readonly url?: string | URL;
+  }): Promise<BinarySinkConnection> {
+    return this.rpc.openStream(
+      resolveStreamEndpoint(
+        binaryStreams.browserScreencastUpload,
+        {
+          host: options?.host,
+        },
+        { url: options?.url, defaults: this.rpc.variables },
+      ),
+      (transport) => new BinarySinkConnection(transport),
+    );
+  }
+
+  /** Receive frames while sending input events back. */
+  control(options?: {
+    readonly host?: string;
+    readonly url?: string | URL;
+  }): Promise<BinaryDuplexConnection> {
+    return this.rpc.openStream(
+      resolveStreamEndpoint(
+        binaryStreams.browserScreencastControl,
+        {
+          host: options?.host,
+        },
+        { url: options?.url, defaults: this.rpc.variables },
+      ),
+      (transport) => new BinaryDuplexConnection(transport),
     );
   }
 }

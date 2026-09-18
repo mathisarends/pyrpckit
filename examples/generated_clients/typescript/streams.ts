@@ -5,7 +5,7 @@
 export type BinaryStreamDirection =
   "server-to-client" | "client-to-server" | "bidirectional";
 
-export type BinaryStreamName = "browser.screencast.frames";
+export type BinaryStreamName = "browser.screencast.frames" | "browser.screencast.upload" | "browser.screencast.control";
 
 export type BinaryStreamEndpoint = {
   readonly name: BinaryStreamName;
@@ -185,6 +185,31 @@ export const binaryStreams = {
     url: "wss://{host}/browser/screencast",
     direction: "server-to-client",
     contentType: "image/jpeg",
+    subprotocols: ["pyrpckit.binary"],
+    variables: {
+      host: {
+        default: "stream.example.com",
+      },
+    },
+  },
+  browserScreencastUpload: {
+    name: "browser.screencast.upload",
+    url: "wss://{host}/browser/screencast/upload",
+    direction: "client-to-server",
+    inputContentType: "video/webm",
+    subprotocols: ["pyrpckit.binary"],
+    variables: {
+      host: {
+        default: "stream.example.com",
+      },
+    },
+  },
+  browserScreencastControl: {
+    name: "browser.screencast.control",
+    url: "wss://{host}/browser/screencast/control",
+    direction: "bidirectional",
+    contentType: "image/jpeg",
+    inputContentType: "application/x-input-event",
     subprotocols: ["pyrpckit.binary"],
     variables: {
       host: {

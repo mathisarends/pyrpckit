@@ -5,6 +5,8 @@ from automation_client.models import OpenTabParams, StartScreencastParams, Tab
 from automation_client.routes import BROWSER_SCREENCAST_START, BROWSER_TABS_OPEN
 from automation_client.streams import (
     BINARY_STREAMS,
+    BinaryDuplexConnection,
+    BinarySinkConnection,
     BinaryStreamConnection,
     BinaryStreamName,
     BinaryStreamOpening,
@@ -68,6 +70,46 @@ class BrowserScreencast:
             ),
             self._rpc.stream_opener,
             BinaryStreamConnection,
+        )
+
+    def upload(
+        self,
+        *,
+        host: str | None = None,
+        url: str | None = None,
+    ) -> BinaryStreamOpening[BinarySinkConnection]:
+        """Upload a recorded screencast as binary WebSocket messages."""
+        return BinaryStreamOpening(
+            resolve_stream_endpoint(
+                BINARY_STREAMS[BinaryStreamName.BROWSER_SCREENCAST_UPLOAD],
+                {
+                    "host": host,
+                },
+                url=url,
+                defaults=self._rpc.variables,
+            ),
+            self._rpc.stream_opener,
+            BinarySinkConnection,
+        )
+
+    def control(
+        self,
+        *,
+        host: str | None = None,
+        url: str | None = None,
+    ) -> BinaryStreamOpening[BinaryDuplexConnection]:
+        """Receive frames while sending input events back."""
+        return BinaryStreamOpening(
+            resolve_stream_endpoint(
+                BINARY_STREAMS[BinaryStreamName.BROWSER_SCREENCAST_CONTROL],
+                {
+                    "host": host,
+                },
+                url=url,
+                defaults=self._rpc.variables,
+            ),
+            self._rpc.stream_opener,
+            BinaryDuplexConnection,
         )
 
 

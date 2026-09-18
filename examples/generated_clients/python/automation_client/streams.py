@@ -21,6 +21,8 @@ from automation_client.internal import (
 
 class BinaryStreamName(StrEnum):
     BROWSER_SCREENCAST_FRAMES = "browser.screencast.frames"
+    BROWSER_SCREENCAST_UPLOAD = "browser.screencast.upload"
+    BROWSER_SCREENCAST_CONTROL = "browser.screencast.control"
 
 
 type BinaryStreamDirection = Literal[
@@ -353,6 +355,31 @@ BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamInfo] = {
         name=BinaryStreamName.BROWSER_SCREENCAST_FRAMES,
         url="wss://{host}/browser/screencast",
         content_type="image/jpeg",
+        subprotocols=("pyrpckit.binary",),
+        variables={
+            "host": RpcServerVariable(
+                default="stream.example.com",
+            ),
+        },
+    ),
+    BinaryStreamName.BROWSER_SCREENCAST_UPLOAD: BinaryStreamInfo(
+        name=BinaryStreamName.BROWSER_SCREENCAST_UPLOAD,
+        url="wss://{host}/browser/screencast/upload",
+        direction="client-to-server",
+        input_content_type="video/webm",
+        subprotocols=("pyrpckit.binary",),
+        variables={
+            "host": RpcServerVariable(
+                default="stream.example.com",
+            ),
+        },
+    ),
+    BinaryStreamName.BROWSER_SCREENCAST_CONTROL: BinaryStreamInfo(
+        name=BinaryStreamName.BROWSER_SCREENCAST_CONTROL,
+        url="wss://{host}/browser/screencast/control",
+        content_type="image/jpeg",
+        direction="bidirectional",
+        input_content_type="application/x-input-event",
         subprotocols=("pyrpckit.binary",),
         variables={
             "host": RpcServerVariable(
