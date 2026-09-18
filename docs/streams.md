@@ -40,10 +40,9 @@ variables by generated clients.
 
 ## Lifecycle
 
-The connect hook and dependency lifecycle work exactly as they do for a
-JSON-RPC endpoint. The socket closes normally when the generator finishes. A
-disconnect cancels the generator, and an exception closes the stream as an
-internal error.
+The dependency lifecycle works exactly as it does for a JSON-RPC endpoint. The
+socket closes normally when the generator finishes. A disconnect cancels the
+generator, and an exception closes the stream as an internal error.
 
 Streams are deliberately receive-only. Use a regular RPC method to send
 configuration or control commands, then open the stream to consume bytes.

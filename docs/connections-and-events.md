@@ -1,60 +1,36 @@
 # Connections and events
 
-A connect hook runs before a socket is accepted. Use it to inspect the
-handshake, authenticate the peer, and expose a session object to every method
-and event on that connection.
+`RpcConnection` is available as an injected dependency in methods and events.
+Use it to inspect connection metadata or close an accepted connection. Perform
+authentication in the hosting framework before calling pyrpckit.
 
 ```python
 from collections.abc import AsyncIterator
 
 from pyrpckit import (
-    ConnectionRejected,
     Inject,
     RpcChannel,
     RpcConnection,
     RpcModel,
-    RpcRejection,
     RpcService,
 )
 
-
-class Session:
-    def __init__(self, user_id: str) -> None:
-        self.user_id = user_id
-
-
-async def authenticate(connection: RpcConnection) -> Session:
-    token = connection.headers.get("authorization")
-    if token is None:
-        raise ConnectionRejected(RpcRejection.UNAUTHORIZED)
-    return Session(user_id=token)
-
-
 tasks = RpcChannel("tasks")
-app = RpcService(connect=authenticate)
+app = RpcService()
 app.socket("/rpc", tasks)
 ```
 
 Headers are case-insensitive. `RpcConnection` also exposes `endpoint`, `path`,
 `path_params`, `query_params`, `subprotocols`, `client`, and `closed`.
 
-A hook must be async. Its parameters may be `RpcConnection` and `Inject[T]`
-dependencies. It may return one concrete type, which then becomes injectable
-for the connection lifetime:
+Inject it like any other server-side dependency:
 
 ```python
 @tasks.method()
-async def current_user(session: Inject[Session]) -> str:
-    return session.user_id
+async def connection_path(connection: Inject[RpcConnection]) -> str:
+    return connection.path
 ```
 
-Set `connect=` on an individual `app.socket()` or `app.stream()` to override
-the service-level hook for that endpoint.
-
-## Reject or close a connection
-
-Raise `ConnectionRejected` inside the connect hook to reject the handshake with
-an intentional reason such as `UNAUTHORIZED`, `FORBIDDEN`, or `UNAVAILABLE`.
 After acceptance, injected code can close the live connection:
 
 ```python

@@ -9,12 +9,12 @@ for the pre-0.6 composition API.
 - `RpcChannel(name, /, *, namespace=None, raises=(), resolver_scope=call_scope)`
   groups methods, events, and streams. `name` is positional; its default
   namespace is the same name. `namespace=""` creates root operations.
-- `RpcService(*, version=1, connect=None)` owns the complete application.
+- `RpcService(*, version=1)` owns the complete application.
   Examples call the instance `app`, matching common FastAPI usage.
-- Mount JSON-RPC with `app.socket(path, *channels, name=None, connect=None,
-  subprotocol=None, summary=None)`.
+- Mount JSON-RPC with `app.socket(path, *channels, name=None, subprotocol=None,
+  summary=None)`.
 - Mount a binary stream with `app.stream(path, decorated_stream, name=None,
-  connect=None, subprotocol=None, summary=None)`.
+  subprotocol=None, summary=None)`.
 - A channel may be mounted only once; a stream may be mounted only once.
   Endpoint names, endpoint path shapes, and fully qualified RPC names must be
   unique.
@@ -72,7 +72,7 @@ app.stream("/sessions/{session_id}/frames", frames)
 - `RpcSocket` is the transport protocol: handshake metadata, `accept`,
   `reject`, `receive`, text/binary send, and `close`.
 - `RpcHandshake`, `RpcConnection`, `RpcConnectionClose`, `RpcDisconnect`,
-  `RpcRejection`, `RpcLimits`, and `ConnectionRejected` are public.
+  `RpcRejection`, and `RpcLimits` are public.
 - `app.serve(socket, ..., root_path="")` matches the handshake path and serves
   the selected endpoint. `RpcEndpoint.serve()` and
   `RpcStreamEndpoint.serve()` serve an already selected endpoint.
@@ -83,19 +83,10 @@ app.stream("/sessions/{session_id}/frames", frames)
 - The library logger is `logging.getLogger(LOGGER_NAME)`, with public
   `LOGGER_NAME = "pyrpckit"` in `pyrpckit.constants`.
 
-### Connect hook
-
-```python
-async def connect(connection: RpcConnection, dep: Inject[Dependency]) -> Session: ...
-```
-
-- Configure on `RpcService` or override per endpoint.
-- The hook must be async, accept only `RpcConnection` and/or injected
-  dependencies, and return `None` or one concrete non-union type.
-- A returned value becomes connection-scoped injectable context.
-- `ConnectionRejected` maps to a deliberate handshake rejection.
-- Imported helpers used across modules have public names; specifically use
-  `analyze_connect_hook` and `context_values`, never underscored aliases.
+- Authentication belongs to the hosting framework and runs before `serve()`.
+  The runtime does not provide connect hooks or an authentication model.
+- `RpcConnection` remains injectable in handlers for connection metadata and
+  controlled closure.
 
 ## Errors
 

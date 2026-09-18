@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 - Unreleased
+
+### Changed
+
+- Keep authentication in the hosting framework before `serve()` instead of
+  coupling it to the RPC service lifecycle. `RpcConnection` remains injectable
+  in handlers for connection metadata and controlled closure.
+
+### Removed
+
+- Remove server-side connect hooks, `ConnectionRejected`, and the
+  authentication-specific `RpcRejection.UNAUTHORIZED` and `FORBIDDEN` values.
+
 ## 0.5.0 - 2026-09-18
 
 ### Added

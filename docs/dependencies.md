@@ -62,9 +62,8 @@ Pass it as `resolver=` to `RpcService.serve()`, an endpoint, `create_router()`,
 or `RpcTestClient`. A synchronous or asynchronous callable taking the requested
 type is accepted as a lightweight alternative.
 
-Context values take precedence over the resolver. `RpcConnection` and a value
-returned by the connect hook are also made available by type for the lifetime
-of that connection.
+Context values take precedence over the resolver. `RpcConnection` is also made
+available by type for the lifetime of that connection.
 
 ## Resource scopes
 
@@ -76,10 +75,10 @@ which makes request-scoped cleanup possible:
 channel = RpcChannel("tasks", resolver_scope=call_scope)
 ```
 
-Connect hooks run in a call scope before the socket is accepted. After
-acceptance, pyrpckit optionally enters the resolver's `enter_connection()`
-context for the socket lifetime. Event sources live in that connection scope;
-binary streams additionally enter their channel's resolver scope.
+After acceptance, pyrpckit optionally enters the resolver's
+`enter_connection()` context for the socket lifetime. Event sources live in
+that connection scope; binary streams additionally enter their channel's
+resolver scope.
 
 ## Dishka
 
