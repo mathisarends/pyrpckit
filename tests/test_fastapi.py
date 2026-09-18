@@ -1,10 +1,20 @@
 from collections.abc import AsyncIterator
 
+import pytest
 from fastapi import Depends, FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from starlette.testclient import WebSocketDenialResponse
 
-from pyrpckit import Inject, RpcChannel, RpcConnection, RpcDisconnect, RpcService
+from pyrpckit import (
+    Inject,
+    RpcBinaryInput,
+    RpcBinaryOutput,
+    RpcChannel,
+    RpcConnection,
+    RpcDisconnect,
+    RpcService,
+)
 from pyrpckit.fastapi import FastApiSocket, create_router
 
 
@@ -142,3 +152,49 @@ async def test_send_preserves_unexpected_runtime_errors() -> None:
         assert str(error) == "invalid WebSocket state"
     else:
         raise AssertionError("RuntimeError was not raised")
+
+
+def test_router_serves_bidirectional_streams_without_cancellation_leaks() -> None:
+    channel = RpcChannel("voice")
+
+    @channel.stream()
+    async def media(
+        session_id: int,
+        frames: Inject[RpcBinaryInput],
+        output: Inject[RpcBinaryOutput],
+    ) -> None:
+        async for frame in frames:
+            await output.send(str(session_id).encode() + b":" + frame)
+
+    service = RpcService()
+    service.stream("/voice/{session_id}/media", media)
+    web = FastAPI()
+    web.include_router(create_router(service))
+
+    with TestClient(web) as client:
+        for session_id in range(200):
+            with client.websocket_connect(f"/voice/{session_id}/media") as websocket:
+                websocket.send_bytes(b"pcm")
+                assert websocket.receive_bytes() == f"{session_id}:pcm".encode()
+                websocket.send_text('{"type":"end"}')
+                assert websocket.receive()["code"] == 1000
+
+
+def test_router_rejects_invalid_stream_path_variables_as_not_found() -> None:
+    channel = RpcChannel("voice")
+
+    @channel.stream()
+    async def media(session_id: int, output: Inject[RpcBinaryOutput]) -> None: ...
+
+    service = RpcService()
+    service.stream("/voice/{session_id}/media", media)
+    web = FastAPI()
+    web.include_router(create_router(service))
+
+    with (
+        TestClient(web) as client,
+        pytest.raises(WebSocketDenialResponse) as denied,
+        client.websocket_connect("/voice/abc/media"),
+    ):
+        pass
+    assert denied.value.status_code == 404

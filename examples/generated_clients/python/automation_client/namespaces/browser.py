@@ -5,6 +5,7 @@ from automation_client.models import OpenTabParams, StartScreencastParams, Tab
 from automation_client.routes import BROWSER_SCREENCAST_START, BROWSER_TABS_OPEN
 from automation_client.streams import (
     BINARY_STREAMS,
+    BinaryStreamConnection,
     BinaryStreamName,
     BinaryStreamOpening,
     resolve_stream_endpoint,
@@ -54,7 +55,7 @@ class BrowserScreencast:
         *,
         host: str | None = None,
         url: str | None = None,
-    ) -> BinaryStreamOpening:
+    ) -> BinaryStreamOpening[BinaryStreamConnection]:
         """Raw screencast frames as binary WebSocket messages."""
         return BinaryStreamOpening(
             resolve_stream_endpoint(
@@ -66,6 +67,7 @@ class BrowserScreencast:
                 defaults=self._rpc.variables,
             ),
             self._rpc.stream_opener,
+            BinaryStreamConnection,
         )
 
 

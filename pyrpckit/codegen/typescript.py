@@ -144,6 +144,7 @@ class _Renderer:
             "route_key": _route_key,
             "schema_name": _schema_name,
             "server_variable_type": _server_variable_type,
+            "stream_connection": _stream_connection,
             "subprotocols": _server_subprotocols,
             "type": self._type,
         }
@@ -203,9 +204,11 @@ class _Renderer:
             imports.append(
                 _value_import(
                     [
+                        *_stream_connections(
+                            stream for node in nodes for stream in node.streams
+                        ),
                         "binaryStreams",
                         "resolveStreamEndpoint",
-                        "type BinaryStreamConnection",
                     ],
                     f"{root}streams",
                 )
@@ -248,9 +251,9 @@ class _Renderer:
             stream_imports = ["type BinaryStreamOpener"]
             if self.root_streams:
                 stream_imports = [
+                    *_stream_connections(self.root_streams),
                     "binaryStreams",
                     "resolveStreamEndpoint",
-                    "type BinaryStreamConnection",
                     *stream_imports,
                 ]
             if self.options.with_transport == "websocket":
@@ -600,6 +603,18 @@ def _notification_type(ir: ClientIr) -> TypeExpr | None:
         return None
     members = tuple(item.payload for item in ir.notifications)
     return members[0] if len(members) == 1 else UnionType(members)
+
+
+def _stream_connection(stream: BinaryStreamDecl) -> str:
+    if stream.direction == "client-to-server":
+        return "BinarySinkConnection"
+    if stream.direction == "bidirectional":
+        return "BinaryDuplexConnection"
+    return "BinaryStreamConnection"
+
+
+def _stream_connections(streams: Iterable[BinaryStreamDecl]) -> list[str]:
+    return sorted({_stream_connection(stream) for stream in streams})
 
 
 def _value_import(names: Iterable[str], module: str) -> str:

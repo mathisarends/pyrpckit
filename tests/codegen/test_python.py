@@ -373,7 +373,7 @@ def test_binary_streams_generate_typed_media_clients(
     media = files["streams.py"]
 
     assert "class BinaryWebSocketStream:" in media
-    assert "class BinaryStreamOpening:" in media
+    assert "class BinaryStreamOpening[" in media
     assert "frame = await self._socket.recv()" in media
     assert "json.dumps" not in media
     assert "base64" not in media.lower()
@@ -470,7 +470,35 @@ def _methods_and_events() -> rpc.RpcChannel:
     return channel
 
 
-@pytest.mark.parametrize("channel", [_methods_only, _events_only, _methods_and_events])
+def _all_stream_directions() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("media")
+
+    @channel.method
+    async def echo(params: _Params) -> _Result: ...
+
+    @channel.stream
+    async def preview() -> AsyncIterator[bytes]:
+        yield b""
+
+    @channel.stream(input_content_type="audio/pcm")
+    async def upload(session_id: str, frames: rpc.Inject[rpc.RpcBinaryInput]) -> None:
+        pass
+
+    @channel.stream(content_type="audio/opus")
+    async def talk(
+        session_id: str,
+        frames: rpc.Inject[rpc.RpcBinaryInput],
+        output: rpc.Inject[rpc.RpcBinaryOutput],
+    ) -> None:
+        pass
+
+    return channel
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [_methods_only, _events_only, _methods_and_events, _all_stream_directions],
+)
 @pytest.mark.parametrize("transport", [None, "websocket"])
 def test_generated_python_from_services_is_ruff_clean(
     channel: Callable[[], rpc.RpcChannel],
@@ -478,7 +506,12 @@ def test_generated_python_from_services_is_ruff_clean(
     tmp_path: Path,
 ) -> None:
     service = rpc.RpcService()
-    service.socket("/v1/gateway", channels=[channel()])
+    mounted = channel()
+    service.socket("/v1/gateway", channels=[mounted])
+    for stream in mounted.streams:
+        local = stream.name.rsplit(".", 1)[-1]
+        prefix = "/v1/{session_id}" if stream.path_parameters else "/v1"
+        service.stream(f"{prefix}/{local}", stream.function)
     contract = service.contract(title="Gateway", base_url="http://localhost")
 
     _assert_ruff_clean(

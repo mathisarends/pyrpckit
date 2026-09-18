@@ -183,20 +183,26 @@ class BinaryStreamDecl:
     operation_name: str
     path: tuple[str, ...]
     url: str
-    content_type: str
+    content_type: str | None
     summary: str = ""
     description: str = ""
     tags: tuple[str, ...] = ()
     variables: tuple[ServerVariableDecl, ...] = ()
     subprotocols: tuple[str, ...] = ()
+    direction: str = "server-to-client"
+    input_content_type: str | None = None
 
     @property
     def name(self) -> str:
         return self.rpc_name
 
     @property
-    def direction(self) -> str:
-        return "server-to-client"
+    def has_input(self) -> bool:
+        return self.direction != "server-to-client"
+
+    @property
+    def has_output(self) -> bool:
+        return self.direction != "client-to-server"
 
 
 @dataclass(frozen=True, slots=True)
@@ -578,7 +584,8 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
         name = value.get("name")
         url = value.get("url")
         direction = value.get("direction")
-        content_type = value.get("contentType", "application/octet-stream")
+        content_type = value.get("contentType")
+        input_content_type = value.get("inputContentType")
         if not isinstance(name, str) or not name:
             raise UnsupportedSchemaError("Binary streams need a non-empty name")
         if name in names:
@@ -588,13 +595,32 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
             raise UnsupportedSchemaError(
                 f"Binary stream {name!r} needs a non-empty URL"
             )
-        if direction != "server-to-client":
+        if direction not in _STREAM_DIRECTIONS:
             raise UnsupportedSchemaError(
-                "only server-to-client binary streams are supported"
+                f"Binary stream {name!r} has unsupported direction {direction!r}; "
+                "expected one of " + ", ".join(_STREAM_DIRECTIONS)
             )
-        if not isinstance(content_type, str) or not content_type:
+        if direction == "client-to-server":
+            if content_type is not None:
+                raise UnsupportedSchemaError(
+                    f"Binary stream {name!r} is client-to-server and cannot "
+                    "declare an output contentType"
+                )
+        else:
+            content_type = content_type or "application/octet-stream"
+            if not isinstance(content_type, str):
+                raise UnsupportedSchemaError(
+                    f"Binary stream {name!r} needs a non-empty contentType"
+                )
+        if direction == "server-to-client":
+            if input_content_type is not None:
+                raise UnsupportedSchemaError(
+                    f"Binary stream {name!r} is server-to-client and cannot "
+                    "declare an inputContentType"
+                )
+        elif not isinstance(input_content_type, str) or not input_content_type:
             raise UnsupportedSchemaError(
-                f"Binary stream {name!r} needs a non-empty contentType"
+                f"Binary stream {name!r} needs a non-empty inputContentType"
             )
         if value.get("frameType", "binary") != "binary":
             raise UnsupportedSchemaError(
@@ -633,9 +659,14 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
                     for variable_name, variable in variables.items()
                 ),
                 subprotocols=tuple(subprotocols),
+                direction=direction,
+                input_content_type=input_content_type,
             )
         )
     return tuple(streams)
+
+
+_STREAM_DIRECTIONS = ("server-to-client", "client-to-server", "bidirectional")
 
 
 def _validate_server_references(

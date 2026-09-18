@@ -191,6 +191,7 @@ class RpcChannel:
         /,
         *,
         content_type: str = "application/octet-stream",
+        input_content_type: str | None = None,
         summary: str | None = None,
     ) -> Any:
         self._ensure_mutable()
@@ -202,6 +203,12 @@ class RpcChannel:
             )
         if not isinstance(content_type, str) or not content_type:
             raise ProtocolDefinitionError("RPC stream content_type cannot be empty")
+        if input_content_type is not None and (
+            not isinstance(input_content_type, str) or not input_content_type
+        ):
+            raise ProtocolDefinitionError(
+                "RPC stream input_content_type cannot be empty"
+            )
 
         def decorate(function: FunctionType) -> FunctionType:
             self._validate_function(function, "stream", coroutine=False)
@@ -211,6 +218,7 @@ class RpcChannel:
                 name=wire_name,
                 function=function,
                 content_type=content_type,
+                input_content_type=input_content_type,
                 summary=summary or _docstring_summary(function),
                 resolver_scope=self.resolver_scope,
             )

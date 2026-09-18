@@ -214,6 +214,13 @@ class RpcService:
             raise ProtocolDefinitionError("An RPC stream can only be mounted once")
         channel, _ = marker
         definition = next(item for item in channel.streams if item.function is stream)
+        missing = [p for p in definition.path_parameters if p not in variables]
+        if missing:
+            raise ProtocolDefinitionError(
+                f"RPC binary stream {definition.name} parameters "
+                f"{', '.join(missing)} are not path variables of {path!r}; "
+                "annotate dependencies as Inject[T]"
+            )
         endpoint = RpcStreamEndpoint(
             self,
             name or _endpoint_name(path),

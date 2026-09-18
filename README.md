@@ -132,7 +132,7 @@ public schema.
   hook, rejecting handshakes, server-pushed events, limits
 - [Typed errors](docs/errors.md) — stable codes, typed details, generated
   exception classes
-- [Binary streams](docs/streams.md) — receive-only byte streams beside JSON-RPC
+- [Binary streams](docs/streams.md) — upload, download, and bidirectional byte streams beside JSON-RPC
 - [Contract and clients](docs/clients.md) — `rpcgen.toml`, the CLI, the shape
   of generated clients
 - [Transports](docs/transports.md) — FastAPI, custom sockets, testing

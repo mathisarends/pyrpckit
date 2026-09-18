@@ -7,6 +7,7 @@ from typing import Any
 
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import RpcProtocol
+from pyrpckit.streams import RpcStreamDirection
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,14 +129,18 @@ def contract_from_service(
                 server["variables"] = variable_docs
             servers.append(server)
         elif isinstance(endpoint, RpcStreamEndpoint):
+            stream = endpoint.stream
             item: dict[str, Any] = {
-                "name": endpoint.stream.name,
+                "name": stream.name,
                 "url": url,
-                "direction": "server-to-client",
-                "contentType": endpoint.stream.content_type,
-                "frameType": "binary",
+                "direction": stream.direction.value,
             }
-            summary = endpoint.stream.summary or endpoint.summary
+            if stream.direction is not RpcStreamDirection.CLIENT_TO_SERVER:
+                item["contentType"] = stream.content_type
+            if stream.input_content_type is not None:
+                item["inputContentType"] = stream.input_content_type
+            item["frameType"] = "binary"
+            summary = stream.summary or endpoint.summary
             if summary:
                 item["summary"] = summary
             if variable_docs:

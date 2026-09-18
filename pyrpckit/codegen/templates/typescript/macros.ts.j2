@@ -17,7 +17,7 @@
 {% endif %}  {{ item.operation_name | identifier }}(options?: {
 {% for variable in item.variables %}    readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
 {% endfor %}    readonly url?: string | URL;
-  }): Promise<BinaryStreamConnection> {
+  }): Promise<{{ item | stream_connection }}> {
     return {{ "this.#rpc" if root else "this.rpc" }}.openStream(
       resolveStreamEndpoint(
         binaryStreams.{{ item.name | identifier }},
@@ -26,6 +26,7 @@
 {% endfor %}        }{% else %}{}{% endif %},
         {{ "{ url: options?.url, defaults: this.#rpc.variables }" if root else "{ url: options?.url, defaults: this.rpc.variables }" }},
       ),
+      (transport) => new {{ item | stream_connection }}(transport),
     );
   }
 {% endmacro %}

@@ -9,6 +9,8 @@ from .internal import (
     RpcRemoteError,
     RpcResponseValidationError,
     RpcStreamClosed,
+    RpcStreamFailed,
+    RpcStreamRefused,
     RpcStreamsUnavailableError,
     RpcTransportError,
 )
@@ -24,6 +26,9 @@ from .models import (
 )
 from .namespaces import Browser, Tasks
 from .streams import (
+    BinaryDuplexConnection,
+    BinaryInputTransport,
+    BinarySinkConnection,
     BinaryStreamConnection,
     BinaryStreamEndpoint,
     BinaryStreamName,
@@ -36,6 +41,9 @@ from .transport import WebSocketTransport
 
 __all__ = [
     "AutomationClient",
+    "BinaryDuplexConnection",
+    "BinaryInputTransport",
+    "BinarySinkConnection",
     "BinaryStreamConnection",
     "BinaryStreamEndpoint",
     "BinaryStreamName",
@@ -52,6 +60,8 @@ __all__ = [
     "RpcRemoteError",
     "RpcResponseValidationError",
     "RpcStreamClosed",
+    "RpcStreamFailed",
+    "RpcStreamRefused",
     "RpcStreamsUnavailableError",
     "RpcTransportError",
     "ServerName",

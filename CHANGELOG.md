@@ -2,6 +2,25 @@
 
 ## 0.6.0 - Unreleased
 
+### Added
+
+- Add client-to-server and bidirectional binary streams. The handler signature
+  determines the direction: async functions inject `RpcBinaryInput` and/or
+  `RpcBinaryOutput`, and async generators remain server-to-client. The client
+  ends its input with the text message `{"type":"end"}`. A disconnect before the
+  end aborts the handler. Incoming frames use a bounded queue, which applies
+  backpressure.
+- Treat stream handler parameters without `Inject[...]` as typed path
+  variables. They are validated before the handshake is accepted and rejected
+  as `NOT_FOUND`.
+- Add `input_content_type=` to `@channel.stream()`. Write `direction` and
+  `inputContentType` to `x-rpckit-binary-streams`.
+- Generate `BinarySinkConnection` and `BinaryDuplexConnection` stream clients
+  with `send()`, `end_input()` / `endInput()`, and `end()` in Python and
+  TypeScript. Error closes now raise `RpcStreamFailed`, and policy violations
+  (1008) raise `RpcStreamRefused`.
+- Add `send_frame()`, `end_input()`, and `closed()` to `RpcTestClient`.
+
 ### Fixed
 
 - Prevent Starlette's normal WebSocket teardown cancellation from escaping

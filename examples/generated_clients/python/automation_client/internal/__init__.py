@@ -8,6 +8,8 @@ from .errors import (
     RpcRemoteError,
     RpcResponseValidationError,
     RpcStreamClosed,
+    RpcStreamFailed,
+    RpcStreamRefused,
     RpcStreamsUnavailableError,
     RpcTransportError,
 )
@@ -39,6 +41,8 @@ __all__ = [
     "RpcServerInfo",
     "RpcServerVariable",
     "RpcStreamClosed",
+    "RpcStreamFailed",
+    "RpcStreamRefused",
     "RpcStreamsUnavailableError",
     "RpcTransport",
     "RpcTransportDescriptor",

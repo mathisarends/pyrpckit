@@ -288,7 +288,23 @@ def test_generated_typescript_is_prettier_formatted(
             "url": "wss://media",
             "direction": "server-to-client",
             "frameType": "binary",
-        }
+        },
+        {
+            "name": "uploads.audio",
+            "url": "wss://media/{sessionId}/upload",
+            "direction": "client-to-server",
+            "inputContentType": "audio/pcm",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+        },
+        {
+            "name": "uploads.talk",
+            "url": "wss://media/talk",
+            "direction": "bidirectional",
+            "contentType": "audio/opus",
+            "inputContentType": "audio/pcm",
+            "frameType": "binary",
+        },
     ]
     generate_typescript_client(nested, output, options())
     nested["servers"] = [

@@ -4,8 +4,8 @@
 
 import type { RpcTransport } from "./transport";
 import {
-  BinaryStreamConnection,
   RpcStreamsUnavailableError,
+  type BinaryInputTransport,
   type BinaryStreamEndpoint,
   type BinaryStreamOpener,
 } from "./streams";
@@ -214,15 +214,26 @@ export class RpcClientCore {
     this.variables = options?.variables ?? {};
   }
 
-  async openStream(
+  async openStream<Connection>(
     endpoint: BinaryStreamEndpoint,
-  ): Promise<BinaryStreamConnection> {
+    connect: (transport: BinaryInputTransport) => Connection,
+  ): Promise<Connection> {
     if (this.streamOpener === undefined) {
       throw new RpcStreamsUnavailableError(
         "No binary stream opener configured; pass streamOpener",
       );
     }
-    return new BinaryStreamConnection(await this.streamOpener(endpoint));
+    const transport = await this.streamOpener(endpoint);
+    if (
+      endpoint.direction !== "server-to-client" &&
+      (transport.send === undefined || transport.endInput === undefined)
+    ) {
+      await transport.close();
+      throw new RpcStreamsUnavailableError(
+        `The binary stream ${endpoint.name} sends frames, but the stream opener returned a transport without send() and endInput()`,
+      );
+    }
+    return connect(transport as BinaryInputTransport);
   }
 
   async request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {

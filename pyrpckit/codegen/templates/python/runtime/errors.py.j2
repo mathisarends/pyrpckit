@@ -63,6 +63,22 @@ class RpcStreamClosed(RpcClientError):
     """Raised when a binary stream ended because the server closed it."""
 
 
+class RpcStreamFailed(RpcClientError):
+    """Raised when the server closed a binary stream with an error code."""
+
+    def __init__(self, code: int, reason: str = "") -> None:
+        super().__init__(
+            f"The binary stream closed with code {code}"
+            + (f": {reason}" if reason else "")
+        )
+        self.code = code
+        self.reason = reason
+
+
+class RpcStreamRefused(RpcStreamFailed):
+    """Raised when the server refused a binary stream by policy (1008)."""
+
+
 class RpcResponseValidationError(RpcClientError):
     def __init__(self, method: str, error: ValidationError) -> None:
         super().__init__(f"Invalid response for RPC method {method!r}: {error}")

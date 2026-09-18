@@ -28,7 +28,7 @@
         *,
 {% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
 {% endfor %}        url: str | None = None,
-    ) -> BinaryStreamOpening:
+    ) -> BinaryStreamOpening[{{ item | stream_connection }}]:
 {% if item.summary %}        """{{ item.summary | docstring }}"""
 {% endif %}        return BinaryStreamOpening(
             resolve_stream_endpoint(
@@ -40,5 +40,6 @@
                 defaults=self._rpc.variables,
             ),
             self._rpc.stream_opener,
+            {{ item | stream_connection }},
         )
 {% endmacro %}

@@ -34,6 +34,12 @@ from .observer import (
 )
 from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
+from .streams import (
+    RpcBinaryInput,
+    RpcBinaryOutput,
+    RpcInputEnded,
+    RpcStreamDirection,
+)
 
 __version__ = "0.6.0"
 
@@ -41,6 +47,8 @@ __all__ = [
     "Inject",
     "LOGGER_NAME",
     "ProtocolDefinitionError",
+    "RpcBinaryInput",
+    "RpcBinaryOutput",
     "RpcChannel",
     "RpcCodec",
     "RpcConnection",
@@ -54,6 +62,7 @@ __all__ = [
     "RpcErrorMapper",
     "RpcFailure",
     "RpcHandshake",
+    "RpcInputEnded",
     "RpcInternalError",
     "RpcInvalidParamsError",
     "RpcInvalidRequestError",
@@ -72,6 +81,7 @@ __all__ = [
     "RpcServer",
     "RpcService",
     "RpcSocket",
+    "RpcStreamDirection",
     "RpcStreamEndpoint",
     "RpcSuccess",
     "RpcValidationIssue",

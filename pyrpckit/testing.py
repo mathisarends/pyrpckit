@@ -120,6 +120,7 @@ class RpcTestClient:
         self._notifications: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         matched = service.match(path)
         self._stream = matched is not None and isinstance(matched[0], RpcStreamEndpoint)
+        self._input = self._stream and matched[0].stream.has_input
 
     async def __aenter__(self):
         self._task = asyncio.create_task(
@@ -205,3 +206,20 @@ class RpcTestClient:
         if not isinstance(value, bytes):
             raise TypeError("Expected a binary frame")
         return value
+
+    async def send_frame(self, data: bytes | bytearray | memoryview) -> None:
+        if not self._input:
+            raise TypeError("send_frame() is only available for streams with input")
+        await self.socket.client_send(bytes(data))
+
+    async def end_input(self) -> None:
+        if not self._input:
+            raise TypeError("end_input() is only available for streams with input")
+        await self.socket.client_send(json.dumps({"type": "end"}))
+
+    async def closed(self) -> tuple[RpcConnectionClose, str] | None:
+        """Wait until the server finished the connection and return its close."""
+        if self._task is not None:
+            with suppress(asyncio.CancelledError):
+                await self._task
+        return self.socket.closed

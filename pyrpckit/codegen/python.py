@@ -152,6 +152,8 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
         "RpcRemoteError",
         "RpcResponseValidationError",
         "RpcStreamClosed",
+        "RpcStreamFailed",
+        "RpcStreamRefused",
         "RpcStreamsUnavailableError",
         "RpcTransportError",
     )
@@ -181,6 +183,8 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
             "RpcServerInfo",
             "RpcServerVariable",
             "RpcStreamClosed",
+            "RpcStreamFailed",
+            "RpcStreamRefused",
             "RpcStreamsUnavailableError",
             "RpcTransport",
             "RpcTransportDescriptor",
@@ -283,16 +287,17 @@ def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports.add("dataclasses", "dataclass", "field")
     imports.add("enum", "StrEnum")
     imports.add("types", "MappingProxyType")
-    imports.add("typing", "Protocol", "Self")
+    imports.add("typing", "Any", "Literal", "Protocol", "Self")
     imports.add(
         _runtime_module(options),
         "RpcServerVariable",
         "RpcStreamClosed",
         "RpcStreamsUnavailableError",
+        "RpcTransportError",
         "resolve_url_template",
     )
     if options.with_transport == "websocket":
-        imports.add(_runtime_module(options), "RpcTransportError")
+        imports.add(_runtime_module(options), "RpcStreamFailed", "RpcStreamRefused")
     body = render_template(
         "python/streams.py.j2",
         filters=_template_filters(imports, options),
@@ -528,6 +533,9 @@ def _render_package_init(
         imports.add(options.package, "streams")
         imports.add(
             f"{options.package}.streams",
+            "BinaryDuplexConnection",
+            "BinaryInputTransport",
+            "BinarySinkConnection",
             "BinaryStreamEndpoint",
             "BinaryStreamName",
             "BinaryStreamConnection",
@@ -538,10 +546,15 @@ def _render_package_init(
         imports.add(
             _runtime_module(options),
             "RpcStreamClosed",
+            "RpcStreamFailed",
+            "RpcStreamRefused",
             "RpcStreamsUnavailableError",
         )
         exported.extend(
             [
+                "BinaryDuplexConnection",
+                "BinaryInputTransport",
+                "BinarySinkConnection",
                 "BinaryStreamEndpoint",
                 "BinaryStreamName",
                 "BinaryStreamConnection",
@@ -549,6 +562,8 @@ def _render_package_init(
                 "BinaryStreamOpening",
                 "BinaryStreamTransport",
                 "RpcStreamClosed",
+                "RpcStreamFailed",
+                "RpcStreamRefused",
                 "RpcStreamsUnavailableError",
                 "streams",
             ]
@@ -657,6 +672,21 @@ def _parameter_annotation(
     return f"{_union((annotation, 'UnsetType'))} = UNSET"
 
 
+def _stream_connection(
+    stream: BinaryStreamDecl,
+    imports: _Imports,
+    options: PythonClientOptions,
+) -> str:
+    if stream.direction == "client-to-server":
+        name = "BinarySinkConnection"
+    elif stream.direction == "bidirectional":
+        name = "BinaryDuplexConnection"
+    else:
+        name = "BinaryStreamConnection"
+    imports.add(f"{options.package}.streams", name)
+    return name
+
+
 def _template_filters(
     imports: _Imports,
     options: PythonClientOptions,
@@ -684,6 +714,9 @@ def _template_filters(
         "identifier": _identifier,
         "literal": _literal,
         "model_decl": lambda declaration: isinstance(declaration, ModelDecl),
+        "stream_connection": lambda stream: _stream_connection(
+            stream, imports, options
+        ),
         "null_type": _is_null,
         "options_literal": lambda values: _literal(dict(values)),
         "placeholder": lambda value: _literal(f"{{{value}}}"),
@@ -1127,6 +1160,9 @@ _PACKAGE_EXPORTS = (
 )
 
 _STREAM_EXPORTS = (
+    "BinaryDuplexConnection",
+    "BinaryInputTransport",
+    "BinarySinkConnection",
     "BinaryStreamConnection",
     "BinaryStreamEndpoint",
     "BinaryStreamName",
@@ -1135,6 +1171,8 @@ _STREAM_EXPORTS = (
     "BinaryStreamTransport",
     "BinaryWebSocketStream",
     "RpcStreamClosed",
+    "RpcStreamFailed",
+    "RpcStreamRefused",
     "RpcStreamsUnavailableError",
 )
 

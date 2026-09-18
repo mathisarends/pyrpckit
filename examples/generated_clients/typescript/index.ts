@@ -19,13 +19,18 @@ export type { Endpoint, ServerName } from "./endpoints";
 export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
 export {
+  BinaryDuplexConnection,
+  BinarySinkConnection,
   BinaryStreamConnection,
   RpcStreamClosed,
+  RpcStreamFailed,
+  RpcStreamRefused,
   RpcStreamsUnavailableError,
   binaryStreams,
   resolveStreamEndpoint,
 } from "./streams";
 export type {
+  BinaryInputTransport,
   BinaryStreamDirection,
   BinaryStreamEndpoint,
   BinaryStreamName,

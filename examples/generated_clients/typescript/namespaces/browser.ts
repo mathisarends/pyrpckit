@@ -4,9 +4,9 @@
 
 import type { RpcClientCore } from "../core";
 import {
+  BinaryStreamConnection,
   binaryStreams,
   resolveStreamEndpoint,
-  type BinaryStreamConnection,
 } from "../streams";
 import { routes } from "../routes";
 import type { OpenTabParams, StartScreencastParams, Tab } from "../models";
@@ -41,6 +41,7 @@ export class BrowserScreencast {
         },
         { url: options?.url, defaults: this.rpc.variables },
       ),
+      (transport) => new BinaryStreamConnection(transport),
     );
   }
 }
