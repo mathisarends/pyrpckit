@@ -44,7 +44,8 @@
 - Generated stream methods only accept the stream's own path variables, such
   as a session ID. Variables that a server also declares, such as `host`, come
   from `connect()`. The per-call `url` override is gone; to redirect a stream,
-  wrap the `stream_opener` or `stream_socket_factory`.
+  wrap the `stream_opener` or `stream_socket_factory`. In turn, `connect()`
+  only accepts server variables, not the path variables of a single stream.
 
 - Keep authentication in the hosting framework before `serve()` instead of
   coupling it to the RPC service lifecycle. `RpcConnection` remains injectable

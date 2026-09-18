@@ -239,6 +239,7 @@ def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -
     assert "JSON.stringify(end)" in media
     assert "base64" not in media.lower()
     assert "voice(" in client
+    assert client.count("readonly sessionId?: string") == 1
     assert 'contentType: "audio/pcm;rate=24000"' in media
     assert 'from "./streams"' in files["index.ts"]
 
