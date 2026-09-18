@@ -254,18 +254,15 @@ export const binaryStreams = {
 
 export type StreamVariables = Readonly<Record<string, string | undefined>>;
 
-/** Fill a stream URL, falling back to the values the client connected with. */
+/** Fill a stream URL from the call's values, then the client's connect values. */
 export function resolveStreamEndpoint(
   stream: BinaryStreamInfo,
+  connected: StreamVariables = {},
   values: StreamVariables = {},
-  options: {
-    readonly url?: string | URL;
-    readonly defaults?: StreamVariables;
-  } = {},
 ): BinaryStreamEndpoint {
   return {
     name: stream.name,
-    url: resolveUrl(stream, values, options),
+    url: resolveUrl(stream, connected, values),
     direction: stream.direction,
     contentType: stream.contentType,
     inputContentType: stream.inputContentType,
@@ -275,12 +272,12 @@ export function resolveStreamEndpoint(
 
 function resolveUrl(
   stream: BinaryStreamInfo,
+  connected: StreamVariables,
   values: StreamVariables,
-  options: { readonly url?: string | URL; readonly defaults?: StreamVariables },
 ): string {
-  let url = String(options.url ?? stream.url);
+  let url = stream.url;
   for (const [name, variable] of Object.entries(stream.variables ?? {})) {
-    const value = values[name] ?? options.defaults?.[name] ?? variable.default;
+    const value = values[name] ?? connected[name] ?? variable.default;
     if (variable.enum !== undefined && !variable.enum.includes(value)) {
       throw new Error(
         `Invalid value for binary stream variable ${name}: ${value}`,

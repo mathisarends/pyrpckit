@@ -379,7 +379,8 @@ def test_binary_streams_generate_typed_media_clients(
     assert "base64" not in media.lower()
     assert "def voice(" in files["client.py"]
     assert "session_id: str | None = None," in files["client.py"]
-    assert "defaults=self._rpc.variables," in files["client.py"]
+    assert "self._rpc.variables," in files["client.py"]
+    assert "url=url" not in files["client.py"]
     assert 'content_type="audio/pcm;rate=24000"' in media
     assert 'default="demo"' in media
     assert "BinaryWebSocketStream" in files["__init__.py"]

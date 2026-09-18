@@ -191,6 +191,8 @@ class BinaryStreamDecl:
     subprotocols: tuple[str, ...] = ()
     direction: str = "server-to-client"
     input_content_type: str | None = None
+    call_variables: tuple[ServerVariableDecl, ...] = ()
+    """The variables each call fills; the rest come from ``connect``."""
 
     @property
     def name(self) -> str:
@@ -260,13 +262,16 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
     info = document.get("info", {})
     routes = tuple(_route(method) for method in methods)
     root_operations = tuple(route for route in routes if not route.path)
-    binary_streams = _binary_streams(document)
+    servers = _servers(document)
+    binary_streams = _binary_streams(
+        document,
+        {variable.name for server in servers for variable in server.variables},
+    )
     api = _api_tree(
         (route for route in routes if route.path),
         (stream for stream in binary_streams if stream.path),
     )
     notifications = _notifications(document)
-    servers = _servers(document)
     _validate_server_references(routes, notifications, servers)
     declarations = (
         *discriminator_enums,
@@ -572,7 +577,9 @@ def _servers(document: dict[str, Any]) -> tuple[ServerDecl, ...]:
     )
 
 
-def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
+def _binary_streams(
+    document: dict[str, Any], server_variables: set[str]
+) -> tuple[BinaryStreamDecl, ...]:
     values = document.get("x-rpckit-binary-streams", ())
     if not isinstance(values, list | tuple):
         raise UnsupportedSchemaError("x-rpckit-binary-streams must be an array")
@@ -639,6 +646,15 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
                 f"Binary stream {name!r} variables must be an object"
             )
         *path, operation_name = name.split(".")
+        declared = tuple(
+            ServerVariableDecl(
+                name=variable_name,
+                default=variable["default"],
+                description=variable.get("description", ""),
+                enum=tuple(variable.get("enum", ())),
+            )
+            for variable_name, variable in variables.items()
+        )
         streams.append(
             BinaryStreamDecl(
                 rpc_name=name,
@@ -649,18 +665,15 @@ def _binary_streams(document: dict[str, Any]) -> tuple[BinaryStreamDecl, ...]:
                 summary=value.get("summary", ""),
                 description=value.get("description", ""),
                 tags=tuple(tag["name"] for tag in value.get("tags", ())),
-                variables=tuple(
-                    ServerVariableDecl(
-                        name=variable_name,
-                        default=variable["default"],
-                        description=variable.get("description", ""),
-                        enum=tuple(variable.get("enum", ())),
-                    )
-                    for variable_name, variable in variables.items()
-                ),
+                variables=declared,
                 subprotocols=tuple(subprotocols),
                 direction=direction,
                 input_content_type=input_content_type,
+                call_variables=tuple(
+                    variable
+                    for variable in declared
+                    if variable.name not in server_variables
+                ),
             )
         )
     return tuple(streams)

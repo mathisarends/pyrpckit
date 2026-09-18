@@ -54,61 +54,34 @@ class BrowserScreencast:
             params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
         )
 
-    def frames(
-        self,
-        *,
-        host: str | None = None,
-        url: str | None = None,
-    ) -> AbstractAsyncContextManager[BinaryReceiver]:
+    def frames(self) -> AbstractAsyncContextManager[BinaryReceiver]:
         """Raw screencast frames as binary WebSocket messages."""
         return open_binary_stream(
             resolve_stream_endpoint(
                 BINARY_STREAMS[BinaryStreamName.BROWSER_SCREENCAST_FRAMES],
-                {
-                    "host": host,
-                },
-                url=url,
-                defaults=self._rpc.variables,
+                self._rpc.variables,
             ),
             self._rpc.stream_opener,
             BinaryReceiver,
         )
 
-    def upload(
-        self,
-        *,
-        host: str | None = None,
-        url: str | None = None,
-    ) -> AbstractAsyncContextManager[BinarySender]:
+    def upload(self) -> AbstractAsyncContextManager[BinarySender]:
         """Upload a recorded screencast as binary WebSocket messages."""
         return open_binary_stream(
             resolve_stream_endpoint(
                 BINARY_STREAMS[BinaryStreamName.BROWSER_SCREENCAST_UPLOAD],
-                {
-                    "host": host,
-                },
-                url=url,
-                defaults=self._rpc.variables,
+                self._rpc.variables,
             ),
             self._rpc.stream_opener,
             BinarySender,
         )
 
-    def control(
-        self,
-        *,
-        host: str | None = None,
-        url: str | None = None,
-    ) -> AbstractAsyncContextManager[BinaryChannel]:
+    def control(self) -> AbstractAsyncContextManager[BinaryChannel]:
         """Receive frames while sending input events back."""
         return open_binary_stream(
             resolve_stream_endpoint(
                 BINARY_STREAMS[BinaryStreamName.BROWSER_SCREENCAST_CONTROL],
-                {
-                    "host": host,
-                },
-                url=url,
-                defaults=self._rpc.variables,
+                self._rpc.variables,
             ),
             self._rpc.stream_opener,
             BinaryChannel,

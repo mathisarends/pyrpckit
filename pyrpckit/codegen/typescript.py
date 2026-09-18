@@ -123,14 +123,6 @@ class _Renderer:
             "array": _array,
             "comment": _comment,
             "compact_notification": self._compact_notification,
-            "compact_stream": lambda stream: (
-                len(
-                    "      resolveStreamEndpoint(binaryStreams."
-                    + _identifier(stream.name)
-                    + ", variables, options?.url),"
-                )
-                <= 80
-            ),
             "enum_decl": lambda declaration: isinstance(declaration, EnumDecl),
             "identifier": _identifier,
             "literal": _ts_literal,
@@ -144,6 +136,8 @@ class _Renderer:
             "route_key": _route_key,
             "schema_name": _schema_name,
             "server_variable_type": _server_variable_type,
+            "stream_endpoint": _stream_endpoint,
+            "stream_signature": _stream_signature,
             "stream_connection": _stream_connection,
             "subprotocols": _server_subprotocols,
             "type": self._type,
@@ -643,6 +637,52 @@ def _type_export(names: Iterable[str], module: str) -> str:
 
 def _array(values: Iterable[object]) -> str:
     return "[" + ", ".join(_ts_literal(value) for value in values) + "]"
+
+
+def _stream_signature(stream: BinaryStreamDecl) -> str:
+    """A stream method's opening line, laid out as Prettier would."""
+    name = _identifier(stream.operation_name)
+    returns = f"Promise<{_stream_connection(stream)}>"
+    if not stream.call_variables:
+        return f"  {name}(): {returns} {{"
+    fields = [
+        f"readonly {_property(variable.name)}?: {_server_variable_type(variable)}"
+        for variable in stream.call_variables
+    ]
+    inline = f"  {name}(options?: {{ {'; '.join(fields)} }}): {returns} {{"
+    if len(inline) <= _TS_WIDTH:
+        return inline
+    body = "".join(f"    {field};\n" for field in fields)
+    return f"  {name}(options?: {{\n{body}  }}): {returns} {{"
+
+
+def _stream_endpoint(stream: BinaryStreamDecl, rpc: str) -> str:
+    """The ``resolveStreamEndpoint(...)`` argument, laid out as Prettier would."""
+    indent = " " * 6
+    head = [f"binaryStreams.{_identifier(stream.name)}", f"{rpc}.variables"]
+    if not stream.call_variables:
+        inline = f"{indent}resolveStreamEndpoint({', '.join(head)}),"
+        if len(inline) <= _TS_WIDTH:
+            return inline
+        args = "".join(f"{indent}  {arg},\n" for arg in head)
+        return f"{indent}resolveStreamEndpoint(\n{args}{indent}),"
+    fields = [
+        f"{_property(variable.name)}: options?.{_property(variable.name)},"
+        for variable in stream.call_variables
+    ]
+    hugged = f"{indent}resolveStreamEndpoint({', '.join(head)}, {{"
+    if len(hugged) <= _TS_WIDTH:
+        body = "".join(f"{indent}  {field}\n" for field in fields)
+        return f"{hugged}\n{body}{indent}}}),"
+    args = "".join(f"{indent}  {arg},\n" for arg in head)
+    body = "".join(f"{indent}    {field}\n" for field in fields)
+    return (
+        f"{indent}resolveStreamEndpoint(\n{args}{indent}  {{\n{body}"
+        f"{indent}  }},\n{indent}),"
+    )
+
+
+_TS_WIDTH = 80
 
 
 def _server_variable_type(variable: ServerVariableDecl) -> str:

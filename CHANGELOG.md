@@ -41,6 +41,10 @@
 - Open generated Python streams only with `async with`. Stream methods now
   return an async context manager; `BinaryStreamOpening` and its `open()`
   method are gone, so an opened stream can no longer be left unclosed.
+- Generated stream methods only accept the stream's own path variables, such
+  as a session ID. Variables that a server also declares, such as `host`, come
+  from `connect()`. The per-call `url` override is gone; to redirect a stream,
+  wrap the `stream_opener` or `stream_socket_factory`.
 
 - Keep authentication in the hosting framework before `serve()` instead of
   coupling it to the RPC service lifecycle. `RpcConnection` remains injectable

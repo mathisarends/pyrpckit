@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     assert(rest.join() === "bye", `output after end ${rest.join()}`);
   }
 
-  const refused = await client.voice.media({ url: "wss://media/refused/media" });
+  const refused = await client.voice.media({ room: "refused" });
   const refusal = await rejection(refused.receive());
   assert(refusal instanceof RpcStreamRefused, "1008 is a refusal");
   assert(refusal.reason === "Session has an owner", "refusal reason");
@@ -232,11 +232,12 @@ def test_generated_typescript_input_streams_follow_the_wire_protocol(
         },
         {
             "name": "voice.media",
-            "url": "wss://media/talk/media",
+            "url": "wss://media/{room}/media",
             "direction": "bidirectional",
             "contentType": "audio/opus",
             "inputContentType": "audio/pcm",
             "frameType": "binary",
+            "variables": {"room": {"default": "talk"}},
         },
     ]
     generate_typescript_client(

@@ -202,13 +202,8 @@ def test_generated_client_connect_behavior_in_node(
               });
               const inherited = await streams.greeting.frames();
               await inherited.close();
-              const explicit = await streams.greeting.frames({
-                host: "other.example.com",
-              });
-              await explicit.close();
               assert(
-                streamUrls.join() ===
-                  "wss://stage.example.com/frames,wss://other.example.com/frames",
+                streamUrls.join() === "wss://stage.example.com/frames",
                 `unexpected stream URLs: ${streamUrls}`,
               );
               await streams.close();

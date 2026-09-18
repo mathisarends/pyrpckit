@@ -31,51 +31,33 @@ export class BrowserScreencast {
   }
 
   /** Raw screencast frames as binary WebSocket messages. */
-  frames(options?: {
-    readonly host?: string;
-    readonly url?: string | URL;
-  }): Promise<BinaryReceiver> {
+  frames(): Promise<BinaryReceiver> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastFrames,
-        {
-          host: options?.host,
-        },
-        { url: options?.url, defaults: this.rpc.variables },
+        this.rpc.variables,
       ),
       (transport) => new BinaryReceiver(transport),
     );
   }
 
   /** Upload a recorded screencast as binary WebSocket messages. */
-  upload(options?: {
-    readonly host?: string;
-    readonly url?: string | URL;
-  }): Promise<BinarySender> {
+  upload(): Promise<BinarySender> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastUpload,
-        {
-          host: options?.host,
-        },
-        { url: options?.url, defaults: this.rpc.variables },
+        this.rpc.variables,
       ),
       (transport) => new BinarySender(transport),
     );
   }
 
   /** Receive frames while sending input events back. */
-  control(options?: {
-    readonly host?: string;
-    readonly url?: string | URL;
-  }): Promise<BinaryChannel> {
+  control(): Promise<BinaryChannel> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastControl,
-        {
-          host: options?.host,
-        },
-        { url: options?.url, defaults: this.rpc.variables },
+        this.rpc.variables,
       ),
       (transport) => new BinaryChannel(transport),
     );

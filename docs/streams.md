@@ -222,9 +222,11 @@ for await (const frame of frames) {
 }
 ```
 
-Variables supplied to `connect()` are inherited by stream URL templates. A
-stream call can override its own variables or its complete `url` without
-changing the JSON-RPC connections.
+Stream URL templates inherit the variables supplied to `connect()`, such as
+`host`. A stream method only takes the stream's own path variables, such as
+`client.voice.media(session_id=...)`, which no server declares. To redirect a
+stream, for example to a test server, wrap the `stream_opener` or
+`stream_socket_factory`: both receive the resolved endpoint.
 
 A client-to-server stream returns a `BinarySender`. Leaving the
 `async with` block normally ends the input and waits for the server to close

@@ -60,16 +60,14 @@ class BinaryStreamInfo:
 
 def resolve_stream_endpoint(
     stream: BinaryStreamInfo,
+    connected: Mapping[str, str] | None = None,
     values: Mapping[str, str | None] | None = None,
-    *,
-    url: str | None = None,
-    defaults: Mapping[str, str] | None = None,
 ) -> BinaryStreamEndpoint:
-    """Fill a stream URL, falling back to the values the client connected with."""
+    """Fill a stream URL from the call's values, then the client's connect values."""
     supplied = {
         **{
             name: value
-            for name, value in (defaults or {}).items()
+            for name, value in (connected or {}).items()
             if name in stream.variables
         },
         **{name: value for name, value in (values or {}).items() if value is not None},
@@ -78,7 +76,7 @@ def resolve_stream_endpoint(
         name=stream.name,
         url=resolve_url_template(
             f"binary stream {stream.name.value!r}",
-            url or stream.url,
+            stream.url,
             stream.variables,
             supplied,
         ),
