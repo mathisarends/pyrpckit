@@ -18,7 +18,7 @@ export class BrowserTabs {
 
   /** Open a browser tab. */
   open(params: OpenTabParams): Promise<Tab> {
-    return this.rpc.request<Tab>(routes.browserTabsOpen, params);
+    return this.rpc.request(routes.browserTabsOpen, params);
   }
 }
 
@@ -27,7 +27,7 @@ export class BrowserScreencast {
 
   /** Start the browser screencast. */
   async start(params: StartScreencastParams = {}): Promise<void> {
-    await this.rpc.request<null>(routes.browserScreencastStart, params);
+    await this.rpc.request(routes.browserScreencastStart, params);
   }
 
   /** Raw screencast frames as binary WebSocket messages. */

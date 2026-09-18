@@ -4,6 +4,9 @@ from pydantic import TypeAdapter
 
 from automation_client.internal import RpcNotificationInfo, RpcRouteInfo
 from automation_client.models import (
+    CreateTaskParams,
+    OpenTabParams,
+    StartScreencastParams,
     Tab,
     Task,
     TaskList,
@@ -11,25 +14,25 @@ from automation_client.models import (
     TaskUpdatedNotification,
 )
 
-TASKS_LIST = RpcRouteInfo(
+TASKS_LIST: RpcRouteInfo[None, TaskList] = RpcRouteInfo(
     method="tasks.list",
     result_adapter=TypeAdapter(TaskList),
     server="production",
 )
 
-TASKS_CREATE = RpcRouteInfo(
+TASKS_CREATE: RpcRouteInfo[CreateTaskParams, Task] = RpcRouteInfo(
     method="tasks.create",
     result_adapter=TypeAdapter(Task),
     server="production",
 )
 
-BROWSER_TABS_OPEN = RpcRouteInfo(
+BROWSER_TABS_OPEN: RpcRouteInfo[OpenTabParams, Tab] = RpcRouteInfo(
     method="browser.tabs.open",
     result_adapter=TypeAdapter(Tab),
     server="browser",
 )
 
-BROWSER_SCREENCAST_START = RpcRouteInfo(
+BROWSER_SCREENCAST_START: RpcRouteInfo[StartScreencastParams, None] = RpcRouteInfo(
     method="browser.screencast.start",
     result_adapter=TypeAdapter(None),
     server="streaming",

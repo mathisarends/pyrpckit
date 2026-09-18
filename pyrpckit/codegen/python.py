@@ -245,8 +245,12 @@ def _render_routes(ir: ClientIr, options: PythonClientOptions) -> str:
     if ir.notifications:
         imports.add(_runtime_module(options), "RpcNotificationInfo")
     for route in ir.operations:
+        params_models = (
+            () if route.params_model is None else (_schema_name(route.params_model),)
+        )
         imports.add(
             f"{options.package}.models",
+            *params_models,
             *_model_names(route.result),
         )
     for event in ir.notifications:
@@ -737,6 +741,9 @@ def _template_filters(
         "placeholder": lambda value: _literal(f"{{{value}}}"),
         "parameter_annotation": lambda parameter: _parameter_annotation(
             parameter, imports, options
+        ),
+        "route_params": lambda route: (
+            "None" if route.params_model is None else _schema_name(route.params_model)
         ),
         "schema_name": _schema_name,
         "server_subprotocols": _server_subprotocols,

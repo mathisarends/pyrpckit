@@ -1,9 +1,9 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Mapping
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .errors import (
     RpcNotificationValidationError,
@@ -49,9 +49,16 @@ class RpcTransportSource(Protocol):
 class _StaticTransports:
     """The transports a caller passed in, keyed by server."""
 
-    def __init__(self, transports: RpcTransport | Mapping[str, RpcTransport]) -> None:
+    def __init__[ServerT: str](
+        self,
+        transports: RpcTransport | Mapping[ServerT, RpcTransport],
+    ) -> None:
         self._single = None if isinstance(transports, Mapping) else transports
-        self._transports = dict(transports) if isinstance(transports, Mapping) else {}
+        self._transports = (
+            {str(server): transport for server, transport in transports.items()}
+            if isinstance(transports, Mapping)
+            else {}
+        )
 
     async def get(self, server: str | None) -> RpcTransport:
         if self._single is not None:
@@ -82,32 +89,32 @@ class _StaticTransports:
 class RpcClientHook(Protocol):
     async def before_request(
         self,
-        route: RpcRouteInfo[Any],
+        route: RpcRouteInfo[Any, Any],
         params: JsonValue,
     ) -> None: ...
 
     async def after_response(
         self,
-        route: RpcRouteInfo[Any],
+        route: RpcRouteInfo[Any, Any],
         result: JsonValue,
     ) -> None: ...
 
 
 class RpcClientCore:
-    def __init__(
+    def __init__[ServerT: str](
         self,
-        transports: RpcTransport | Mapping[str, RpcTransport] | RpcTransportSource,
+        transports: RpcTransport | Mapping[ServerT, RpcTransport] | RpcTransportSource,
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
         stream_opener: Any = None,
         variables: Mapping[str, str] | None = None,
     ) -> None:
-        self._source: RpcTransportSource = (
-            _StaticTransports(transports)
-            if isinstance(transports, Mapping) or hasattr(transports, "request")
-            else transports
-        )
+        if isinstance(transports, Mapping) or hasattr(transports, "request"):
+            static = cast(RpcTransport | Mapping[ServerT, RpcTransport], transports)
+            self._source = _StaticTransports(static)
+        else:
+            self._source = transports
         self._close_transport = close_transport
         self._hooks = tuple(hooks)
         self.stream_opener = stream_opener
@@ -115,16 +122,21 @@ class RpcClientCore:
         self._closed = False
         self._hubs: dict[int, _NotificationHub] = {}
 
-    async def request[ResultT](
+    async def request[ParamsT: BaseModel, ResultT](
         self,
-        route: RpcRouteInfo[ResultT],
+        route: RpcRouteInfo[ParamsT | None, ResultT],
         *,
-        params: dict[str, Any] | None = None,
+        params: ParamsT | None = None,
     ) -> ResultT:
+        payload = (
+            None
+            if params is None
+            else params.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        )
         for hook in self._hooks:
-            await hook.before_request(route, params)
+            await hook.before_request(route, payload)
         transport = await self._transport_for(route.server)
-        result = await transport.request(route.method, params)
+        result = await transport.request(route.method, payload)
         for hook in reversed(self._hooks):
             await hook.after_response(route, result)
         try:

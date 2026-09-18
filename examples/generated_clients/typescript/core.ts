@@ -15,10 +15,39 @@ export type { RpcTransport } from "./transport";
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export type RpcRouteInfo = {
+declare const routeTypes: unique symbol;
+
+export type RpcRouteInfo<
+  Params extends object | undefined = object | undefined,
+  Result = unknown,
+> = {
   readonly method: string;
   readonly server?: string;
+  readonly [routeTypes]?: readonly [Params, Result];
 };
+
+export type RpcNotificationInfo<Payload = unknown> = RpcRouteInfo<
+  undefined,
+  Payload
+>;
+
+type RouteParams<Route extends RpcRouteInfo> =
+  Route extends RpcRouteInfo<infer Params, unknown> ? Params : never;
+
+type RouteResult<Route extends RpcRouteInfo> =
+  Route extends RpcRouteInfo<object | undefined, infer Result> ? Result : never;
+
+export function defineRoute<Params extends object | undefined, Result>(
+  route: Omit<RpcRouteInfo, typeof routeTypes>,
+): RpcRouteInfo<Params, Result> {
+  return route;
+}
+
+export function defineNotification<Payload>(
+  route: Omit<RpcRouteInfo, typeof routeTypes>,
+): RpcNotificationInfo<Payload> {
+  return route;
+}
 
 export type RpcClientHook = {
   beforeRequest?(route: RpcRouteInfo, params?: object): void | Promise<void>;
@@ -236,7 +265,13 @@ export class RpcClientCore {
     return connect(transport as BinaryInputTransport);
   }
 
-  async request<Result>(route: RpcRouteInfo, params?: object): Promise<Result> {
+  async request<Route extends RpcRouteInfo>(
+    route: Route,
+    ...args: RouteParams<Route> extends undefined
+      ? []
+      : [params: RouteParams<Route>]
+  ): Promise<RouteResult<Route>> {
+    const params = args[0];
     const payload = params === undefined ? undefined : withoutUndefined(params);
     for (const hook of this.#hooks) await hook.beforeRequest?.(route, payload);
     const transport = await this.#transportFor(route.server);
@@ -244,13 +279,13 @@ export class RpcClientCore {
     for (const hook of [...this.#hooks].reverse()) {
       await hook.afterResponse?.(route, result);
     }
-    return result as Result;
+    return result as RouteResult<Route>;
   }
 
-  notifications<Notification>(
-    route: RpcRouteInfo,
-  ): AsyncIterable<Notification> {
-    return this.#notificationValues<Notification>(route);
+  notifications<Payload>(
+    route: RpcNotificationInfo<Payload>,
+  ): AsyncIterable<Payload> {
+    return this.#notificationValues(route);
   }
 
   async close(): Promise<void> {
@@ -260,9 +295,9 @@ export class RpcClientCore {
     await this.#source.close();
   }
 
-  async *#notificationValues<Notification>(
-    route: RpcRouteInfo,
-  ): AsyncIterable<Notification> {
+  async *#notificationValues<Payload>(
+    route: RpcNotificationInfo<Payload>,
+  ): AsyncIterable<Payload> {
     const transport = await this.#transportFor(route.server);
     const subscriber: Subscriber = {
       method: route.method,
@@ -285,7 +320,7 @@ export class RpcClientCore {
     }
     try {
       for await (const message of subscriber.queue) {
-        yield message.params as Notification;
+        yield message.params as Payload;
       }
     } finally {
       hub.subscribers.delete(subscriber);

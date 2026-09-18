@@ -11,16 +11,16 @@ export class Tasks {
 
   /** List all tasks. */
   list(): Promise<TaskList> {
-    return this.rpc.request<TaskList>(routes.tasksList);
+    return this.rpc.request(routes.tasksList);
   }
 
   /** Create a task. */
   create(params: CreateTaskParams): Promise<Task> {
-    return this.rpc.request<Task>(routes.tasksCreate, params);
+    return this.rpc.request(routes.tasksCreate, params);
   }
 
   /** Stream task updates. */
   updated(): AsyncIterable<TaskUpdated> {
-    return this.rpc.notifications<TaskUpdated>(notifications.tasksUpdated);
+    return this.rpc.notifications(notifications.tasksUpdated);
   }
 }

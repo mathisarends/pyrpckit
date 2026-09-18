@@ -26,7 +26,9 @@ from automation_client.transport import WebSocketFactory, WebSocketTransport
 class AutomationClient:
     def __init__(
         self,
-        transport: RpcTransport | Mapping[str, RpcTransport] | RpcTransportSource,
+        transport: (
+            RpcTransport | Mapping[ServerName, RpcTransport] | RpcTransportSource
+        ),
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),

@@ -14,7 +14,7 @@
 {% endif %}{% endfor %}        params = {{ route.params_model | schema_name }}.model_validate(values)
 {% endif %}{% endif %}        {{ "await" if route.result | null_type else "return await" }} self._rpc.request(
             {{ route.method_member }},
-{% if route.params_model is not none %}            params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+{% if route.params_model is not none %}            params=params,
 {% endif %}        )
 {% endmacro %}
 

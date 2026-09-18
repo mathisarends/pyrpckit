@@ -31,7 +31,7 @@ class BrowserTabs:
         )
         return await self._rpc.request(
             BROWSER_TABS_OPEN,
-            params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+            params=params,
         )
 
 
@@ -51,7 +51,7 @@ class BrowserScreencast:
         params = StartScreencastParams.model_validate(values)
         await self._rpc.request(
             BROWSER_SCREENCAST_START,
-            params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+            params=params,
         )
 
     def frames(self) -> AbstractAsyncContextManager[BinaryReceiver]:

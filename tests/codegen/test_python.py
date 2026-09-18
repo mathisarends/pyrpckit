@@ -162,8 +162,25 @@ def test_route_definitions_preserve_the_wire_contract(
     routes = render_python_client(document, options)["routes.py"]
 
     assert 'method="greeting.say"' in routes
+    assert "GREETING_SAY: RpcRouteInfo[SayParams, SayResult]" in routes
+    assert "GREETING_GREETED: RpcRouteInfo[None, GreetedResult]" in routes
     assert "result_adapter=TypeAdapter(SayResult)" in routes
     assert 'method="greeting.changed"' in routes
+
+
+def test_parameter_models_are_serialized_once_in_the_runtime(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    files = render_python_client(document, options)
+
+    api = files["namespaces/greeting.py"]
+    runtime = files["internal/core.py"]
+
+    assert "params=params," in api
+    assert "params.model_dump" not in api
+    serialization = 'params.model_dump(mode="json", by_alias=True, exclude_unset=True)'
+    assert serialization in runtime
 
 
 def test_stably_named_remote_errors_get_their_own_module(
@@ -246,7 +263,7 @@ def test_optional_nullable_params_use_unset_instead_of_dropping_none(
     assert "title: str | None | UnsetType = UNSET" in api
     assert "if title is not UNSET:" in api
     assert 'values["title"] = title' in api
-    assert "exclude_unset=True" in api
+    assert "params=params," in api
     assert "exclude_none" not in api
 
 

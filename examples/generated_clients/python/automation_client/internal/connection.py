@@ -27,6 +27,7 @@ class _TransportFactory(Protocol):
     def __call__(
         self,
         url: str,
+        /,
         *,
         subprotocols: tuple[str, ...],
         request_timeout: float | None,
@@ -96,8 +97,9 @@ class RpcTransportPool[ServerT: str]:
 
     def _server_name(self, server: str | None) -> ServerT:
         if server is not None:
-            if server in self._endpoints:
-                return server  # type: ignore[return-value]
+            for name in self._endpoints:
+                if name == server:
+                    return name
             raise RpcTransportError(f"No endpoint is configured for server {server!r}")
         if len(self._endpoints) == 1:
             return next(iter(self._endpoints))

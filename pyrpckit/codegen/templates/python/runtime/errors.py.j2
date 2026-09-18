@@ -1,4 +1,4 @@
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -8,8 +8,6 @@ class RpcClientError(Exception):
 
 
 class RpcRemoteError(RpcClientError):
-    code: ClassVar[str] = ""
-
     def __init__(
         self,
         rpc_code: int,

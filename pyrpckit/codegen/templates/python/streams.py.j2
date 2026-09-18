@@ -90,6 +90,12 @@ type BinaryStreamOpener = Callable[
 ]
 
 
+class _ManagedBinaryStream(Protocol):
+    async def __aenter__(self) -> Self: ...
+
+    async def __aexit__(self, error_type: object, *args: object) -> None: ...
+
+
 class BinaryReceiver:
     """Receives the frames of a server-to-client stream."""
 
@@ -114,7 +120,7 @@ class BinaryReceiver:
     async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, error_type: object, *args: object) -> None:
         await self.close()
 
 
@@ -188,7 +194,7 @@ class BinarySender:
 
 
 @asynccontextmanager
-async def open_binary_stream[StreamT: BinaryReceiver | BinarySender](
+async def open_binary_stream[StreamT: _ManagedBinaryStream](
     endpoint: BinaryStreamEndpoint,
     opener: BinaryStreamOpener | None,
     stream_type: Callable[[Any], StreamT],

@@ -2,6 +2,7 @@ import shutil
 import subprocess
 from copy import deepcopy
 from pathlib import Path
+from textwrap import dedent
 from typing import Any
 
 import pytest
@@ -82,7 +83,21 @@ def test_route_definitions_keep_wire_names(
     routes = render_typescript_client(document, options())["routes.ts"]
 
     assert 'method: "greeting.forget"' in routes
-    assert "greetingForget:" in routes
+    assert "greetingForget: defineRoute<ForgetParams, null>" in routes
+    assert "greetingGreeted: defineRoute<undefined, GreetedResult>" in routes
+    assert "greetingChanged: defineNotification<GreetingUpdate>" in routes
+
+
+def test_api_calls_infer_their_types_from_route_metadata(
+    document: dict[str, Any],
+) -> None:
+    files = render_typescript_client(document, options())
+    api = files["namespaces/greeting.ts"]
+
+    assert ".request<SayResult>" not in api
+    assert ".notifications<GreetingUpdate>" not in api
+    assert "this.rpc.request(routes.greetingSay, params)" in api
+    assert "this.rpc.notifications(notifications.greetingChanged)" in api
 
 
 def test_stably_named_remote_errors_get_their_own_module(
@@ -385,6 +400,47 @@ def test_generated_typescript_passes_strict_type_checking(
             with_transport="websocket",
         ),
     )
+    consumer = tmp_path / "consumer.ts"
+    consumer.write_text(
+        dedent(
+            """
+            import {
+              notifications,
+              routes,
+              type GreetedResult,
+              type GreetingUpdate,
+              type RpcClientCore,
+              type SayResult,
+            } from "./generated";
+
+            declare const rpc: RpcClientCore;
+
+            const result: Promise<SayResult> = rpc.request(
+              routes.greetingSay,
+              { name: "Ada" },
+            );
+            const greeted: Promise<GreetedResult> = rpc.request(
+              routes.greetingGreeted,
+            );
+            const updates: AsyncIterable<GreetingUpdate> = rpc.notifications(
+              notifications.greetingChanged,
+            );
+
+            // @ts-expect-error greeting.say requires parameters
+            void rpc.request(routes.greetingSay);
+            // @ts-expect-error greeting.greeted does not accept parameters
+            void rpc.request(routes.greetingGreeted, {});
+            // @ts-expect-error name is a string
+            void rpc.request(routes.greetingSay, { name: 42 });
+
+            void result;
+            void greeted;
+            void updates;
+            """
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
 
     type_check = subprocess.run(
         [
@@ -404,7 +460,7 @@ def test_generated_typescript_passes_strict_type_checking(
             "--lib",
             "ES2022,DOM,ESNext.Disposable",
             "--skipLibCheck",
-            str(output / "index.ts"),
+            str(consumer),
         ],
         capture_output=True,
         text=True,

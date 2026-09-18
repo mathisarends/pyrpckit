@@ -1,8 +1,11 @@
 {% from "python/macros.py.j2" import operation, notification, stream with context %}class {{ client_name }}:
     def __init__(
         self,
-        transport: {{ "RpcTransport | Mapping[str, RpcTransport] | RpcTransportSource" if servers else "RpcTransport | RpcTransportSource" }},
-        *,
+{% if servers %}        transport: (
+            RpcTransport | Mapping[ServerName, RpcTransport] | RpcTransportSource
+        ),
+{% else %}        transport: RpcTransport | RpcTransportSource,
+{% endif %}        *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
 {% if binary_streams %}        stream_opener: BinaryStreamOpener | None = None,

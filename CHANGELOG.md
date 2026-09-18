@@ -37,6 +37,10 @@
 
 ### Changed
 
+- Make generated route metadata carry its request and response types. Python
+  now serializes generated Pydantic parameter models centrally in the client
+  runtime, while TypeScript infers request results and notification payloads
+  from the selected route instead of repeating manually supplied generics.
 - Rename the generated `BinaryStreamConnection` to `BinaryReceiver`.
 - Open generated Python streams only with `async with`. Stream methods now
   return an async context manager; `BinaryStreamOpening` and its `open()`

@@ -134,6 +134,11 @@ class _Renderer:
             "property": _property,
             "route_access": lambda route: f"routes.{_route_key(route)}",
             "route_key": _route_key,
+            "route_params": lambda route: (
+                "undefined"
+                if route.params_model is None
+                else _schema_name(route.params_model)
+            ),
             "schema_name": _schema_name,
             "server_variable_type": _server_variable_type,
             "stream_endpoint": _stream_endpoint,
@@ -150,8 +155,7 @@ class _Renderer:
     ) -> bool:
         receiver = "this.#rpc" if root else "this.rpc"
         call = (
-            f"    return {receiver}.notifications<{self._type(event.payload)}>"
-            f"(notifications.{_route_key(event)});"
+            f"    return {receiver}.notifications(notifications.{_route_key(event)});"
         )
         return len(call) <= 80
 
@@ -162,11 +166,20 @@ class _Renderer:
         return self.module(self.template("namespace_index", nodes=self.nodes))
 
     def routes(self) -> str:
+        model_names = _route_model_names(self.ir.operations)
+        model_names.update(
+            name
+            for event in self.ir.notifications
+            for name in _model_names(event.payload)
+        )
         return self.module(
             self.template(
                 "routes",
                 routes=self.ir.operations,
                 notifications=self.ir.notifications,
+                model_import=(
+                    _type_import(model_names, "./models") if model_names else ""
+                ),
             )
         )
 
