@@ -4,7 +4,6 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from pyrpckit.codec import RpcCodec
-from pyrpckit.connection import ConnectionRejected
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
@@ -90,12 +89,6 @@ class RpcServer:
     def _rpc_error(self, error: Exception) -> RpcError:
         if isinstance(error, RpcError):
             return error
-        if isinstance(error, ConnectionRejected):
-            logger.error(
-                "ConnectionRejected raised after the connection was accepted; "
-                "use RpcConnection.close() instead"
-            )
-            return RpcInternalError()
         if self._error_mapper is not None:
             mapped = self._error_mapper(error)
             if mapped is not None:

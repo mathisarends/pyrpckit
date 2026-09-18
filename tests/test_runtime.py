@@ -1,58 +1,40 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-import pytest
-
 from pyrpckit import (
-    ConnectionRejected,
     Inject,
     RpcChannel,
     RpcConnection,
     RpcConnectionClose,
     RpcModel,
-    RpcRejection,
     RpcService,
 )
-from pyrpckit.testing import RpcTestClient, RpcTestConnectionClosed
+from pyrpckit.testing import RpcTestClient
 
 
 class Params(RpcModel):
     value: str
 
 
-class User:
-    pass
-
-
-async def authenticate(connection: RpcConnection) -> User:
-    if "authorization" not in connection.headers:
-        raise ConnectionRejected(RpcRejection.UNAUTHORIZED)
-    return User()
-
-
 channel = RpcChannel("demo")
+connections = []
 
 
 @channel.method()
-async def echo(params: Params, user: Inject[User]) -> Params:
+async def echo(params: Params, connection: Inject[RpcConnection]) -> Params:
+    connections.append(connection)
     return params
 
 
-service = RpcService(connect=authenticate)
+service = RpcService()
 service.socket("/rpc", channel)
 
 
-async def test_request_and_hook_context() -> None:
+async def test_request_and_connection_context() -> None:
+    connections.clear()
     async with RpcTestClient(service, "/rpc", headers={"Authorization": "x"}) as client:
         assert await client.request("demo.echo", {"value": "yes"}) == {"value": "yes"}
-
-
-async def test_rejection_does_not_accept() -> None:
-    async with RpcTestClient(service, "/rpc") as client:
-        with pytest.raises(RpcTestConnectionClosed):
-            await client.request("demo.echo", {"value": "yes"})
-        assert client.socket.rejection == (RpcRejection.UNAUTHORIZED, "Unauthorized")
-        assert not client.socket.accepted
+    assert connections[0].headers["authorization"] == "x"
 
 
 async def test_binary_stream() -> None:

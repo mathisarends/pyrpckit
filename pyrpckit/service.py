@@ -1,24 +1,17 @@
-import inspect
 import re
 from collections import Counter
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from types import FunctionType, UnionType
-from typing import Any, Union, get_origin, get_type_hints
+from types import FunctionType
+from typing import Any
 from urllib.parse import unquote
 
 from pyrpckit.channel import RpcChannel
-from pyrpckit.connection import RpcConnection, RpcLimits, RpcSocket
-from pyrpckit.dependencies import (
-    RpcInjectedParameter,
-    RpcResolverLike,
-    injected_parameter,
-)
+from pyrpckit.connection import RpcLimits, RpcSocket
+from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import RpcProtocol, RpcStreamDefinition
 from pyrpckit.server import RpcErrorMapper, RpcServer
-
-type ConnectHook = Callable[..., Awaitable[Any]]
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -27,7 +20,6 @@ class RpcEndpoint:
     name: str
     path: str
     channels: tuple[RpcChannel, ...]
-    connect: ConnectHook | None
     subprotocol: str | None
     summary: str | None
     path_variables: tuple[str, ...]
@@ -95,7 +87,6 @@ class RpcStreamEndpoint:
     name: str
     path: str
     stream: RpcStreamDefinition
-    connect: ConnectHook | None
     subprotocol: str | None
     summary: str | None
     path_variables: tuple[str, ...]
@@ -119,15 +110,12 @@ class RpcStreamEndpoint:
 
 
 class RpcService:
-    def __init__(self, *, version: int = 1, connect: ConnectHook | None = None) -> None:
+    def __init__(self, *, version: int = 1) -> None:
         if not isinstance(version, int) or version < 1:
             raise ProtocolDefinitionError(
                 "RPC service version must be a positive integer"
             )
-        if connect is not None:
-            analyze_connect_hook(connect)
         self._version = version
-        self._connect = connect
         self._endpoints: list[RpcEndpoint | RpcStreamEndpoint] = []
         self._channels: set[RpcChannel] = set()
         self._mounted_streams: set[FunctionType] = set()
@@ -143,7 +131,6 @@ class RpcService:
         /,
         *channels: RpcChannel,
         name: str | None = None,
-        connect: ConnectHook | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
     ) -> RpcEndpoint:
@@ -158,15 +145,11 @@ class RpcService:
         names = [c.name for c in (*self._channels, *channels)]
         if len(names) != len(set(names)):
             raise ProtocolDefinitionError("RPC channel names must be unique")
-        hook = connect if connect is not None else self._connect
-        if hook is not None:
-            analyze_connect_hook(hook)
         endpoint = RpcEndpoint(
             self,
             name or _endpoint_name(path),
             path,
             tuple(channels),
-            hook,
             subprotocol,
             summary,
             variables,
@@ -182,7 +165,6 @@ class RpcService:
         /,
         *,
         name: str | None = None,
-        connect: ConnectHook | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
     ) -> RpcStreamEndpoint:
@@ -197,15 +179,11 @@ class RpcService:
             raise ProtocolDefinitionError("An RPC stream can only be mounted once")
         channel, _ = marker
         definition = next(item for item in channel.streams if item.function is stream)
-        hook = connect if connect is not None else self._connect
-        if hook is not None:
-            analyze_connect_hook(hook)
         endpoint = RpcStreamEndpoint(
             self,
             name or _endpoint_name(path),
             path,
             definition,
-            hook,
             subprotocol,
             summary,
             variables,
@@ -359,48 +337,6 @@ class RpcService:
             raise ProtocolDefinitionError(
                 "RpcService is frozen because its protocol was already materialized"
             )
-
-
-def analyze_connect_hook(
-    function: ConnectHook,
-) -> tuple[tuple[RpcInjectedParameter, ...], type | None]:
-    if not inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(
-        function
-    ):
-        raise ProtocolDefinitionError(
-            "connect hooks must be async functions; use your resolver for "
-            "connection-scoped resources"
-        )
-    hints = get_type_hints(function, include_extras=True)
-    injected = []
-    for parameter in inspect.signature(function).parameters.values():
-        annotation = hints.get(parameter.name)
-        if parameter.default is not inspect.Parameter.empty or parameter.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        ):
-            raise ProtocolDefinitionError("Invalid connect hook parameter")
-        if annotation is RpcConnection:
-            continue
-        dependency = injected_parameter(parameter.name, annotation)
-        if dependency is None:
-            raise ProtocolDefinitionError(
-                "Connect hook parameters must be RpcConnection or Inject[T]"
-            )
-        injected.append(dependency)
-    result = hints.get("return", inspect.Signature.empty)
-    if result in (None, type(None)):
-        return tuple(injected), None
-    if (
-        result is inspect.Signature.empty
-        or result is Any
-        or not isinstance(result, type)
-        or result is RpcConnection
-        or get_origin(result) in (UnionType, Union)
-    ):
-        raise ProtocolDefinitionError("connect hooks must provide a concrete type")
-    return tuple(injected), result
 
 
 def _validate_endpoint(

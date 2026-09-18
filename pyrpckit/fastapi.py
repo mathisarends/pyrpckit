@@ -16,8 +16,6 @@ from pyrpckit.service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 
 _HTTP_STATUS = {
-    RpcRejection.UNAUTHORIZED: 401,
-    RpcRejection.FORBIDDEN: 403,
     RpcRejection.NOT_FOUND: 404,
     RpcRejection.PROTOCOL_ERROR: 400,
     RpcRejection.UNAVAILABLE: 503,

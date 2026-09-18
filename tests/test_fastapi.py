@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from pyrpckit import RpcChannel, RpcConnection, RpcDisconnect, RpcService
+from pyrpckit import Inject, RpcChannel, RpcConnection, RpcDisconnect, RpcService
 from pyrpckit.fastapi import FastApiSocket, create_router
 
 
@@ -12,14 +12,18 @@ class EchoParams(BaseModel):
     value: str
 
 
-def create_service(*, path: str = "/rpc", connect=None) -> RpcService:
+def create_service(
+    *, path: str = "/rpc", connections: list[RpcConnection] | None = None
+) -> RpcService:
     channel = RpcChannel("demo")
 
     @channel.method()
-    async def echo(params: EchoParams) -> EchoParams:
+    async def echo(params: EchoParams, connection: Inject[RpcConnection]) -> EchoParams:
+        if connections is not None:
+            connections.append(connection)
         return params
 
-    service = RpcService(connect=connect)
+    service = RpcService()
     service.socket(path, channel)
     return service
 
@@ -31,12 +35,9 @@ def test_router_serves_websocket_with_fastapi_options() -> None:
     async def dependency() -> None:
         dependencies_called.append(True)
 
-    async def connect(connection: RpcConnection) -> None:
-        handshakes.append(connection)
-
     web = FastAPI()
     web.include_router(
-        create_router(create_service(path="/rpc/{endpoint}", connect=connect)),
+        create_router(create_service(path="/rpc/{endpoint}", connections=handshakes)),
         prefix="/api",
         dependencies=[Depends(dependency)],
     )

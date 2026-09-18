@@ -2,13 +2,12 @@ import asyncio
 import logging
 from collections.abc import Mapping
 from contextlib import suppress
-from typing import Any, get_type_hints
+from typing import Any
 
 from pydantic import TypeAdapter
 
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connection import (
-    ConnectionRejected,
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
@@ -18,16 +17,14 @@ from pyrpckit.connection import (
 )
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import (
-    ContextResolver,
     RpcResolverLike,
     as_resolver,
-    call_scope,
     connection_scope,
     context_values,
 )
 from pyrpckit.envelopes import RpcNotification
 from pyrpckit.server import RpcErrorMapper, RpcServer
-from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint, analyze_connect_hook
+from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -41,41 +38,6 @@ async def _prepare(endpoint, socket, resolver, context):
     )
     connection = RpcConnection._create(endpoint, socket, path_params)
     base_values = {**values, RpcConnection: connection}
-    hook_result = None
-    hook_type = None
-    if endpoint.connect is not None:
-        injected, hook_type = analyze_connect_hook(endpoint.connect)
-        if hook_type is not None and hook_type in values:
-            raise ValueError(
-                f"connect hook provides {hook_type.__name__}, which is also "
-                "passed as context"
-            )
-        try:
-            async with call_scope(ContextResolver(resolved, base_values)) as scoped:
-                hints = get_type_hints(endpoint.connect, include_extras=True)
-                arguments = {}
-                for parameter in endpoint.connect.__annotations__:
-                    if parameter == "return":
-                        continue
-                    if hints[parameter] is RpcConnection:
-                        arguments[parameter] = connection
-                    else:
-                        dependency = next(
-                            item for item in injected if item.name == parameter
-                        )
-                        arguments[parameter] = await scoped.resolve(
-                            dependency.dependency
-                        )
-                hook_result = await endpoint.connect(**arguments)
-        except ConnectionRejected as error:
-            await socket.reject(error.rejection, error.reason)
-            return None
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("RPC connect hook failed")
-            await socket.reject(RpcRejection.INTERNAL_ERROR, "Internal error")
-            return None
     if (
         endpoint.subprotocol is not None
         and endpoint.subprotocol not in socket.handshake.subprotocols
@@ -84,8 +46,6 @@ async def _prepare(endpoint, socket, resolver, context):
         return None
     await socket.accept(endpoint.subprotocol)
     connection._accepted = True
-    if hook_type is not None:
-        base_values[hook_type] = hook_result
     return connection, resolved, base_values
 
 

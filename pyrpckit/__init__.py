@@ -1,7 +1,6 @@
 from .channel import RpcChannel
 from .codec import RpcCodec
 from .connection import (
-    ConnectionRejected,
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
@@ -33,7 +32,6 @@ from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 __version__ = "0.5.0"
 
 __all__ = [
-    "ConnectionRejected",
     "Inject",
     "LOGGER_NAME",
     "ProtocolDefinitionError",
