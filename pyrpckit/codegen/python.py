@@ -40,11 +40,16 @@ from pyrpckit.codegen.templating import render_template
 class _Imports:
     def __init__(self, relative_to: str | None = None) -> None:
         self._modules: dict[str, set[str]] = {}
+        self._plain: set[str] = set()
         self._relative_to = relative_to
 
     def add(self, module: str, *names: str) -> None:
         if names:
             self._modules.setdefault(self._resolve(module), set()).update(names)
+
+    def add_module(self, module: str) -> None:
+        """Import a whole module, as in ``import asyncio``."""
+        self._plain.add(module)
 
     def _resolve(self, module: str) -> str:
         """Render imports of the own package as relative imports."""
@@ -59,6 +64,8 @@ class _Imports:
 
     def render(self) -> str:
         groups: dict[int, list[str]] = {}
+        for module in sorted(self._plain):
+            groups.setdefault(_import_group(module), []).append(f"import {module}")
         for module in sorted(self._modules):
             groups.setdefault(_import_group(module), []).append(
                 _import_line(
@@ -283,7 +290,9 @@ def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
 
 def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add("collections.abc", "Awaitable", "Callable", "Mapping")
+    imports.add_module("asyncio")
+    imports.add("collections.abc", "AsyncIterator", "Awaitable", "Callable", "Mapping")
+    imports.add("contextlib", "asynccontextmanager")
     imports.add("dataclasses", "dataclass", "field")
     imports.add("enum", "StrEnum")
     imports.add("types", "MappingProxyType")
@@ -359,11 +368,12 @@ def _render_api(
     imports.add(_runtime_module(options), "RpcClientCore")
     nodes = tuple(_walk_postorder((root,)))
     if any(node.streams for node in nodes):
+        imports.add("contextlib", "AbstractAsyncContextManager")
         imports.add(
             f"{options.package}.streams",
             "BINARY_STREAMS",
             "BinaryStreamName",
-            "BinaryStreamOpening",
+            "open_binary_stream",
             "resolve_stream_endpoint",
         )
     for node in nodes:
@@ -420,11 +430,12 @@ def _render_client(
     if ir.binary_streams:
         imports.add(f"{options.package}.streams", "BinaryStreamOpener")
         if root_streams:
+            imports.add("contextlib", "AbstractAsyncContextManager")
             imports.add(
                 f"{options.package}.streams",
                 "BINARY_STREAMS",
                 "BinaryStreamName",
-                "BinaryStreamOpening",
+                "open_binary_stream",
                 "resolve_stream_endpoint",
             )
         if options.with_transport == "websocket":
@@ -534,15 +545,14 @@ def _render_package_init(
         imports.add(options.package, "streams")
         imports.add(
             f"{options.package}.streams",
-            "BinaryDuplexConnection",
+            "BinaryChannel",
             "BinaryInputEnd",
             "BinaryInputTransport",
-            "BinarySinkConnection",
+            "BinaryReceiver",
+            "BinarySender",
             "BinaryStreamEndpoint",
             "BinaryStreamName",
-            "BinaryStreamConnection",
             "BinaryStreamOpener",
-            "BinaryStreamOpening",
             "BinaryStreamTransport",
         )
         imports.add(
@@ -554,15 +564,14 @@ def _render_package_init(
         )
         exported.extend(
             [
-                "BinaryDuplexConnection",
+                "BinaryChannel",
                 "BinaryInputEnd",
                 "BinaryInputTransport",
-                "BinarySinkConnection",
+                "BinaryReceiver",
+                "BinarySender",
                 "BinaryStreamEndpoint",
                 "BinaryStreamName",
-                "BinaryStreamConnection",
                 "BinaryStreamOpener",
-                "BinaryStreamOpening",
                 "BinaryStreamTransport",
                 "RpcStreamClosed",
                 "RpcStreamFailed",
@@ -681,11 +690,11 @@ def _stream_connection(
     options: PythonClientOptions,
 ) -> str:
     if stream.direction == "client-to-server":
-        name = "BinarySinkConnection"
+        name = "BinarySender"
     elif stream.direction == "bidirectional":
-        name = "BinaryDuplexConnection"
+        name = "BinaryChannel"
     else:
-        name = "BinaryStreamConnection"
+        name = "BinaryReceiver"
     imports.add(f"{options.package}.streams", name)
     return name
 
@@ -1131,7 +1140,9 @@ def _import_group(module: str) -> int:
     root = module.split(".", 1)[0]
     if root in {
         "__future__",
+        "asyncio",
         "collections",
+        "contextlib",
         "dataclasses",
         "datetime",
         "enum",
@@ -1163,15 +1174,14 @@ _PACKAGE_EXPORTS = (
 )
 
 _STREAM_EXPORTS = (
-    "BinaryDuplexConnection",
+    "BinaryChannel",
     "BinaryInputEnd",
     "BinaryInputTransport",
-    "BinarySinkConnection",
-    "BinaryStreamConnection",
+    "BinaryReceiver",
+    "BinarySender",
     "BinaryStreamEndpoint",
     "BinaryStreamName",
     "BinaryStreamOpener",
-    "BinaryStreamOpening",
     "BinaryStreamTransport",
     "BinaryWebSocketStream",
     "RpcStreamClosed",

@@ -158,7 +158,7 @@ async def test_sink_sends_frames_and_ends_on_normal_exit(
     client = _client(client_package, recording, opened)
 
     async with client.uploads.audio() as sink:
-        assert isinstance(sink, client_package.BinarySinkConnection)
+        assert isinstance(sink, client_package.BinarySender)
         await sink.send(b"one")
         await sink.send(memoryview(b"two"))
 
@@ -174,17 +174,46 @@ async def test_sink_sends_frames_and_ends_on_normal_exit(
 async def test_sink_end_reports_server_failures(client_package: ModuleType) -> None:
     client = _client(client_package, Recording())
 
-    opening = client.uploads.audio()
-    sink = await opening.open()
-    try:
-        await sink.send(b"fail")
-        with pytest.raises(client_package.RpcStreamFailed) as failure:
-            await sink.end()
-    finally:
-        await sink.close()
+    with pytest.raises(client_package.RpcStreamFailed) as failure:
+        async with client.uploads.audio() as sink:
+            await sink.send(b"fail")
 
     assert failure.value.code == 1011
     assert failure.value.reason == "Internal error"
+
+
+async def test_sink_end_gives_up_when_the_server_never_closes(
+    client_package: ModuleType,
+) -> None:
+    class SilentTransport:
+        def __init__(self) -> None:
+            self.closed = asyncio.Event()
+
+        async def send(self, frame: bytes) -> None: ...
+
+        async def end_input(self) -> None: ...
+
+        async def receive(self) -> bytes:
+            await self.closed.wait()
+            raise client_package.RpcStreamClosed("closed")
+
+        async def close(self) -> None:
+            self.closed.set()
+
+    transport = SilentTransport()
+
+    async def opener(endpoint):
+        return transport
+
+    client = client_package.MediaClient.with_transports(
+        UnusedTransport(), stream_opener=opener
+    )
+
+    with pytest.raises(TimeoutError):
+        async with client.uploads.audio() as sink:
+            await sink.end(timeout=0.01)
+
+    assert transport.closed.is_set()
 
 
 async def test_leaving_a_sink_with_an_exception_aborts_the_upload(
@@ -212,7 +241,7 @@ async def test_duplex_streams_send_and_receive_concurrently(
     session_id = uuid4()
 
     async with client.voice.media(voice_session_id=str(session_id)) as duplex:
-        assert isinstance(duplex, client_package.BinaryDuplexConnection)
+        assert isinstance(duplex, client_package.BinaryChannel)
         assert await duplex.receive() == b"ready"
         await duplex.send(b"hello")
         assert await duplex.receive() == b"HELLO"

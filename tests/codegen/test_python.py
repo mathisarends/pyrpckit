@@ -373,7 +373,7 @@ def test_binary_streams_generate_typed_media_clients(
     media = files["streams.py"]
 
     assert "class BinaryWebSocketStream:" in media
-    assert "class BinaryStreamOpening[" in media
+    assert "async def open_binary_stream[" in media
     assert "frame = await self._socket.recv()" in media
     assert "json.dumps" not in media
     assert "base64" not in media.lower()

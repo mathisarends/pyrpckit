@@ -4,9 +4,9 @@
 
 import type { RpcClientCore } from "../core";
 import {
-  BinaryDuplexConnection,
-  BinarySinkConnection,
-  BinaryStreamConnection,
+  BinaryChannel,
+  BinaryReceiver,
+  BinarySender,
   binaryStreams,
   resolveStreamEndpoint,
 } from "../streams";
@@ -34,7 +34,7 @@ export class BrowserScreencast {
   frames(options?: {
     readonly host?: string;
     readonly url?: string | URL;
-  }): Promise<BinaryStreamConnection> {
+  }): Promise<BinaryReceiver> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastFrames,
@@ -43,7 +43,7 @@ export class BrowserScreencast {
         },
         { url: options?.url, defaults: this.rpc.variables },
       ),
-      (transport) => new BinaryStreamConnection(transport),
+      (transport) => new BinaryReceiver(transport),
     );
   }
 
@@ -51,7 +51,7 @@ export class BrowserScreencast {
   upload(options?: {
     readonly host?: string;
     readonly url?: string | URL;
-  }): Promise<BinarySinkConnection> {
+  }): Promise<BinarySender> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastUpload,
@@ -60,7 +60,7 @@ export class BrowserScreencast {
         },
         { url: options?.url, defaults: this.rpc.variables },
       ),
-      (transport) => new BinarySinkConnection(transport),
+      (transport) => new BinarySender(transport),
     );
   }
 
@@ -68,7 +68,7 @@ export class BrowserScreencast {
   control(options?: {
     readonly host?: string;
     readonly url?: string | URL;
-  }): Promise<BinaryDuplexConnection> {
+  }): Promise<BinaryChannel> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastControl,
@@ -77,7 +77,7 @@ export class BrowserScreencast {
         },
         { url: options?.url, defaults: this.rpc.variables },
       ),
-      (transport) => new BinaryDuplexConnection(transport),
+      (transport) => new BinaryChannel(transport),
     );
   }
 }

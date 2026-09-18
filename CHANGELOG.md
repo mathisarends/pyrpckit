@@ -16,9 +16,10 @@
   as `NOT_FOUND`.
 - Add `input_content_type=` to `@channel.stream()`. Write `direction` and
   `inputContentType` to `x-rpckit-binary-streams`.
-- Generate `BinarySinkConnection` and `BinaryDuplexConnection` stream clients
-  with `send()`, `end_input()` / `endInput()`, and `end()` in Python and
-  TypeScript. Error closes now raise `RpcStreamFailed`, and policy violations
+- Generate `BinarySender` and `BinaryChannel` stream clients with `send()`,
+  `end_input()` / `endInput()`, and `end()` in Python and TypeScript. `end()`
+  gives up after 30 seconds by default (`TimeoutError` in Python,
+  `RpcStreamTimeout` in TypeScript). Error closes now raise `RpcStreamFailed`, and policy violations
   (1008) raise `RpcStreamRefused`.
 - Add `send_frame()`, `end_input()`, and `closed()` to `RpcTestClient`.
 
@@ -35,6 +36,11 @@
   classes such as `_MissingError` produce `missing`.
 
 ### Changed
+
+- Rename the generated `BinaryStreamConnection` to `BinaryReceiver`.
+- Open generated Python streams only with `async with`. Stream methods now
+  return an async context manager; `BinaryStreamOpening` and its `open()`
+  method are gone, so an opened stream can no longer be left unclosed.
 
 - Keep authentication in the hosting framework before `serve()` instead of
   coupling it to the RPC service lifecycle. `RpcConnection` remains injectable

@@ -14,11 +14,12 @@
 {% endmacro %}
 
 {% macro stream(item, root) %}{% if item.summary %}  /** {{ item.summary | comment }} */
-{% endif %}  {{ item.operation_name | identifier }}(options?: {
+{% endif %}{% set inline_signature = "  " ~ (item.operation_name | identifier) ~ "(options?: { readonly url?: string | URL }): Promise<" ~ (item | stream_connection) ~ "> {" %}{% if not item.variables and inline_signature | length <= 80 %}{{ inline_signature }}
+{% else %}  {{ item.operation_name | identifier }}(options?: {
 {% for variable in item.variables %}    readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
 {% endfor %}    readonly url?: string | URL;
   }): Promise<{{ item | stream_connection }}> {
-    return {{ "this.#rpc" if root else "this.rpc" }}.openStream(
+{% endif %}    return {{ "this.#rpc" if root else "this.rpc" }}.openStream(
       resolveStreamEndpoint(
         binaryStreams.{{ item.name | identifier }},
         {% if item.variables %}{

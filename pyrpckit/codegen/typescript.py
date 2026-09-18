@@ -608,10 +608,10 @@ def _notification_type(ir: ClientIr) -> TypeExpr | None:
 
 def _stream_connection(stream: BinaryStreamDecl) -> str:
     if stream.direction == "client-to-server":
-        return "BinarySinkConnection"
+        return "BinarySender"
     if stream.direction == "bidirectional":
-        return "BinaryDuplexConnection"
-    return "BinaryStreamConnection"
+        return "BinaryChannel"
+    return "BinaryReceiver"
 
 
 def _stream_connections(streams: Iterable[BinaryStreamDecl]) -> list[str]:

@@ -12,12 +12,13 @@ from pyrpckit.codegen.typescript import TypeScriptClientOptions
 
 _RUNNER = """
 import {
-  BinaryDuplexConnection,
-  BinarySinkConnection,
+  BinaryChannel,
+  BinarySender,
   GreetingClient,
   RpcStreamClosed,
   RpcStreamFailed,
   RpcStreamRefused,
+  RpcStreamTimeout,
   RpcStreamsUnavailableError,
 } from "./generated";
 
@@ -79,6 +80,8 @@ class FakeStreamSocket {
     if (this.url.endsWith("/media")) {
       this.#frame("bye");
       this.#close(1000, "");
+    } else if (this.received.includes("hang")) {
+      return;
     } else if (this.received.includes("fail")) {
       this.#close(1011, "Internal error");
     } else {
@@ -125,7 +128,7 @@ async function main(): Promise<void> {
   });
 
   const sink = await client.uploads.audio({ sessionId: "s1" });
-  assert(sink instanceof BinarySinkConnection, "uploads return a sink");
+  assert(sink instanceof BinarySender, "uploads return a sink");
   await sink.send(encoder.encode("one"));
   await sink.send(encoder.encode("two").buffer);
   await sink.end();
@@ -142,6 +145,13 @@ async function main(): Promise<void> {
   assert(failure.code === 1011, `code ${failure.code}`);
   assert(failure.reason === "Internal error", `reason ${failure.reason}`);
 
+  const hanging = await client.uploads.audio({ sessionId: "s4" });
+  await hanging.send(encoder.encode("hang"));
+  const timeout = await rejection(hanging.end({ timeoutMs: 10 }));
+  assert(timeout instanceof RpcStreamTimeout, "end() gives up");
+  assert(timeout.timeoutMs === 10, `timeout ${timeout.timeoutMs}`);
+  await hanging.close();
+
   const aborted = await client.uploads.audio({ sessionId: "s3" });
   await aborted.send(encoder.encode("partial"));
   await aborted.close();
@@ -149,7 +159,7 @@ async function main(): Promise<void> {
 
   {
     await using media = await client.voice.media();
-    assert(media instanceof BinaryDuplexConnection, "duplex connection");
+    assert(media instanceof BinaryChannel, "duplex connection");
     assert(text(await media.receive()) === "ready", "server output first");
     await media.send(encoder.encode("hello"));
     assert(text(await media.receive()) === "HELLO", "concurrent echo");

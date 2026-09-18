@@ -205,18 +205,10 @@ async with MediaClient.connect(host="api.example.com") as client:
             render(frame)
 ```
 
-The context manager closes the dedicated stream socket. Code that cannot use a
-context manager must open and close the connection explicitly; the opening
-object itself is intentionally not awaitable:
-
-```python
-opening = client.media.preview()
-frames = await opening.open()
-try:
-    frame = await frames.receive()
-finally:
-    await frames.close()
-```
+A stream call returns an async context manager, and `async with` is the only
+way to open it. Leaving the block closes the dedicated stream socket, so a
+stream cannot leak. To keep a stream open across calls, enter it on an
+`AsyncExitStack`.
 
 TypeScript opens the stream asynchronously and supports explicit resource
 management:
@@ -234,7 +226,7 @@ Variables supplied to `connect()` are inherited by stream URL templates. A
 stream call can override its own variables or its complete `url` without
 changing the JSON-RPC connections.
 
-A client-to-server stream returns a `BinarySinkConnection`. Leaving the
+A client-to-server stream returns a `BinarySender`. Leaving the
 `async with` block normally ends the input and waits for the server to close
 the stream. Leaving it with an exception aborts the upload instead:
 
@@ -245,9 +237,12 @@ async with client.uploads.audio() as upload:
 ```
 
 To finish explicitly, call `await upload.end()`. If the server does not close
-normally, it raises `RpcStreamFailed` with the close `code` and `reason`.
+normally, it raises `RpcStreamFailed` with the close `code` and `reason`. If
+the server has not closed the stream within 30 seconds, `end()` raises
+`TimeoutError`. Pass `end(timeout=...)` to change the limit, or `timeout=None`
+to wait without one.
 
-A bidirectional stream returns a `BinaryDuplexConnection`. It receives like a
+A bidirectional stream returns a `BinaryChannel`. It receives like a
 server-to-client stream and can also send:
 
 ```python
@@ -258,7 +253,7 @@ async with client.voice.media(voice_session_id=session_id) as media:
             speaker.play(chunk)
 
 
-async def pump_microphone(media: BinaryDuplexConnection) -> None:
+async def pump_microphone(media: BinaryChannel) -> None:
     async for pcm in microphone.frames():
         await media.send(pcm)
     await media.end_input()
@@ -267,8 +262,10 @@ async def pump_microphone(media: BinaryDuplexConnection) -> None:
 A stream closed with code 1008 raises `RpcStreamRefused`. Other error codes
 raise `RpcStreamFailed`. TypeScript mirrors this API with `send()`,
 `endInput()`, and `end()`. Disposal in TypeScript cannot see exceptions, so a
-TypeScript sink completes only through `await upload.end()`. Disposing it
-without `end()` aborts the upload.
+TypeScript sender completes only through `await upload.end()`. Disposing it
+without `end()` aborts the upload. There, `end({ timeoutMs })` rejects with
+`RpcStreamTimeout` after 30 000 ms by default; `timeoutMs: Infinity` waits
+without a limit.
 
 Iteration ends normally when the server closes a stream. Calling `receive()`
 directly after a regular close raises `RpcStreamClosed`, which lets code that

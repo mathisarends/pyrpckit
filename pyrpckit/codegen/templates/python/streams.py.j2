@@ -92,7 +92,7 @@ type BinaryStreamOpener = Callable[
 ]
 
 
-class BinaryStreamConnection:
+class BinaryReceiver:
     """Receives the frames of a server-to-client stream."""
 
     def __init__(self, transport: BinaryStreamTransport) -> None:
@@ -120,7 +120,7 @@ class BinaryStreamConnection:
         await self.close()
 
 
-class BinaryDuplexConnection(BinaryStreamConnection):
+class BinaryChannel(BinaryReceiver):
     """Sends and receives frames concurrently on a bidirectional stream."""
 
     def __init__(self, transport: BinaryInputTransport) -> None:
@@ -142,7 +142,7 @@ class BinaryDuplexConnection(BinaryStreamConnection):
         await self._input.end_input()
 
 
-class BinarySinkConnection:
+class BinarySender:
     """Sends the frames of a client-to-server stream.
 
     Leaving ``async with`` normally ends the input and waits for the server's
@@ -159,15 +159,20 @@ class BinarySinkConnection:
             raise RpcStreamClosed("The binary input already ended")
         await self._transport.send(bytes(frame))
 
-    async def end(self) -> None:
-        """End the input and wait until the server accepted it by closing."""
-        if not self._input_ended:
-            self._input_ended = True
-            await self._transport.end_input()
-        try:
-            await self._transport.receive()
-        except RpcStreamClosed:
-            return
+    async def end(self, *, timeout: float | None = 30.0) -> None:
+        """End the input and wait until the server accepted it by closing.
+
+        Raises ``TimeoutError`` when the server has not closed the stream after
+        ``timeout`` seconds; ``None`` waits without a limit.
+        """
+        async with asyncio.timeout(timeout):
+            if not self._input_ended:
+                self._input_ended = True
+                await self._transport.end_input()
+            try:
+                await self._transport.receive()
+            except RpcStreamClosed:
+                return
         raise RpcTransportError("The server sent a frame on a client-to-server stream")
 
     async def close(self) -> None:
@@ -184,49 +189,29 @@ class BinarySinkConnection:
             await self.close()
 
 
-class BinaryStreamOpening[ConnectionT: BinaryStreamConnection | BinarySinkConnection]:
-    """A stream that is opened by ``async with`` or by ``await ....open()``.
-
-    Both forms hand out a connection the caller has to close; only the context
-    manager does it for them.
-    """
-
-    def __init__(
-        self,
-        endpoint: BinaryStreamEndpoint,
-        opener: BinaryStreamOpener | None,
-        connection: Callable[[Any], ConnectionT],
-    ) -> None:
-        self.endpoint = endpoint
-        self._opener = opener
-        self._connection_type = connection
-        self._connection: ConnectionT | None = None
-
-    async def open(self) -> ConnectionT:
-        if self._opener is None:
-            raise RpcStreamsUnavailableError(
-                "No binary stream opener configured; pass stream_opener=..."
-            )
-        transport = await self._opener(self.endpoint)
-        if self.endpoint.direction != "server-to-client" and not (
-            hasattr(transport, "send") and hasattr(transport, "end_input")
-        ):
-            await transport.close()
-            raise RpcStreamsUnavailableError(
-                f"The binary stream {self.endpoint.name.value!r} sends frames, "
-                "but the stream opener returned a transport without send() "
-                "and end_input()"
-            )
-        return self._connection_type(transport)
-
-    async def __aenter__(self) -> ConnectionT:
-        self._connection = await self.open()
-        return self._connection
-
-    async def __aexit__(self, *args: Any) -> None:
-        connection, self._connection = self._connection, None
-        if connection is not None:
-            await connection.__aexit__(*args)
+@asynccontextmanager
+async def open_binary_stream[StreamT: BinaryReceiver | BinarySender](
+    endpoint: BinaryStreamEndpoint,
+    opener: BinaryStreamOpener | None,
+    stream_type: Callable[[Any], StreamT],
+) -> AsyncIterator[StreamT]:
+    """Open a stream for one ``async with`` block and close it when it ends."""
+    if opener is None:
+        raise RpcStreamsUnavailableError(
+            "No binary stream opener configured; pass stream_opener=..."
+        )
+    transport = await opener(endpoint)
+    if endpoint.direction != "server-to-client" and not (
+        hasattr(transport, "send") and hasattr(transport, "end_input")
+    ):
+        await transport.close()
+        raise RpcStreamsUnavailableError(
+            f"The binary stream {endpoint.name.value!r} sends frames, "
+            "but the stream opener returned a transport without send() "
+            "and end_input()"
+        )
+    async with stream_type(transport) as stream:
+        yield stream
 {% if with_websocket %}
 
 

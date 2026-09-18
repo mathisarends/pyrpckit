@@ -28,9 +28,9 @@
         *,
 {% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
 {% endfor %}        url: str | None = None,
-    ) -> BinaryStreamOpening[{{ item | stream_connection }}]:
+    ) -> AbstractAsyncContextManager[{{ item | stream_connection }}]:
 {% if item.summary %}        """{{ item.summary | docstring }}"""
-{% endif %}        return BinaryStreamOpening(
+{% endif %}        return open_binary_stream(
             resolve_stream_endpoint(
                 BINARY_STREAMS[BinaryStreamName.{{ item.name | constant }}],
 {% if item.variables %}                {

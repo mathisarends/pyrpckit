@@ -58,8 +58,18 @@ export class RpcStreamFailed extends Error {
 /** Raised when the server refused a binary stream by policy (1008). */
 export class RpcStreamRefused extends RpcStreamFailed {}
 
+/** Raised when the server did not close a completed upload in time. */
+export class RpcStreamTimeout extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`The server did not close the binary stream within ${timeoutMs} ms`);
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 /** Receives the frames of a server-to-client stream. */
-export class BinaryStreamConnection implements AsyncIterable<ArrayBuffer> {
+export class BinaryReceiver implements AsyncIterable<ArrayBuffer> {
   readonly #transport: BinaryStreamTransport;
 
   constructor(transport: BinaryStreamTransport) {
@@ -88,7 +98,7 @@ export class BinaryStreamConnection implements AsyncIterable<ArrayBuffer> {
 }
 
 /** Sends and receives frames concurrently on a bidirectional stream. */
-export class BinaryDuplexConnection extends BinaryStreamConnection {
+export class BinaryChannel extends BinaryReceiver {
   readonly #input: BinaryInputTransport;
   #inputEnded = false;
 
@@ -115,7 +125,7 @@ export class BinaryDuplexConnection extends BinaryStreamConnection {
  * Sends the frames of a client-to-server stream. Call `end()` to complete it;
  * closing or disposing without `end()` aborts the stream.
  */
-export class BinarySinkConnection {
+export class BinarySender {
   readonly #transport: BinaryInputTransport;
   #inputEnded = false;
 
@@ -129,8 +139,31 @@ export class BinarySinkConnection {
     return this.#transport.send(frame);
   }
 
-  /** End the input and wait until the server accepted it by closing. */
-  async end(): Promise<void> {
+  /**
+   * End the input and wait until the server accepted it by closing. Rejects
+   * with `RpcStreamTimeout` after `timeoutMs` (default 30 s); pass `Infinity`
+   * to wait without a limit.
+   */
+  async end(options: { readonly timeoutMs?: number } = {}): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const completion = this.#complete();
+    if (!Number.isFinite(timeoutMs)) return completion;
+    completion.catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new RpcStreamTimeout(timeoutMs)),
+        timeoutMs,
+      );
+    });
+    try {
+      await Promise.race([completion, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async #complete(): Promise<void> {
     if (!this.#inputEnded) {
       this.#inputEnded = true;
       await this.#transport.endInput();

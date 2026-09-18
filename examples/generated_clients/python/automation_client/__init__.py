@@ -26,15 +26,14 @@ from .models import (
 )
 from .namespaces import Browser, Tasks
 from .streams import (
-    BinaryDuplexConnection,
+    BinaryChannel,
     BinaryInputEnd,
     BinaryInputTransport,
-    BinarySinkConnection,
-    BinaryStreamConnection,
+    BinaryReceiver,
+    BinarySender,
     BinaryStreamEndpoint,
     BinaryStreamName,
     BinaryStreamOpener,
-    BinaryStreamOpening,
     BinaryStreamTransport,
     BinaryWebSocketStream,
 )
@@ -42,15 +41,14 @@ from .transport import WebSocketTransport
 
 __all__ = [
     "AutomationClient",
-    "BinaryDuplexConnection",
+    "BinaryChannel",
     "BinaryInputEnd",
     "BinaryInputTransport",
-    "BinarySinkConnection",
-    "BinaryStreamConnection",
+    "BinaryReceiver",
+    "BinarySender",
     "BinaryStreamEndpoint",
     "BinaryStreamName",
     "BinaryStreamOpener",
-    "BinaryStreamOpening",
     "BinaryStreamTransport",
     "BinaryWebSocketStream",
     "Browser",
