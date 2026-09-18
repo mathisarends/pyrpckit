@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import Mapping
 from contextlib import suppress
 from typing import Any
@@ -23,6 +24,7 @@ from pyrpckit.dependencies import (
     context_values,
 )
 from pyrpckit.envelopes import RpcNotification
+from pyrpckit.observer import RpcConnectionContext, notify_observer
 from pyrpckit.server import RpcErrorMapper, RpcServer
 from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
 
@@ -63,6 +65,7 @@ async def serve_endpoint(
     if prepared is None:
         return
     connection, resolved, values = prepared
+    started = time.perf_counter()
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     peer_closed = False
@@ -83,8 +86,7 @@ async def serve_endpoint(
                 endpoint.protocol,
                 resolver=scoped,
                 error_mapper=error_mapper,
-                on_request=endpoint.on_request,
-                on_response=endpoint.on_response,
+                observer=endpoint.observer,
             )
 
             async def writer():
@@ -175,6 +177,16 @@ async def serve_endpoint(
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
+        await notify_observer(
+            endpoint.observer,
+            "connection_closed",
+            RpcConnectionContext(
+                connection=connection,
+                close_code=connection.close_code,
+                close_reason=connection.close_reason,
+                duration=time.perf_counter() - started,
+            ),
+        )
 
 
 async def _event_source(event, resolver, outgoing):
@@ -206,6 +218,7 @@ async def serve_stream_endpoint(
     if prepared is None:
         return
     connection, resolved, values = prepared
+    started = time.perf_counter()
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     peer_closed = False
@@ -277,3 +290,13 @@ async def serve_stream_endpoint(
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
+        await notify_observer(
+            endpoint.observer,
+            "connection_closed",
+            RpcConnectionContext(
+                connection=connection,
+                close_code=connection.close_code,
+                close_reason=connection.close_reason,
+                duration=time.perf_counter() - started,
+            ),
+        )

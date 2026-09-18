@@ -13,6 +13,7 @@ from pyrpckit.dependencies import (
     call_scope,
 )
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
+from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import (
     RpcNotificationDefinition,
     RpcProtocol,
@@ -24,8 +25,6 @@ from pyrpckit.protocol import (
 )
 from pyrpckit.server import (
     RpcErrorMapper,
-    RpcRequestHook,
-    RpcResponseHook,
     RpcServer,
 )
 
@@ -277,8 +276,7 @@ class RpcChannel:
         context: object | Mapping[type[Any], object] | None = None,
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
-        on_request: RpcRequestHook | None = None,
-        on_response: RpcResponseHook | None = None,
+        observer: RpcObserver | None = None,
     ) -> RpcServer:
         from pyrpckit.dependencies import ContextResolver, context_values
 
@@ -290,8 +288,7 @@ class RpcChannel:
             self.protocol,
             resolver=resolved,
             error_mapper=error_mapper,
-            on_request=on_request,
-            on_response=on_response,
+            observer=observer,
         )
 
     def _reserve(self, name: str) -> None:

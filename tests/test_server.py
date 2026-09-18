@@ -40,22 +40,27 @@ async def test_a_request_is_answered_with_its_result(
     assert response.result.text == "Hello, M!"
 
 
-async def test_request_lifecycle_hooks_receive_outcome_and_duration(
+async def test_observer_receives_request_outcome_and_duration(
     handler: GreetingState,
 ) -> None:
-    requests = []
-    responses = []
+    class Observer:
+        def __init__(self) -> None:
+            self.requests = []
+            self.responses = []
 
-    async def on_request(context) -> None:
-        requests.append(context)
+        async def request_started(self, context) -> None:
+            self.requests.append(context)
 
-    async def on_response(context) -> None:
-        responses.append(context)
+        async def request_finished(self, context) -> None:
+            self.responses.append(context)
+
+        async def connection_closed(self, context) -> None: ...
+
+    observer = Observer()
 
     server = GREETING_APP.server(
         resolver=TestResolver(handler),
-        on_request=on_request,
-        on_response=on_response,
+        observer=observer,
     )
     response = await server.handle(
         {
@@ -66,12 +71,12 @@ async def test_request_lifecycle_hooks_receive_outcome_and_duration(
         }
     )
 
-    assert requests[0].method == GreetingRpcMethod.SAY
-    assert requests[0].request_id == 7
-    assert requests[0].notification is False
-    assert responses[0].request is requests[0]
-    assert responses[0].response is response
-    assert responses[0].duration >= 0
+    assert observer.requests[0].method == GreetingRpcMethod.SAY
+    assert observer.requests[0].request_id == 7
+    assert observer.requests[0].notification is False
+    assert observer.responses[0].request is observer.requests[0]
+    assert observer.responses[0].response is response
+    assert observer.responses[0].duration >= 0
 
 
 async def test_a_notification_is_served_without_a_response(

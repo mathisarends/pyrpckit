@@ -26,14 +26,13 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
-from .server import (
-    RpcErrorMapper,
+from .observer import (
+    RpcConnectionContext,
+    RpcObserver,
     RpcRequestContext,
-    RpcRequestHook,
     RpcResponseContext,
-    RpcResponseHook,
-    RpcServer,
 )
+from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 
 __version__ = "0.5.0"
@@ -46,6 +45,7 @@ __all__ = [
     "RpcCodec",
     "RpcConnection",
     "RpcConnectionClose",
+    "RpcConnectionContext",
     "RpcContract",
     "RpcDisconnect",
     "RpcEndpoint",
@@ -61,15 +61,14 @@ __all__ = [
     "RpcMethodNotFoundError",
     "RpcModel",
     "RpcNotification",
+    "RpcObserver",
     "RpcParseError",
     "RpcRejection",
     "RpcRequestId",
     "RpcRequestContext",
-    "RpcRequestHook",
     "RpcResolver",
     "RpcResolverScope",
     "RpcResponseContext",
-    "RpcResponseHook",
     "RpcServer",
     "RpcService",
     "RpcSocket",

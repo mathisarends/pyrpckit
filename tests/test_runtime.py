@@ -20,34 +20,55 @@ channel = RpcChannel("demo")
 connections = []
 
 
+class Observer:
+    def __init__(self) -> None:
+        self.closed = []
+
+    async def request_started(self, context) -> None: ...
+
+    async def request_finished(self, context) -> None: ...
+
+    async def connection_closed(self, context) -> None:
+        self.closed.append(context)
+
+
+observer = Observer()
+
+
 @channel.method()
 async def echo(params: Params, connection: Inject[RpcConnection]) -> Params:
     connections.append(connection)
     return params
 
 
-service = RpcService()
+service = RpcService(observer=observer)
 service.socket("/rpc", channels=(channel,))
 
 
 async def test_request_and_connection_context() -> None:
     connections.clear()
+    observer.closed.clear()
     async with RpcTestClient(service, "/rpc", headers={"Authorization": "x"}) as client:
         assert await client.request("demo.echo", {"value": "yes"}) == {"value": "yes"}
     assert connections[0].headers["authorization"] == "x"
     assert connections[0].closed
     assert connections[0].close_code == RpcConnectionClose.NORMAL
     assert connections[0].close_reason == ""
+    assert observer.closed[0].connection is connections[0]
+    assert observer.closed[0].close_code == RpcConnectionClose.NORMAL
+    assert observer.closed[0].duration >= 0
 
 
 async def test_peer_close_information_is_exposed_on_the_connection() -> None:
     connections.clear()
+    observer.closed.clear()
     async with RpcTestClient(service, "/rpc") as client:
         await client.request("demo.echo", {"value": "yes"})
         await client.socket.client_disconnect(1001, "Going away")
 
     assert connections[0].close_code == 1001
     assert connections[0].close_reason == "Going away"
+    assert observer.closed[0].close_reason == "Going away"
 
 
 async def test_binary_stream() -> None:

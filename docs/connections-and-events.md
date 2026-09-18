@@ -72,25 +72,32 @@ serve as their discriminator in generated clients.
 
 ## Observe requests
 
-Configure async lifecycle hooks on the service or override them on an endpoint:
+Configure one observer on the service or override it on an endpoint. Observer
+state belongs to that service instance, so tests and parallel apps remain
+isolated:
 
 ```python
-async def on_response(context: RpcResponseContext) -> None:
-    logger.info(
-        "rpc method=%s id=%s duration=%f success=%s",
-        context.request.method,
-        context.request.request_id,
-        context.duration,
-        isinstance(context.response, RpcSuccess),
-    )
+class GatewayObserver:
+    async def request_started(self, context: RpcRequestContext) -> None: ...
+
+    async def request_finished(self, context: RpcResponseContext) -> None:
+        logger.info(
+            "rpc method=%s id=%s duration=%f success=%s",
+            context.request.method,
+            context.request.request_id,
+            context.duration,
+            isinstance(context.response, RpcSuccess),
+        )
+
+    async def connection_closed(self, context: RpcConnectionContext) -> None:
+        logger.info("rpc disconnected code=%s", context.close_code)
 
 
-app = RpcService(on_response=on_response)
+app = RpcService(observer=GatewayObserver())
 ```
 
-`on_request` receives `RpcRequestContext`; `on_response` receives the same
-request context plus the response (or `None` for a notification) and elapsed
-seconds. Hook failures are logged without replacing the RPC result.
+Observer failures are logged without replacing the RPC result. There is no
+module-level observer or global configuration.
 
 ## Runtime limits
 

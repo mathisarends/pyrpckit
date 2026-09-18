@@ -1,12 +1,9 @@
-import logging
 import time
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Callable
 
 from pydantic import ValidationError
 
 from pyrpckit.codec import RpcCodec
-from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
@@ -17,31 +14,17 @@ from pyrpckit.errors import (
     RpcInvalidRequestError,
     RpcParseError,
 )
+from pyrpckit.observer import (
+    RpcObserver,
+    RpcRequestContext,
+    RpcResponseContext,
+    notify_observer,
+)
 from pyrpckit.protocol import RpcProtocol
 
 type RpcErrorMapper = Callable[[Exception], RpcError | None]
 type RpcResponse = RpcSuccess | RpcFailure
 type RpcResponseMessage = RpcResponse | list[RpcResponse] | None
-logger = logging.getLogger(LOGGER_NAME)
-
-
-@dataclass(frozen=True, slots=True)
-class RpcRequestContext:
-    raw_request: object
-    method: str | None
-    request_id: RpcRequestId
-    notification: bool
-
-
-@dataclass(frozen=True, slots=True)
-class RpcResponseContext:
-    request: RpcRequestContext
-    response: RpcResponse | None
-    duration: float
-
-
-type RpcRequestHook = Callable[[RpcRequestContext], Awaitable[None]]
-type RpcResponseHook = Callable[[RpcResponseContext], Awaitable[None]]
 
 
 class RpcServer:
@@ -57,15 +40,13 @@ class RpcServer:
         *,
         resolver: RpcResolver | None = None,
         error_mapper: RpcErrorMapper | None = None,
-        on_request: RpcRequestHook | None = None,
-        on_response: RpcResponseHook | None = None,
+        observer: RpcObserver | None = None,
     ) -> "RpcServer":
         server = cls.__new__(cls)
         server._protocol = protocol
         server._dispatcher = RpcDispatcher(protocol, resolver=resolver)
         server._error_mapper = error_mapper
-        server._on_request = on_request
-        server._on_response = on_response
+        server._observer = observer
         server._codec = RpcCodec()
         return server
 
@@ -99,7 +80,7 @@ class RpcServer:
             notification=_looks_like_notification(raw_request),
         )
         started = time.perf_counter()
-        await _run_hook(self._on_request, request_context, "on_request")
+        await notify_observer(self._observer, "request_started", request_context)
         try:
             invocation = self._dispatcher.parse_request(raw_request)
             result = await self._dispatcher.execute(invocation)
@@ -118,14 +99,14 @@ class RpcServer:
                 if invocation.request.expects_response
                 else None
             )
-        await _run_hook(
-            self._on_response,
+        await notify_observer(
+            self._observer,
+            "request_finished",
             RpcResponseContext(
                 request=request_context,
                 response=response,
                 duration=time.perf_counter() - started,
             ),
-            "on_response",
         )
         return response
 
@@ -174,12 +155,3 @@ def _looks_like_notification(raw_request: object) -> bool:
         and raw_request.get("jsonrpc") == "2.0"
         and isinstance(raw_request.get("method"), str)
     )
-
-
-async def _run_hook(hook, context, name: str) -> None:
-    if hook is None:
-        return
-    try:
-        await hook(context)
-    except Exception:
-        logger.exception("RPC %s hook failed", name)

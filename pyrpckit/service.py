@@ -10,11 +10,10 @@ from pyrpckit.channel import RpcChannel
 from pyrpckit.connection import RpcLimits, RpcSocket
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.errors import ProtocolDefinitionError
+from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import RpcProtocol, RpcStreamDefinition
 from pyrpckit.server import (
     RpcErrorMapper,
-    RpcRequestHook,
-    RpcResponseHook,
     RpcServer,
 )
 
@@ -26,8 +25,7 @@ class RpcEndpoint:
     path: str
     channels: tuple[RpcChannel, ...]
     error_mapper: RpcErrorMapper | None
-    on_request: RpcRequestHook | None
-    on_response: RpcResponseHook | None
+    observer: RpcObserver | None
     limits: RpcLimits
     subprotocol: str | None
     summary: str | None
@@ -89,8 +87,7 @@ class RpcEndpoint:
             self.protocol,
             resolver=resolved,
             error_mapper=error_mapper or self.error_mapper,
-            on_request=self.on_request,
-            on_response=self.on_response,
+            observer=self.observer,
         )
 
 
@@ -100,6 +97,7 @@ class RpcStreamEndpoint:
     name: str
     path: str
     stream: RpcStreamDefinition
+    observer: RpcObserver | None
     limits: RpcLimits
     subprotocol: str | None
     summary: str | None
@@ -133,8 +131,7 @@ class RpcService:
         *,
         version: int = 1,
         error_mapper: RpcErrorMapper | None = None,
-        on_request: RpcRequestHook | None = None,
-        on_response: RpcResponseHook | None = None,
+        observer: RpcObserver | None = None,
         limits: RpcLimits | None = None,
     ) -> None:
         if not isinstance(version, int) or version < 1:
@@ -143,8 +140,7 @@ class RpcService:
             )
         self._version = version
         self._error_mapper = error_mapper
-        self._on_request = on_request
-        self._on_response = on_response
+        self._observer = observer
         self._limits = limits or RpcLimits()
         self._endpoints: list[RpcEndpoint | RpcStreamEndpoint] = []
         self._channels: set[RpcChannel] = set()
@@ -163,8 +159,7 @@ class RpcService:
         channels: Sequence[RpcChannel],
         name: str | None = None,
         error_mapper: RpcErrorMapper | None = None,
-        on_request: RpcRequestHook | None = None,
-        on_response: RpcResponseHook | None = None,
+        observer: RpcObserver | None = None,
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
@@ -186,8 +181,7 @@ class RpcService:
             path,
             tuple(channels),
             error_mapper or self._error_mapper,
-            on_request or self._on_request,
-            on_response or self._on_response,
+            observer or self._observer,
             limits or self._limits,
             subprotocol,
             summary,
@@ -204,6 +198,7 @@ class RpcService:
         /,
         *,
         name: str | None = None,
+        observer: RpcObserver | None = None,
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
@@ -224,6 +219,7 @@ class RpcService:
             name or _endpoint_name(path),
             path,
             definition,
+            observer or self._observer,
             limits or self._limits,
             subprotocol,
             summary,

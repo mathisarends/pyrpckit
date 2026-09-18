@@ -13,9 +13,8 @@ for the pre-0.6 composition API.
 - `channel.child(segment, raises=(), resolver_scope=None)` creates a nested
   namespace that inherits the parent's errors and scope. Mounting the root
   includes all descendants.
-- `RpcService(*, version=1, error_mapper=None, on_request=None,
-  on_response=None, limits=None)` owns the complete application and its serving
-  defaults.
+- `RpcService(*, version=1, error_mapper=None, observer=None, limits=None)` owns
+  the complete application and its serving defaults.
   Examples call the instance `app`, matching common FastAPI usage.
 - Mount JSON-RPC with `app.socket(path, *, channels, name=None,
   error_mapper=None, limits=None, subprotocol=None, summary=None)`.
@@ -84,8 +83,8 @@ app.stream("/sessions/{session_id}/frames", frames)
   `RpcStreamEndpoint.serve()` serve an already selected endpoint.
 - JSON-RPC requests are concurrent and bounded by `RpcLimits`; responses may
   complete out of order. Notifications receive no response.
-- Async `on_request` and `on_response` hooks expose structured request data,
-  response outcome, and elapsed time for instrumentation.
+- A service-bound observer exposes request start, request finish, and connection
+  close events with structured outcome and elapsed-time contexts.
 - `RpcConnection.close_code` and `.close_reason` expose the final local or peer
   close information to connection-scoped resources.
 - The runtime owns socket acceptance and closure. A missing route is rejected,
