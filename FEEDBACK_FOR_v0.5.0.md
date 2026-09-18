@@ -33,6 +33,46 @@ Die bewussten Folgen sind überschaubar:
 - Eine Identität kann nicht aus einem Connect-Hook in Handler injiziert werden.
   Falls Cara das später benötigt, kann die Funktion gezielt neu bewertet werden.
 
+### Umsetzungsstand für 0.6
+
+Das Feedback wurde vollständig gegen die Library geprüft. Für 0.6 sind folgende
+Punkte umgesetzt:
+
+- Der Starlette-`TestClient`-Disconnect verliert keinen `CancelledError` mehr;
+  ein Regressionstest öffnet und schließt 200 echte FastAPI-WebSockets.
+- `RpcService` hält gemeinsame Defaults für `error_mapper` und `limits`, die ein
+  Endpoint überschreiben kann. `serve()`, `create_router()` und
+  `RpcTestClient` verwenden dadurch dieselbe Konfiguration.
+- `create_router(resolver_factory=...)` löst Resolver pro Verbindung auf.
+  `dishka_router()` liest den APP-Container aus `app.state` und
+  `DishkaResolver` erklärt einen versehentlich übergebenen SESSION-Container.
+- `socket(..., channels=...)` nimmt eine benannte Sequenz.
+- `channel.child()` bildet verschachtelte Namespaces und vererbt `raises` sowie
+  den Resolver-Scope. Alternativ kann der Channel-Name aus `namespace=` folgen;
+  Fehlermeldungen für gepunktete Operationen verweisen auf Kind-Channels.
+- Fehlercodes entfernen sowohl `Error` als auch `RpcError` als Suffix.
+  `RpcInvalidParamsError` erlaubt leere Issues und ein versehentlich positional
+  übergebener Meldungstext verweist auf `message=`. Die Wire- und
+  `RpcRemoteError`-Änderungen sind im Changelog hervorgehoben.
+- Ein service-gebundener `observer=` beobachtet Request-Start, Request-Ende und
+  Connection-Close ohne modulweiten Zustand. `RpcConnection` stellt Close-Code
+  und Grund bereit; die nebenläufige Verarbeitung ist dokumentiert.
+- Generierte Python-Clients akzeptieren `headers=`, ihre Connection ist direkt
+  awaitbar und Single-Server-Clients verbinden standardmäßig eager. Der
+  pfadbasierte Servername ist im Changelog genannt. Generierter Python-Code
+  wird bereits in der Testsuite mit `ruff check` und `ruff format --check`
+  geprüft; ein externer Post-Process-Hook ist daher nicht nötig.
+- Contract-Basis-URLs akzeptieren HTTP(S) und werden nach WS(S) übersetzt.
+  `RpcContract.to_openrpc()` erhält auch Binary-Stream-Erweiterungen, und das
+  JSON-Rendering bewahrt Unicode.
+
+Bewusst zurückgestellt sind Client→Server- und bidirektionale Binary-Streams.
+Sie benötigen vor einer öffentlichen API noch Entscheidungen zu Framing,
+Backpressure, Ownership und Codegen in beiden Zielsprachen. Eine halbe
+`direction=`-API würde den Cara-Media-Socket nicht sicher ersetzen. Bis dieses
+Protokoll separat entworfen ist, bleibt der spezialisierte bidirektionale Socket
+die passendere Lösung.
+
 ---
 
 ## 1. Bug: `CancelledError` beim Verbindungsende unter Starlettes `TestClient`
