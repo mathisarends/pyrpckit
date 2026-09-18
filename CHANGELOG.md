@@ -2,6 +2,11 @@
 
 ## 0.6.0 - Unreleased
 
+### Fixed
+
+- Prevent Starlette's normal WebSocket teardown cancellation from escaping
+  FastAPI handlers as `concurrent.futures.CancelledError`.
+
 ### Changed
 
 - Keep authentication in the hosting framework before `serve()` instead of

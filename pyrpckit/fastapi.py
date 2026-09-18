@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -108,20 +109,26 @@ def _create_handler(
 ):
     async def handler(websocket: WebSocket) -> None:
         socket = FastApiSocket(websocket)
-        if isinstance(endpoint, RpcEndpoint):
-            await endpoint.serve(
-                socket,
-                resolver=resolver,
-                context=context,
-                error_mapper=error_mapper,
-                limits=limits,
-            )
-        else:
-            await endpoint.serve(
-                socket,
-                resolver=resolver,
-                context=context,
-                limits=limits,
-            )
+        try:
+            if isinstance(endpoint, RpcEndpoint):
+                await endpoint.serve(
+                    socket,
+                    resolver=resolver,
+                    context=context,
+                    error_mapper=error_mapper,
+                    limits=limits,
+                )
+            else:
+                await endpoint.serve(
+                    socket,
+                    resolver=resolver,
+                    context=context,
+                    limits=limits,
+                )
+        except asyncio.CancelledError:
+            # Starlette cancels its WebSocket task immediately after delivering
+            # websocket.disconnect. Cancellation is normal teardown at this ASGI
+            # boundary and must not leak through TestClient's context manager.
+            return
 
     return handler

@@ -75,6 +75,24 @@ def test_router_serves_websocket_with_fastapi_options() -> None:
     assert connection.client is not None
 
 
+def test_repeated_test_client_disconnects_do_not_leak_cancellation() -> None:
+    web = FastAPI()
+    web.include_router(create_router(create_service()))
+
+    with TestClient(web) as client:
+        for value in range(200):
+            with client.websocket_connect("/rpc") as websocket:
+                websocket.send_json(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": value,
+                        "method": "demo.echo",
+                        "params": {"value": str(value)},
+                    }
+                )
+                assert websocket.receive_json()["result"] == {"value": str(value)}
+
+
 def test_router_serves_binary_stream() -> None:
     channel = RpcChannel("media")
 
