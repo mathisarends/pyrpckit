@@ -84,7 +84,7 @@ export class AutomationClient {
           socketFactory: options.socketFactory,
         }),
     });
-    if (options.eager === true) await pool.openAll();
+    if (options.eager ?? false) await pool.openAll();
     return new AutomationClient(pool, {
       hooks: options.hooks,
       streamOpener: (endpoint) =>

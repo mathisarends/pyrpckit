@@ -108,10 +108,10 @@ class RpcTransportPool[ServerT: str]:
 
 
 class ClientConnection[ClientT: _Closable, ServerT: str]:
-    """The client of a ``connect`` call, entered by ``async with`` or ``open``.
+    """The client of a ``connect`` call, entered, awaited, or opened.
 
-    ``async with`` closes the client again; ``await connection.open()`` hands it
-    over to the caller, who closes it.
+    ``async with`` closes the client again; awaiting the connection or calling
+    ``open()`` hands it to the caller, who closes it.
     """
 
     def __init__(
@@ -136,6 +136,9 @@ class ClientConnection[ClientT: _Closable, ServerT: str]:
 
     async def __aenter__(self) -> ClientT:
         return await self.open()
+
+    def __await__(self):
+        return self.open().__await__()
 
     async def __aexit__(self, *args: object) -> None:
         if self._client is not None:

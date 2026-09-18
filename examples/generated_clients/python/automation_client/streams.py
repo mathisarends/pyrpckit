@@ -153,6 +153,7 @@ class BinaryWebSocketFactory(Protocol):
         url: str,
         *,
         subprotocols: list[str] | None,
+        additional_headers: Mapping[str, str] | None,
     ) -> Awaitable[BinaryWebSocket]: ...
 
 
@@ -166,6 +167,7 @@ class BinaryWebSocketStream:
         cls,
         endpoint: BinaryStreamEndpoint,
         *,
+        headers: Mapping[str, str] | None = None,
         socket_factory: BinaryWebSocketFactory | None = None,
     ) -> Self:
         if socket_factory is None:
@@ -179,6 +181,7 @@ class BinaryWebSocketStream:
         socket = await socket_factory(
             endpoint.url,
             subprotocols=list(endpoint.subprotocols) or None,
+            additional_headers=headers,
         )
         return cls(socket)
 

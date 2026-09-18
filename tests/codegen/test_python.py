@@ -78,6 +78,7 @@ def test_websocket_lifecycle_stays_out_of_the_public_client(
 
     assert "internal/connection.py" in files
     assert "return ClientConnection(" in client
+    assert "eager: bool = True" in client
     assert "async def open(" not in client
     assert "_ConnectionContext" not in client
 

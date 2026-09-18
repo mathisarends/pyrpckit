@@ -27,6 +27,9 @@
   outcome, and duration context for logging and instrumentation.
 - Expose `close_code` and `close_reason` on `RpcConnection`, including close
   information received from the peer.
+- Let generated Python WebSocket clients accept `headers=`, make their
+  connection object directly awaitable, and eagerly open single-server clients
+  by default. Multi-server clients remain lazy unless requested otherwise.
 - Resolve FastAPI dependencies per connection with `resolver_factory=`. Add
   `dishka_router()` to read Dishka's APP container from `app.state` and reject
   accidentally supplied SESSION containers with a targeted error.
@@ -79,6 +82,8 @@
   channel name is positional and supplies the default namespace.
 - Generate contracts from mounted services, including endpoint paths,
   variables, subprotocols, protocol version, errors, and streams.
+- Derive an endpoint's default server name from the final static path segment
+  (for example, `/v1/gateway` becomes `gateway`).
 - Rename generated `media.py` / `media.ts` to `streams.py` / `streams.ts`.
 - Rename method `errors=` to `raises=` and error extensions to
   `x-rpckit-code` / `x-rpckit-details-schema`.
