@@ -70,6 +70,10 @@ parameters; callers do not subscribe with request parameters. A union of
 Pydantic models is supported for event families, and a literal `type` field can
 serve as their discriminator in generated clients.
 
+The payload type comes from `AsyncIterator[T]`, so events do not need
+`payload=`. The optional `@channel.event(payload=...)` only asserts that type
+and fails at definition time when it differs from the yielded type.
+
 ## Observe requests
 
 Configure one observer on the service or override it on an endpoint. Observer

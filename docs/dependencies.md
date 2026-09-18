@@ -110,4 +110,11 @@ The integration reads `web.state.dishka_container`; pass the APP container to
 `websocket.state` is rejected because pyrpckit opens that scope itself and adds
 `RpcConnection` to its context.
 
+Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
+container for every WebSocket, including RPC sockets. pyrpckit does not use
+that container: RPC handlers resolve from the SESSION scope opened per
+connection above, so session-scoped values are never shared between the two.
+Keep RPC dependencies in the pyrpckit scope and do not rely on
+`websocket.state.dishka_container` in RPC code.
+
 [Back to documentation](README.md)

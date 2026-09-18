@@ -65,6 +65,11 @@ Punkte umgesetzt:
 - Contract-Basis-URLs akzeptieren HTTP(S) und werden nach WS(S) übersetzt.
   `RpcContract.to_openrpc()` erhält auch Binary-Stream-Erweiterungen, und das
   JSON-Rendering bewahrt Unicode.
+- Die Dishka-Doku erklärt, dass der SESSION-Container der
+  `setup_dishka()`-Middleware für RPC-Sockets ungenutzt bleibt und nicht mit
+  dem pyrpckit-SESSION-Scope geteilt wird.
+- Die Event-Doku nennt `AsyncIterator[T]` als Quelle des Payload-Typs.
+  `payload=` ist nur eine Assertion; einen abweichenden Wire-Typ gibt es nicht.
 
 Bewusst zurückgestellt sind Client→Server- und bidirektionale Binary-Streams.
 Sie benötigen vor einer öffentlichen API noch Entscheidungen zu Framing,
