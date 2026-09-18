@@ -20,6 +20,9 @@
   namespace, declared errors, and resolver scope, and are included when the root
   channel is mounted. Channel names may default to a dotted `namespace=`.
 - Explain dotted operation-name errors with the nested-channel solution.
+- Derive application error codes by stripping either `Error` or `RpcError`,
+  allow `RpcInvalidParamsError(message=...)` without synthetic validation
+  issues, and suggest `message=` for accidental positional strings.
 - Resolve FastAPI dependencies per connection with `resolver_factory=`. Add
   `dishka_router()` to read Dishka's APP container from `app.state` and reject
   accidentally supplied SESSION containers with a targeted error.
@@ -59,6 +62,11 @@
 
 - Configure FastAPI prefixes and dependencies through `include_router()` so
   `create_router()` only exposes pyrpckit runtime options.
+- Rename generated `RpcRemoteError.code` from the numeric JSON-RPC code to the
+  stable string application code; the numeric value is now `rpc_code` in Python
+  and `rpcCode` in TypeScript.
+- Include `data.code` and `data.details` in every error envelope, including
+  built-in errors whose details are `null`.
 - Keep FastAPI WebSocket handler signatures free of captured endpoint
   parameters and preserve unexpected WebSocket state errors.
 - Make `RpcChannel` a lightweight group of methods, events, and streams; the
