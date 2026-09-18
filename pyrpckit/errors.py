@@ -10,7 +10,7 @@ from pyrpckit.models import RpcModel
 
 
 def _error_code(name: str) -> str:
-    name = name.removesuffix("RpcError").removesuffix("Error")
+    name = name.lstrip("_").removesuffix("RpcError").removesuffix("Error")
     return re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", name).lower()
 
 

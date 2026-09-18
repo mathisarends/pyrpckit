@@ -50,16 +50,19 @@ def endpoint(
     )
 {% for server in servers %}
 
-def {{ server.name | identifier }}(
-{% if server.variables %}    *,
+{% if server.variables %}def {{ server.name | identifier }}(
+    *,
 {% for variable in server.variables %}    {{ variable.name | identifier }}: {{ variable | variable_annotation }} = {{ variable.default | literal }},
-{% endfor %}{% endif %}) -> Endpoint:
+{% endfor %}) -> Endpoint:
     return endpoint(
         ServerName.{{ server.name | constant }},
-{% if server.variables %}        {
+        {
 {% for variable in server.variables %}            {{ variable.name | literal }}: {{ variable.name | identifier }},
 {% endfor %}        },
-{% endif %}    )
+    )
+{% else %}def {{ server.name | identifier }}() -> Endpoint:
+    return endpoint(ServerName.{{ server.name | constant }})
+{% endif %}
 {% endfor %}
 
 def resolve_endpoints(

@@ -227,8 +227,12 @@ def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
 
 def _render_routes(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add("pydantic", "TypeAdapter")
-    imports.add(_runtime_module(options), "RpcNotificationInfo", "RpcRouteInfo")
+    if ir.operations or ir.notifications:
+        imports.add("pydantic", "TypeAdapter")
+    if ir.operations:
+        imports.add(_runtime_module(options), "RpcRouteInfo")
+    if ir.notifications:
+        imports.add(_runtime_module(options), "RpcNotificationInfo")
     for route in ir.operations:
         imports.add(
             f"{options.package}.models",
@@ -1051,6 +1055,11 @@ def _literal(value: Any) -> str:
         return "True"
     if value is False:
         return "False"
+    if isinstance(value, dict):
+        items = ", ".join(f"{_literal(k)}: {_literal(v)}" for k, v in value.items())
+        return f"{{{items}}}"
+    if isinstance(value, list):
+        return f"[{', '.join(_literal(item) for item in value)}]"
     return repr(value)
 
 
@@ -1071,7 +1080,7 @@ def _import_line(module: str, names: list[str]) -> str:
 
 
 def _import_name_key(name: str) -> tuple[int, str]:
-    if name.isupper():
+    if len(name) > 1 and name.isupper():
         group = 0
     elif name[0].isupper():
         group = 1

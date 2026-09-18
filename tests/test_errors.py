@@ -26,12 +26,18 @@ class VoiceTurnAlreadyActiveRpcError(RpcError):
     pass
 
 
+class _PrivateError(RpcError):
+    pass
+
+
 def test_error_metadata_is_derived() -> None:
     assert ProjectNotFoundError.code == "project_not_found"
     assert ProjectNotFoundError.message == "Project not found"
     assert HTTPTimeoutError.code == "http_timeout"
     assert HTTPTimeoutError.rpc_code == -32010
     assert VoiceTurnAlreadyActiveRpcError.code == "voice_turn_already_active"
+    assert _PrivateError.code == "private"
+    assert _PrivateError.message == "Private"
 
 
 def test_details_accept_fields_or_model() -> None:

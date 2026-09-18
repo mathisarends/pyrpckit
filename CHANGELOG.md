@@ -6,6 +6,11 @@
 
 - Prevent Starlette's normal WebSocket teardown cancellation from escaping
   FastAPI handlers as `concurrent.futures.CancelledError`.
+- Keep generated Python clients `ruff check` and `ruff format` clean for
+  contracts without events or without methods, servers without variables, and
+  single-letter model names.
+- Ignore leading underscores when deriving error codes, so private error
+  classes such as `_MissingError` produce `missing`.
 
 ### Changed
 

@@ -1,17 +1,35 @@
 import subprocess
 import sys
+from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import pyrpckit as rpc
 from pyrpckit.codegen import generate_python_client, render_python_client
 from pyrpckit.codegen.ir import UnsupportedSchemaError
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.writer import MANIFEST
 
 from .conftest import PACKAGE
+
+
+class _Params(rpc.RpcModel):
+    x: int
+
+
+class _Result(rpc.RpcModel):
+    x: int
+
+
+class _Tick(rpc.RpcModel):
+    n: int
+
+
+class _MissingError(rpc.RpcError):
+    pass
 
 
 def test_the_generated_package_has_one_module_per_concern(
@@ -407,7 +425,6 @@ def test_generated_python_is_ruff_formatted(
     options: PythonClientOptions,
     tmp_path: Path,
 ) -> None:
-    output = tmp_path / PACKAGE
     deployed = deepcopy(document)
     deployed["x-rpckit-binary-streams"] = [
         {
@@ -417,7 +434,67 @@ def test_generated_python_is_ruff_formatted(
             "frameType": "binary",
         }
     ]
-    generate_python_client(deployed, output, options)
+
+    _assert_ruff_clean(deployed, options, tmp_path)
+
+
+def _methods_only() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("demo")
+
+    @channel.method
+    async def echo(params: _Params) -> _Result: ...
+
+    return channel
+
+
+def _events_only() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("demo")
+
+    @channel.event
+    async def ticks() -> AsyncIterator[_Tick]:
+        yield _Tick(n=1)
+
+    return channel
+
+
+def _methods_and_events() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("demo", raises=(_MissingError,))
+
+    @channel.method
+    async def echo(params: _Params) -> _Result: ...
+
+    @channel.event
+    async def ticks() -> AsyncIterator[_Tick]:
+        yield _Tick(n=1)
+
+    return channel
+
+
+@pytest.mark.parametrize("channel", [_methods_only, _events_only, _methods_and_events])
+@pytest.mark.parametrize("transport", [None, "websocket"])
+def test_generated_python_from_services_is_ruff_clean(
+    channel: Callable[[], rpc.RpcChannel],
+    transport: str | None,
+    tmp_path: Path,
+) -> None:
+    service = rpc.RpcService()
+    service.socket("/v1/gateway", channels=[channel()])
+    contract = service.contract(title="Gateway", base_url="http://localhost")
+
+    _assert_ruff_clean(
+        contract.to_openrpc(),
+        PythonClientOptions(package=PACKAGE, with_transport=transport),
+        tmp_path,
+    )
+
+
+def _assert_ruff_clean(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / PACKAGE
+    generate_python_client(document, output, options)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nline-length = 88\n[tool.ruff.lint]\nselect = ["E", "F", "I"]\n'
         f'[tool.ruff.lint.isort]\nknown-first-party = ["{PACKAGE}"]\n',
