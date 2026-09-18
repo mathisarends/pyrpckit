@@ -28,7 +28,7 @@ async def frames() -> AsyncIterator[bytes]:
 
 
 service = RpcService(version=2)
-service.socket("/projects/{project_id}/rpc", channel, subprotocol="rpc.v2")
+service.socket("/projects/{project_id}/rpc", channels=(channel,), subprotocol="rpc.v2")
 service.stream("/projects/{project_id}/frames", frames)
 contract = service.contract(
     title="Control API",
@@ -56,6 +56,22 @@ def test_contract_derives_servers_and_streams() -> None:
 def test_render_contract_uses_service_contract() -> None:
     text = render_contract(contract)
     assert '"x-rpckit-code": "missing"' in text
+
+
+def test_http_base_url_is_converted_and_contract_renders_itself() -> None:
+    http_contract = service.contract(
+        title="Steuerung für Geräte",
+        base_url="https://api.example.com",
+        variables={"project_id": ServerVariable(default="demo")},
+    )
+
+    document = http_contract.to_openrpc()
+
+    assert document["info"]["title"] == "Steuerung für Geräte"
+    assert document["servers"][0]["url"].startswith("wss://")
+    assert document["x-rpckit-binary-streams"][0]["name"] == "control.frames"
+    assert "Steuerung für Geräte" in render_contract(http_contract)
+    assert "\\u00fc" not in render_contract(http_contract)
 
 
 def test_unused_variable_is_rejected() -> None:

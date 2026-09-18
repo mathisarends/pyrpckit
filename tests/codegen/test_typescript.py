@@ -2,10 +2,12 @@ import shutil
 import subprocess
 from copy import deepcopy
 from pathlib import Path
+from textwrap import dedent
 from typing import Any
 
 import pytest
 
+import pyrpckit as rpc
 from pyrpckit.codegen import generate_typescript_client, render_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 from pyrpckit.codegen.writer import MANIFEST
@@ -81,7 +83,21 @@ def test_route_definitions_keep_wire_names(
     routes = render_typescript_client(document, options())["routes.ts"]
 
     assert 'method: "greeting.forget"' in routes
-    assert "greetingForget:" in routes
+    assert "greetingForget: defineRoute<ForgetParams, null>" in routes
+    assert "greetingGreeted: defineRoute<undefined, GreetedResult>" in routes
+    assert "greetingChanged: defineNotification<GreetingUpdate>" in routes
+
+
+def test_api_calls_infer_their_types_from_route_metadata(
+    document: dict[str, Any],
+) -> None:
+    files = render_typescript_client(document, options())
+    api = files["namespaces/greeting.ts"]
+
+    assert ".request<SayResult>" not in api
+    assert ".notifications<GreetingUpdate>" not in api
+    assert "this.rpc.request(routes.greetingSay, params)" in api
+    assert "this.rpc.notifications(notifications.greetingChanged)" in api
 
 
 def test_stably_named_remote_errors_get_their_own_module(
@@ -233,9 +249,12 @@ def test_binary_streams_generate_typed_media_clients(document: dict[str, Any]) -
     assert "class BinaryWebSocketStream" in media
     assert "send(frame: ArrayBuffer | ArrayBufferView)" not in media
     assert 'socket.binaryType = "arraybuffer"' in media
-    assert "JSON.stringify" not in media
+    assert "this.#socket.send(frame);" in media
+    assert media.count("JSON.stringify") == 1
+    assert "JSON.stringify(end)" in media
     assert "base64" not in media.lower()
     assert "voice(" in client
+    assert client.count("readonly sessionId?: string") == 1
     assert 'contentType: "audio/pcm;rate=24000"' in media
     assert 'from "./streams"' in files["index.ts"]
 
@@ -288,7 +307,23 @@ def test_generated_typescript_is_prettier_formatted(
             "url": "wss://media",
             "direction": "server-to-client",
             "frameType": "binary",
-        }
+        },
+        {
+            "name": "uploads.audio",
+            "url": "wss://media/{sessionId}/upload",
+            "direction": "client-to-server",
+            "inputContentType": "audio/pcm",
+            "frameType": "binary",
+            "variables": {"sessionId": {"default": "demo"}},
+        },
+        {
+            "name": "uploads.talk",
+            "url": "wss://media/talk",
+            "direction": "bidirectional",
+            "contentType": "audio/opus",
+            "inputContentType": "audio/pcm",
+            "frameType": "binary",
+        },
     ]
     generate_typescript_client(nested, output, options())
     nested["servers"] = [
@@ -365,6 +400,47 @@ def test_generated_typescript_passes_strict_type_checking(
             with_transport="websocket",
         ),
     )
+    consumer = tmp_path / "consumer.ts"
+    consumer.write_text(
+        dedent(
+            """
+            import {
+              notifications,
+              routes,
+              type GreetedResult,
+              type GreetingUpdate,
+              type RpcClientCore,
+              type SayResult,
+            } from "./generated";
+
+            declare const rpc: RpcClientCore;
+
+            const result: Promise<SayResult> = rpc.request(
+              routes.greetingSay,
+              { name: "Ada" },
+            );
+            const greeted: Promise<GreetedResult> = rpc.request(
+              routes.greetingGreeted,
+            );
+            const updates: AsyncIterable<GreetingUpdate> = rpc.notifications(
+              notifications.greetingChanged,
+            );
+
+            // @ts-expect-error greeting.say requires parameters
+            void rpc.request(routes.greetingSay);
+            // @ts-expect-error greeting.greeted does not accept parameters
+            void rpc.request(routes.greetingGreeted, {});
+            // @ts-expect-error name is a string
+            void rpc.request(routes.greetingSay, { name: 42 });
+
+            void result;
+            void greeted;
+            void updates;
+            """
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
 
     type_check = subprocess.run(
         [
@@ -384,7 +460,7 @@ def test_generated_typescript_passes_strict_type_checking(
             "--lib",
             "ES2022,DOM,ESNext.Disposable",
             "--skipLibCheck",
-            str(output / "index.ts"),
+            str(consumer),
         ],
         capture_output=True,
         text=True,
@@ -392,3 +468,20 @@ def test_generated_typescript_passes_strict_type_checking(
     )
 
     assert type_check.returncode == 0, type_check.stdout + type_check.stderr
+
+
+def test_contracts_without_models_do_not_export_a_models_module() -> None:
+    channel = rpc.RpcChannel("control")
+
+    @channel.method
+    async def ping() -> str:
+        return "pong"
+
+    service = rpc.RpcService()
+    service.socket("/rpc", channels=[channel])
+    document = service.contract(title="Control", base_url="ws://localhost")
+
+    files = render_typescript_client(document.to_openrpc(), options())
+
+    assert "models.ts" not in files
+    assert "./models" not in files["index.ts"]

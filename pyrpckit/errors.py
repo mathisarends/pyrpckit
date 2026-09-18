@@ -10,7 +10,7 @@ from pyrpckit.models import RpcModel
 
 
 def _error_code(name: str) -> str:
-    name = name.removesuffix("Error")
+    name = name.lstrip("_").removesuffix("RpcError").removesuffix("Error")
     return re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", name).lower()
 
 
@@ -95,7 +95,14 @@ class RpcError(Exception):
         details_type = type(self).details_type
         if details_type is None:
             if details is not None or fields:
-                raise TypeError(f"{type(self).__name__} does not accept details")
+                suggestion = (
+                    "; did you mean to pass message=...?"
+                    if isinstance(details, str)
+                    else ""
+                )
+                raise TypeError(
+                    f"{type(self).__name__} does not accept details{suggestion}"
+                )
             self.details = None
         else:
             if details is not None and fields:
@@ -159,6 +166,7 @@ class RpcInvalidParamsError(RpcError):
             self.message = converted.message
             Exception.__init__(self, self.message)
             return
+        fields.setdefault("issues", [])
         super().__init__(**fields)
 
 

@@ -28,7 +28,7 @@ async def say(params: GreetParams, greeter: Inject[Greeter]) -> Greeting:
 
 async def main() -> None:
     rpc = RpcService()
-    rpc.socket("/rpc", router)
+    rpc.socket("/rpc", channels=(router,))
     async with RpcTestClient(
         rpc, "/rpc", context={Greeter: Greeter("Hello")}
     ) as client:

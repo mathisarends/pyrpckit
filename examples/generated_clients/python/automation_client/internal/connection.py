@@ -27,6 +27,7 @@ class _TransportFactory(Protocol):
     def __call__(
         self,
         url: str,
+        /,
         *,
         subprotocols: tuple[str, ...],
         request_timeout: float | None,
@@ -96,8 +97,9 @@ class RpcTransportPool[ServerT: str]:
 
     def _server_name(self, server: str | None) -> ServerT:
         if server is not None:
-            if server in self._endpoints:
-                return server  # type: ignore[return-value]
+            for name in self._endpoints:
+                if name == server:
+                    return name
             raise RpcTransportError(f"No endpoint is configured for server {server!r}")
         if len(self._endpoints) == 1:
             return next(iter(self._endpoints))
@@ -108,10 +110,10 @@ class RpcTransportPool[ServerT: str]:
 
 
 class ClientConnection[ClientT: _Closable, ServerT: str]:
-    """The client of a ``connect`` call, entered by ``async with`` or ``open``.
+    """The client of a ``connect`` call, entered, awaited, or opened.
 
-    ``async with`` closes the client again; ``await connection.open()`` hands it
-    over to the caller, who closes it.
+    ``async with`` closes the client again; awaiting the connection or calling
+    ``open()`` hands it to the caller, who closes it.
     """
 
     def __init__(
@@ -136,6 +138,9 @@ class ClientConnection[ClientT: _Closable, ServerT: str]:
 
     async def __aenter__(self) -> ClientT:
         return await self.open()
+
+    def __await__(self):
+        return self.open().__await__()
 
     async def __aexit__(self, *args: object) -> None:
         if self._client is not None:

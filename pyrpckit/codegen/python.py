@@ -40,11 +40,16 @@ from pyrpckit.codegen.templating import render_template
 class _Imports:
     def __init__(self, relative_to: str | None = None) -> None:
         self._modules: dict[str, set[str]] = {}
+        self._plain: set[str] = set()
         self._relative_to = relative_to
 
     def add(self, module: str, *names: str) -> None:
         if names:
             self._modules.setdefault(self._resolve(module), set()).update(names)
+
+    def add_module(self, module: str) -> None:
+        """Import a whole module, as in ``import asyncio``."""
+        self._plain.add(module)
 
     def _resolve(self, module: str) -> str:
         """Render imports of the own package as relative imports."""
@@ -59,6 +64,8 @@ class _Imports:
 
     def render(self) -> str:
         groups: dict[int, list[str]] = {}
+        for module in sorted(self._plain):
+            groups.setdefault(_import_group(module), []).append(f"import {module}")
         for module in sorted(self._modules):
             groups.setdefault(_import_group(module), []).append(
                 _import_line(
@@ -152,6 +159,8 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
         "RpcRemoteError",
         "RpcResponseValidationError",
         "RpcStreamClosed",
+        "RpcStreamFailed",
+        "RpcStreamRefused",
         "RpcStreamsUnavailableError",
         "RpcTransportError",
     )
@@ -181,6 +190,8 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
             "RpcServerInfo",
             "RpcServerVariable",
             "RpcStreamClosed",
+            "RpcStreamFailed",
+            "RpcStreamRefused",
             "RpcStreamsUnavailableError",
             "RpcTransport",
             "RpcTransportDescriptor",
@@ -227,11 +238,19 @@ def _render_models(ir: ClientIr, options: PythonClientOptions) -> str:
 
 def _render_routes(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add("pydantic", "TypeAdapter")
-    imports.add(_runtime_module(options), "RpcNotificationInfo", "RpcRouteInfo")
+    if ir.operations or ir.notifications:
+        imports.add("pydantic", "TypeAdapter")
+    if ir.operations:
+        imports.add(_runtime_module(options), "RpcRouteInfo")
+    if ir.notifications:
+        imports.add(_runtime_module(options), "RpcNotificationInfo")
     for route in ir.operations:
+        params_models = (
+            () if route.params_model is None else (_schema_name(route.params_model),)
+        )
         imports.add(
             f"{options.package}.models",
+            *params_models,
             *_model_names(route.result),
         )
     for event in ir.notifications:
@@ -275,20 +294,24 @@ def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
 
 def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
-    imports.add("collections.abc", "Awaitable", "Callable", "Mapping")
+    imports.add_module("asyncio")
+    imports.add("collections.abc", "AsyncIterator", "Awaitable", "Callable", "Mapping")
+    imports.add("contextlib", "asynccontextmanager")
     imports.add("dataclasses", "dataclass", "field")
     imports.add("enum", "StrEnum")
     imports.add("types", "MappingProxyType")
-    imports.add("typing", "Protocol", "Self")
+    imports.add("typing", "Any", "Literal", "Protocol", "Self")
+    imports.add("pydantic", "BaseModel", "ConfigDict")
     imports.add(
         _runtime_module(options),
         "RpcServerVariable",
         "RpcStreamClosed",
         "RpcStreamsUnavailableError",
+        "RpcTransportError",
         "resolve_url_template",
     )
     if options.with_transport == "websocket":
-        imports.add(_runtime_module(options), "RpcTransportError")
+        imports.add(_runtime_module(options), "RpcStreamFailed", "RpcStreamRefused")
     body = render_template(
         "python/streams.py.j2",
         filters=_template_filters(imports, options),
@@ -349,11 +372,12 @@ def _render_api(
     imports.add(_runtime_module(options), "RpcClientCore")
     nodes = tuple(_walk_postorder((root,)))
     if any(node.streams for node in nodes):
+        imports.add("contextlib", "AbstractAsyncContextManager")
         imports.add(
             f"{options.package}.streams",
             "BINARY_STREAMS",
             "BinaryStreamName",
-            "BinaryStreamOpening",
+            "open_binary_stream",
             "resolve_stream_endpoint",
         )
     for node in nodes:
@@ -410,11 +434,12 @@ def _render_client(
     if ir.binary_streams:
         imports.add(f"{options.package}.streams", "BinaryStreamOpener")
         if root_streams:
+            imports.add("contextlib", "AbstractAsyncContextManager")
             imports.add(
                 f"{options.package}.streams",
                 "BINARY_STREAMS",
                 "BinaryStreamName",
-                "BinaryStreamOpening",
+                "open_binary_stream",
                 "resolve_stream_endpoint",
             )
         if options.with_transport == "websocket":
@@ -462,10 +487,13 @@ def _render_client(
 
 
 def _connect_variables(ir: ClientIr) -> tuple[ServerVariableDecl, ...]:
-    """The URL variables ``connect`` accepts, shared by servers and streams."""
+    """The server URL variables ``connect`` accepts; streams inherit them too."""
+    declared = {variable.name for server in ir.servers for variable in server.variables}
     merged: dict[str, ServerVariableDecl] = {}
     for declaration in (*ir.servers, *ir.binary_streams):
         for variable in declaration.variables:
+            if variable.name not in declared:
+                continue
             previous = merged.get(variable.name)
             if previous is None:
                 merged[variable.name] = variable
@@ -524,27 +552,37 @@ def _render_package_init(
         imports.add(options.package, "streams")
         imports.add(
             f"{options.package}.streams",
+            "BinaryChannel",
+            "BinaryInputEnd",
+            "BinaryInputTransport",
+            "BinaryReceiver",
+            "BinarySender",
             "BinaryStreamEndpoint",
             "BinaryStreamName",
-            "BinaryStreamConnection",
             "BinaryStreamOpener",
-            "BinaryStreamOpening",
             "BinaryStreamTransport",
         )
         imports.add(
             _runtime_module(options),
             "RpcStreamClosed",
+            "RpcStreamFailed",
+            "RpcStreamRefused",
             "RpcStreamsUnavailableError",
         )
         exported.extend(
             [
+                "BinaryChannel",
+                "BinaryInputEnd",
+                "BinaryInputTransport",
+                "BinaryReceiver",
+                "BinarySender",
                 "BinaryStreamEndpoint",
                 "BinaryStreamName",
-                "BinaryStreamConnection",
                 "BinaryStreamOpener",
-                "BinaryStreamOpening",
                 "BinaryStreamTransport",
                 "RpcStreamClosed",
+                "RpcStreamFailed",
+                "RpcStreamRefused",
                 "RpcStreamsUnavailableError",
                 "streams",
             ]
@@ -653,6 +691,21 @@ def _parameter_annotation(
     return f"{_union((annotation, 'UnsetType'))} = UNSET"
 
 
+def _stream_connection(
+    stream: BinaryStreamDecl,
+    imports: _Imports,
+    options: PythonClientOptions,
+) -> str:
+    if stream.direction == "client-to-server":
+        name = "BinarySender"
+    elif stream.direction == "bidirectional":
+        name = "BinaryChannel"
+    else:
+        name = "BinaryReceiver"
+    imports.add(f"{options.package}.streams", name)
+    return name
+
+
 def _template_filters(
     imports: _Imports,
     options: PythonClientOptions,
@@ -680,11 +733,17 @@ def _template_filters(
         "identifier": _identifier,
         "literal": _literal,
         "model_decl": lambda declaration: isinstance(declaration, ModelDecl),
+        "stream_connection": lambda stream: _stream_connection(
+            stream, imports, options
+        ),
         "null_type": _is_null,
         "options_literal": lambda values: _literal(dict(values)),
         "placeholder": lambda value: _literal(f"{{{value}}}"),
         "parameter_annotation": lambda parameter: _parameter_annotation(
             parameter, imports, options
+        ),
+        "route_params": lambda route: (
+            "None" if route.params_model is None else _schema_name(route.params_model)
         ),
         "schema_name": _schema_name,
         "server_subprotocols": _server_subprotocols,
@@ -1051,6 +1110,11 @@ def _literal(value: Any) -> str:
         return "True"
     if value is False:
         return "False"
+    if isinstance(value, dict):
+        items = ", ".join(f"{_literal(k)}: {_literal(v)}" for k, v in value.items())
+        return f"{{{items}}}"
+    if isinstance(value, list):
+        return f"[{', '.join(_literal(item) for item in value)}]"
     return repr(value)
 
 
@@ -1071,7 +1135,7 @@ def _import_line(module: str, names: list[str]) -> str:
 
 
 def _import_name_key(name: str) -> tuple[int, str]:
-    if name.isupper():
+    if len(name) > 1 and name.isupper():
         group = 0
     elif name[0].isupper():
         group = 1
@@ -1086,7 +1150,9 @@ def _import_group(module: str) -> int:
     root = module.split(".", 1)[0]
     if root in {
         "__future__",
+        "asyncio",
         "collections",
+        "contextlib",
         "dataclasses",
         "datetime",
         "enum",
@@ -1118,14 +1184,19 @@ _PACKAGE_EXPORTS = (
 )
 
 _STREAM_EXPORTS = (
-    "BinaryStreamConnection",
+    "BinaryChannel",
+    "BinaryInputEnd",
+    "BinaryInputTransport",
+    "BinaryReceiver",
+    "BinarySender",
     "BinaryStreamEndpoint",
     "BinaryStreamName",
     "BinaryStreamOpener",
-    "BinaryStreamOpening",
     "BinaryStreamTransport",
     "BinaryWebSocketStream",
     "RpcStreamClosed",
+    "RpcStreamFailed",
+    "RpcStreamRefused",
     "RpcStreamsUnavailableError",
 )
 

@@ -32,7 +32,7 @@ async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     return await store.create(params.title)
 
 
-@tasks.event(payload=TaskUpdated)
+@tasks.event()
 async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
     async for task in store.watch():
         yield TaskUpdated(task=task)
@@ -107,7 +107,7 @@ async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
 
 
 app = RpcService(version=1)
-app.socket("/rpc", tasks)
+app.socket("/rpc", channels=(tasks,))
 
 
 async def test_create() -> None:
@@ -132,7 +132,7 @@ public schema.
   hook, rejecting handshakes, server-pushed events, limits
 - [Typed errors](docs/errors.md) — stable codes, typed details, generated
   exception classes
-- [Binary streams](docs/streams.md) — receive-only byte streams beside JSON-RPC
+- [Binary streams](docs/streams.md) — upload, download, and bidirectional byte streams beside JSON-RPC
 - [Contract and clients](docs/clients.md) — `rpcgen.toml`, the CLI, the shape
   of generated clients
 - [Transports](docs/transports.md) — FastAPI, custom sockets, testing

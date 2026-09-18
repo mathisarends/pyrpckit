@@ -1,7 +1,6 @@
 from .channel import RpcChannel
 from .codec import RpcCodec
 from .connection import (
-    ConnectionRejected,
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
@@ -27,20 +26,35 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
+from .observer import (
+    RpcConnectionContext,
+    RpcObserver,
+    RpcRequestContext,
+    RpcResponseContext,
+)
 from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
+from .streams import (
+    RpcBinaryInput,
+    RpcBinaryOutput,
+    RpcInputEnded,
+    RpcInputEndMessage,
+    RpcStreamDirection,
+)
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
-    "ConnectionRejected",
     "Inject",
     "LOGGER_NAME",
     "ProtocolDefinitionError",
+    "RpcBinaryInput",
+    "RpcBinaryOutput",
     "RpcChannel",
     "RpcCodec",
     "RpcConnection",
     "RpcConnectionClose",
+    "RpcConnectionContext",
     "RpcContract",
     "RpcDisconnect",
     "RpcEndpoint",
@@ -49,6 +63,8 @@ __all__ = [
     "RpcErrorMapper",
     "RpcFailure",
     "RpcHandshake",
+    "RpcInputEndMessage",
+    "RpcInputEnded",
     "RpcInternalError",
     "RpcInvalidParamsError",
     "RpcInvalidRequestError",
@@ -56,14 +72,18 @@ __all__ = [
     "RpcMethodNotFoundError",
     "RpcModel",
     "RpcNotification",
+    "RpcObserver",
     "RpcParseError",
     "RpcRejection",
     "RpcRequestId",
+    "RpcRequestContext",
     "RpcResolver",
     "RpcResolverScope",
+    "RpcResponseContext",
     "RpcServer",
     "RpcService",
     "RpcSocket",
+    "RpcStreamDirection",
     "RpcStreamEndpoint",
     "RpcSuccess",
     "RpcValidationIssue",

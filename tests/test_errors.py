@@ -22,11 +22,22 @@ class HTTPTimeoutError(RpcError):
     rpc_code = -32010
 
 
+class VoiceTurnAlreadyActiveRpcError(RpcError):
+    pass
+
+
+class _PrivateError(RpcError):
+    pass
+
+
 def test_error_metadata_is_derived() -> None:
     assert ProjectNotFoundError.code == "project_not_found"
     assert ProjectNotFoundError.message == "Project not found"
     assert HTTPTimeoutError.code == "http_timeout"
     assert HTTPTimeoutError.rpc_code == -32010
+    assert VoiceTurnAlreadyActiveRpcError.code == "voice_turn_already_active"
+    assert _PrivateError.code == "private"
+    assert _PrivateError.message == "Private"
 
 
 def test_details_accept_fields_or_model() -> None:
@@ -76,3 +87,15 @@ def test_invalid_params_has_structured_issues() -> None:
     error = RpcInvalidParamsError.from_validation_error(caught.value)
     assert error.code == "invalid_params"
     assert error.details.issues[0].loc == ["name"]
+
+    manual = RpcInvalidParamsError(message="Invalid domain value")
+    assert manual.details.issues == []
+    assert manual.message == "Invalid domain value"
+
+
+def test_positional_message_mistake_has_a_targeted_error() -> None:
+    class ResourceNotFoundError(RpcError):
+        pass
+
+    with pytest.raises(TypeError, match=r"did you mean.*message="):
+        ResourceNotFoundError("Not found: x")  # type: ignore[arg-type]

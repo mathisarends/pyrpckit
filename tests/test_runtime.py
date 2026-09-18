@@ -1,58 +1,74 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-import pytest
-
 from pyrpckit import (
-    ConnectionRejected,
     Inject,
     RpcChannel,
     RpcConnection,
     RpcConnectionClose,
     RpcModel,
-    RpcRejection,
     RpcService,
 )
-from pyrpckit.testing import RpcTestClient, RpcTestConnectionClosed
+from pyrpckit.testing import RpcTestClient
 
 
 class Params(RpcModel):
     value: str
 
 
-class User:
-    pass
-
-
-async def authenticate(connection: RpcConnection) -> User:
-    if "authorization" not in connection.headers:
-        raise ConnectionRejected(RpcRejection.UNAUTHORIZED)
-    return User()
-
-
 channel = RpcChannel("demo")
+connections = []
+
+
+class Observer:
+    def __init__(self) -> None:
+        self.closed = []
+
+    async def request_started(self, context) -> None: ...
+
+    async def request_finished(self, context) -> None: ...
+
+    async def connection_closed(self, context) -> None:
+        self.closed.append(context)
+
+
+observer = Observer()
 
 
 @channel.method()
-async def echo(params: Params, user: Inject[User]) -> Params:
+async def echo(params: Params, connection: Inject[RpcConnection]) -> Params:
+    connections.append(connection)
     return params
 
 
-service = RpcService(connect=authenticate)
-service.socket("/rpc", channel)
+service = RpcService(observer=observer)
+service.socket("/rpc", channels=(channel,))
 
 
-async def test_request_and_hook_context() -> None:
+async def test_request_and_connection_context() -> None:
+    connections.clear()
+    observer.closed.clear()
     async with RpcTestClient(service, "/rpc", headers={"Authorization": "x"}) as client:
         assert await client.request("demo.echo", {"value": "yes"}) == {"value": "yes"}
+    assert connections[0].headers["authorization"] == "x"
+    assert connections[0].closed
+    assert connections[0].close_code == RpcConnectionClose.NORMAL
+    assert connections[0].close_reason == ""
+    assert observer.closed[0].connection is connections[0]
+    assert observer.closed[0].close_code == RpcConnectionClose.NORMAL
+    assert observer.closed[0].duration >= 0
 
 
-async def test_rejection_does_not_accept() -> None:
+async def test_peer_close_information_is_exposed_on_the_connection() -> None:
+    connections.clear()
+    observer.closed.clear()
     async with RpcTestClient(service, "/rpc") as client:
-        with pytest.raises(RpcTestConnectionClosed):
-            await client.request("demo.echo", {"value": "yes"})
-        assert client.socket.rejection == (RpcRejection.UNAUTHORIZED, "Unauthorized")
-        assert not client.socket.accepted
+        await client.request("demo.echo", {"value": "yes"})
+        await client.socket.client_disconnect(1001, "Going away")
+
+    assert connections[0].close_code == 1001
+    assert connections[0].close_reason == "Going away"
+    assert observer.closed[0].close_reason == "Going away"
 
 
 async def test_binary_stream() -> None:

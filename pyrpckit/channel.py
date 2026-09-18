@@ -13,6 +13,7 @@ from pyrpckit.dependencies import (
     call_scope,
 )
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
+from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import (
     RpcNotificationDefinition,
     RpcProtocol,
@@ -22,7 +23,10 @@ from pyrpckit.protocol import (
     notification_type_definitions,
     stream_definition,
 )
-from pyrpckit.server import RpcErrorMapper, RpcServer
+from pyrpckit.server import (
+    RpcErrorMapper,
+    RpcServer,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,17 +41,26 @@ class RpcRoute:
 class RpcChannel:
     def __init__(
         self,
-        name: str,
+        name: str | None = None,
         /,
         *,
         namespace: str | None = None,
         raises: Iterable[type[RpcError]] = (),
         resolver_scope: RpcResolverScope = call_scope,
     ) -> None:
-        self._name = _segment(name, "channel name")
-        self._namespace = (
-            self._name if namespace is None else normalize_namespace(namespace)
+        if name is None and namespace is None:
+            raise ProtocolDefinitionError("RpcChannel needs a name or namespace")
+        resolved_namespace = (
+            normalize_namespace(name)
+            if namespace is None
+            else normalize_namespace(namespace)
         )
+        self._name = (
+            normalize_namespace(name) if name is not None else resolved_namespace
+        )
+        if not self._name:
+            raise ProtocolDefinitionError("RPC channel name cannot be empty")
+        self._namespace = resolved_namespace
         self._raises = tuple(dict.fromkeys(declared_error(item) for item in raises))
         if not callable(resolver_scope):
             raise ProtocolDefinitionError("RPC resolver scope must be callable")
@@ -55,6 +68,7 @@ class RpcChannel:
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
         self._streams: list[RpcStreamDefinition] = []
+        self._children: list[RpcChannel] = []
         self._names: set[str] = set()
         self._protocol: RpcProtocol | None = None
 
@@ -65,7 +79,27 @@ class RpcChannel:
     routes = property(lambda self: tuple(self._routes))
     events = property(lambda self: tuple(self._events))
     streams = property(lambda self: tuple(self._streams))
+    children = property(lambda self: tuple(self._children))
     protocol = property(lambda self: self.freeze())
+
+    def child(
+        self,
+        segment: str,
+        /,
+        *,
+        raises: Iterable[type[RpcError]] = (),
+        resolver_scope: RpcResolverScope | None = None,
+    ) -> "RpcChannel":
+        self._ensure_mutable()
+        local = _segment(segment, "child channel name")
+        child = RpcChannel(
+            join_rpc_name(self.name, local),
+            namespace=join_rpc_name(self.namespace, local),
+            raises=(*self.raises, *raises),
+            resolver_scope=resolver_scope or self.resolver_scope,
+        )
+        self._children.append(child)
+        return child
 
     @overload
     def method(self, function: FunctionType, /) -> FunctionType: ...
@@ -157,6 +191,7 @@ class RpcChannel:
         /,
         *,
         content_type: str = "application/octet-stream",
+        input_content_type: str | None = None,
         summary: str | None = None,
     ) -> Any:
         self._ensure_mutable()
@@ -168,6 +203,12 @@ class RpcChannel:
             )
         if not isinstance(content_type, str) or not content_type:
             raise ProtocolDefinitionError("RPC stream content_type cannot be empty")
+        if input_content_type is not None and (
+            not isinstance(input_content_type, str) or not input_content_type
+        ):
+            raise ProtocolDefinitionError(
+                "RPC stream input_content_type cannot be empty"
+            )
 
         def decorate(function: FunctionType) -> FunctionType:
             self._validate_function(function, "stream", coroutine=False)
@@ -177,6 +218,7 @@ class RpcChannel:
                 name=wire_name,
                 function=function,
                 content_type=content_type,
+                input_content_type=input_content_type,
                 summary=summary or _docstring_summary(function),
                 resolver_scope=self.resolver_scope,
             )
@@ -201,6 +243,19 @@ class RpcChannel:
                 )
                 for r in self.routes
             ]
+            notifications = list(self.events)
+            notification_types = [
+                item
+                for event in self.events
+                for item in notification_type_definitions(event.payload)
+            ]
+            streams = list(self.streams)
+            for child in self.children:
+                protocol = child.freeze()
+                definitions.extend(protocol.methods)
+                notifications.extend(protocol.notifications)
+                notification_types.extend(protocol.notification_types)
+                streams.extend(protocol.streams)
             duplicate_requests = {
                 name
                 for name, count in Counter(d.request_name for d in definitions).items()
@@ -215,16 +270,11 @@ class RpcChannel:
                 )
                 for d in definitions
             ]
-            types = tuple(
-                item
-                for event in self.events
-                for item in notification_type_definitions(event.payload)
-            )
             self._protocol = RpcProtocol(
                 methods=definitions,
-                notifications=self.events,
-                notification_types=types,
-                streams=self.streams,
+                notifications=notifications,
+                notification_types=notification_types,
+                streams=streams,
             )
         return self._protocol
 
@@ -234,6 +284,7 @@ class RpcChannel:
         context: object | Mapping[type[Any], object] | None = None,
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        observer: RpcObserver | None = None,
     ) -> RpcServer:
         from pyrpckit.dependencies import ContextResolver, context_values
 
@@ -242,7 +293,10 @@ class RpcChannel:
         if values:
             resolved = ContextResolver(resolved, values)
         return RpcServer._from_channel(
-            self.protocol, resolver=resolved, error_mapper=error_mapper
+            self.protocol,
+            resolver=resolved,
+            error_mapper=error_mapper,
+            observer=observer,
         )
 
     def _reserve(self, name: str) -> None:
@@ -281,6 +335,12 @@ def normalize_namespace(value: object) -> str:
 
 
 def _segment(value: object, kind: str) -> str:
+    if isinstance(value, str) and "." in value:
+        raise ProtocolDefinitionError(
+            f"RPC {kind} {value!r} contains '.'; names are single segments "
+            "inside the channel namespace. Use channel.child(...) for a nested "
+            "namespace."
+        )
     if (
         not isinstance(value, str)
         or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", value) is None

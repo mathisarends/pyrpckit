@@ -132,9 +132,15 @@ async def test_binary_websocket_stream_sends_and_receives_raw_frames(
 
     socket = Socket()
 
-    async def factory(url: str, *, subprotocols: list[str] | None):
+    async def factory(
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ):
         assert url == "wss://media/turn-1"
         assert subprotocols is None
+        assert additional_headers is None
         return socket
 
     try:

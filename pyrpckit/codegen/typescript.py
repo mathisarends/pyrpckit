@@ -123,14 +123,6 @@ class _Renderer:
             "array": _array,
             "comment": _comment,
             "compact_notification": self._compact_notification,
-            "compact_stream": lambda stream: (
-                len(
-                    "      resolveStreamEndpoint(binaryStreams."
-                    + _identifier(stream.name)
-                    + ", variables, options?.url),"
-                )
-                <= 80
-            ),
             "enum_decl": lambda declaration: isinstance(declaration, EnumDecl),
             "identifier": _identifier,
             "literal": _ts_literal,
@@ -142,8 +134,16 @@ class _Renderer:
             "property": _property,
             "route_access": lambda route: f"routes.{_route_key(route)}",
             "route_key": _route_key,
+            "route_params": lambda route: (
+                "undefined"
+                if route.params_model is None
+                else _schema_name(route.params_model)
+            ),
             "schema_name": _schema_name,
             "server_variable_type": _server_variable_type,
+            "stream_endpoint": _stream_endpoint,
+            "stream_signature": _stream_signature,
+            "stream_connection": _stream_connection,
             "subprotocols": _server_subprotocols,
             "type": self._type,
         }
@@ -155,8 +155,7 @@ class _Renderer:
     ) -> bool:
         receiver = "this.#rpc" if root else "this.rpc"
         call = (
-            f"    return {receiver}.notifications<{self._type(event.payload)}>"
-            f"(notifications.{_route_key(event)});"
+            f"    return {receiver}.notifications(notifications.{_route_key(event)});"
         )
         return len(call) <= 80
 
@@ -167,11 +166,20 @@ class _Renderer:
         return self.module(self.template("namespace_index", nodes=self.nodes))
 
     def routes(self) -> str:
+        model_names = _route_model_names(self.ir.operations)
+        model_names.update(
+            name
+            for event in self.ir.notifications
+            for name in _model_names(event.payload)
+        )
         return self.module(
             self.template(
                 "routes",
                 routes=self.ir.operations,
                 notifications=self.ir.notifications,
+                model_import=(
+                    _type_import(model_names, "./models") if model_names else ""
+                ),
             )
         )
 
@@ -203,9 +211,11 @@ class _Renderer:
             imports.append(
                 _value_import(
                     [
+                        *_stream_connections(
+                            stream for node in nodes for stream in node.streams
+                        ),
                         "binaryStreams",
                         "resolveStreamEndpoint",
-                        "type BinaryStreamConnection",
                     ],
                     f"{root}streams",
                 )
@@ -248,9 +258,9 @@ class _Renderer:
             stream_imports = ["type BinaryStreamOpener"]
             if self.root_streams:
                 stream_imports = [
+                    *_stream_connections(self.root_streams),
                     "binaryStreams",
                     "resolveStreamEndpoint",
-                    "type BinaryStreamConnection",
                     *stream_imports,
                 ]
             if self.options.with_transport == "websocket":
@@ -351,6 +361,7 @@ class _Renderer:
             routes=self.ir.operations or self.ir.notifications,
             notifications=self.ir.notifications,
             binary_streams=self.ir.binary_streams,
+            models=bool(self.ir.declarations),
         )
         return self.module(body)
 
@@ -378,10 +389,13 @@ class _Renderer:
 
 
 def _connect_variables(ir: ClientIr) -> tuple[ServerVariableDecl, ...]:
-    """The URL variables `connect` accepts, shared by servers and streams."""
+    """The server URL variables `connect` accepts; streams inherit them too."""
+    declared = {variable.name for server in ir.servers for variable in server.variables}
     merged: dict[str, ServerVariableDecl] = {}
     for declaration in (*ir.servers, *ir.binary_streams):
         for variable in declaration.variables:
+            if variable.name not in declared:
+                continue
             previous = merged.get(variable.name)
             if previous is None:
                 merged[variable.name] = variable
@@ -602,6 +616,18 @@ def _notification_type(ir: ClientIr) -> TypeExpr | None:
     return members[0] if len(members) == 1 else UnionType(members)
 
 
+def _stream_connection(stream: BinaryStreamDecl) -> str:
+    if stream.direction == "client-to-server":
+        return "BinarySender"
+    if stream.direction == "bidirectional":
+        return "BinaryChannel"
+    return "BinaryReceiver"
+
+
+def _stream_connections(streams: Iterable[BinaryStreamDecl]) -> list[str]:
+    return sorted({_stream_connection(stream) for stream in streams})
+
+
 def _value_import(names: Iterable[str], module: str) -> str:
     """Render one import, wrapped the way Prettier would wrap it."""
     values = list(names)
@@ -627,6 +653,52 @@ def _type_export(names: Iterable[str], module: str) -> str:
 
 def _array(values: Iterable[object]) -> str:
     return "[" + ", ".join(_ts_literal(value) for value in values) + "]"
+
+
+def _stream_signature(stream: BinaryStreamDecl) -> str:
+    """A stream method's opening line, laid out as Prettier would."""
+    name = _identifier(stream.operation_name)
+    returns = f"Promise<{_stream_connection(stream)}>"
+    if not stream.call_variables:
+        return f"  {name}(): {returns} {{"
+    fields = [
+        f"readonly {_property(variable.name)}?: {_server_variable_type(variable)}"
+        for variable in stream.call_variables
+    ]
+    inline = f"  {name}(options?: {{ {'; '.join(fields)} }}): {returns} {{"
+    if len(inline) <= _TS_WIDTH:
+        return inline
+    body = "".join(f"    {field};\n" for field in fields)
+    return f"  {name}(options?: {{\n{body}  }}): {returns} {{"
+
+
+def _stream_endpoint(stream: BinaryStreamDecl, rpc: str) -> str:
+    """The ``resolveStreamEndpoint(...)`` argument, laid out as Prettier would."""
+    indent = " " * 6
+    head = [f"binaryStreams.{_identifier(stream.name)}", f"{rpc}.variables"]
+    if not stream.call_variables:
+        inline = f"{indent}resolveStreamEndpoint({', '.join(head)}),"
+        if len(inline) <= _TS_WIDTH:
+            return inline
+        args = "".join(f"{indent}  {arg},\n" for arg in head)
+        return f"{indent}resolveStreamEndpoint(\n{args}{indent}),"
+    fields = [
+        f"{_property(variable.name)}: options?.{_property(variable.name)},"
+        for variable in stream.call_variables
+    ]
+    hugged = f"{indent}resolveStreamEndpoint({', '.join(head)}, {{"
+    if len(hugged) <= _TS_WIDTH:
+        body = "".join(f"{indent}  {field}\n" for field in fields)
+        return f"{hugged}\n{body}{indent}}}),"
+    args = "".join(f"{indent}  {arg},\n" for arg in head)
+    body = "".join(f"{indent}    {field}\n" for field in fields)
+    return (
+        f"{indent}resolveStreamEndpoint(\n{args}{indent}  {{\n{body}"
+        f"{indent}  }},\n{indent}),"
+    )
+
+
+_TS_WIDTH = 80
 
 
 def _server_variable_type(variable: ServerVariableDecl) -> str:

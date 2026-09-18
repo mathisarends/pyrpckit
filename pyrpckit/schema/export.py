@@ -74,4 +74,4 @@ def render_contract(
         servers=resolved_servers,
         binary_streams=(source.binary_streams),
     )
-    return json.dumps(document, indent=2) + "\n"
+    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"

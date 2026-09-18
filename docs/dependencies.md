@@ -62,9 +62,8 @@ Pass it as `resolver=` to `RpcService.serve()`, an endpoint, `create_router()`,
 or `RpcTestClient`. A synchronous or asynchronous callable taking the requested
 type is accepted as a lightweight alternative.
 
-Context values take precedence over the resolver. `RpcConnection` and a value
-returned by the connect hook are also made available by type for the lifetime
-of that connection.
+Context values take precedence over the resolver. `RpcConnection` is also made
+available by type for the lifetime of that connection.
 
 ## Resource scopes
 
@@ -76,10 +75,10 @@ which makes request-scoped cleanup possible:
 channel = RpcChannel("tasks", resolver_scope=call_scope)
 ```
 
-Connect hooks run in a call scope before the socket is accepted. After
-acceptance, pyrpckit optionally enters the resolver's `enter_connection()`
-context for the socket lifetime. Event sources live in that connection scope;
-binary streams additionally enter their channel's resolver scope.
+After acceptance, pyrpckit optionally enters the resolver's
+`enter_connection()` context for the socket lifetime. Event sources live in
+that connection scope; binary streams additionally enter their channel's
+resolver scope.
 
 ## Dishka
 
@@ -96,6 +95,26 @@ resolver = DishkaResolver(container)
 ```
 
 The adapter maps a connection to Dishka's `SESSION` scope and each RPC call to
-a child scope. Supply it anywhere a pyrpckit resolver is accepted.
+a child scope. Supply it anywhere a pyrpckit resolver is accepted. For FastAPI,
+prefer the router integration, which reads the root container when each socket
+connects:
+
+```python
+from pyrpckit.dishka import dishka_router
+
+web.include_router(dishka_router(app))
+```
+
+The integration reads `web.state.dishka_container`; pass the APP container to
+`DishkaResolver` when constructing one manually. A SESSION container from
+`websocket.state` is rejected because pyrpckit opens that scope itself and adds
+`RpcConnection` to its context.
+
+Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
+container for every WebSocket, including RPC sockets. pyrpckit does not use
+that container: RPC handlers resolve from the SESSION scope opened per
+connection above, so session-scoped values are never shared between the two.
+Keep RPC dependencies in the pyrpckit scope and do not rely on
+`websocket.state.dishka_container` in RPC code.
 
 [Back to documentation](README.md)

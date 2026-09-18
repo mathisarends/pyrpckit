@@ -41,6 +41,9 @@ When omitted, `code` is derived from the class name: `MissingTaskError` becomes
 `missing_task`. The message is derived from that code, and `rpc_code` defaults
 to `-32000`.
 
+Both `Error` and `RpcError` suffixes are removed during code derivation, so
+`VoiceTurnAlreadyActiveRpcError` becomes `voice_turn_already_active`.
+
 Application codes must be lowercase identifiers using letters, digits, and
 underscores. JSON-RPC's standard and reserved numeric codes cannot be claimed
 by application errors. Details, when declared, must be a Pydantic model and

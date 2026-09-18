@@ -14,7 +14,7 @@
 {% endif %}{% endfor %}        params = {{ route.params_model | schema_name }}.model_validate(values)
 {% endif %}{% endif %}        {{ "await" if route.result | null_type else "return await" }} self._rpc.request(
             {{ route.method_member }},
-{% if route.params_model is not none %}            params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+{% if route.params_model is not none %}            params=params,
 {% endif %}        )
 {% endmacro %}
 
@@ -23,22 +23,22 @@
 {% endif %}        return self._rpc.subscribe({{ event.rpc_name | constant }})
 {% endmacro %}
 
-{% macro stream(item) %}    def {{ item.operation_name | identifier }}(
+{% macro stream(item) %}{% set inline_signature = "    def " ~ (item.operation_name | identifier) ~ "(self) -> AbstractAsyncContextManager[" ~ (item | stream_connection) ~ "]:" %}{% if not item.call_variables and inline_signature | length <= 88 %}{{ inline_signature }}
+{% else %}    def {{ item.operation_name | identifier }}(
         self,
-        *,
-{% for variable in item.variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
-{% endfor %}        url: str | None = None,
-    ) -> BinaryStreamOpening:
-{% if item.summary %}        """{{ item.summary | docstring }}"""
-{% endif %}        return BinaryStreamOpening(
+{% if item.call_variables %}        *,
+{% for variable in item.call_variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
+{% endfor %}{% endif %}    ) -> AbstractAsyncContextManager[{{ item | stream_connection }}]:
+{% endif %}{% if item.summary %}        """{{ item.summary | docstring }}"""
+{% endif %}        return open_binary_stream(
             resolve_stream_endpoint(
                 BINARY_STREAMS[BinaryStreamName.{{ item.name | constant }}],
-{% if item.variables %}                {
-{% for variable in item.variables %}                    {{ variable.name | literal }}: {{ variable.name | identifier }},
+                self._rpc.variables,
+{% if item.call_variables %}                {
+{% for variable in item.call_variables %}                    {{ variable.name | literal }}: {{ variable.name | identifier }},
 {% endfor %}                },
-{% endif %}                url=url,
-                defaults=self._rpc.variables,
-            ),
+{% endif %}            ),
             self._rpc.stream_opener,
+            {{ item | stream_connection }},
         )
 {% endmacro %}

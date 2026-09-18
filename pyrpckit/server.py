@@ -1,11 +1,9 @@
-import logging
+import time
 from collections.abc import Callable
 
 from pydantic import ValidationError
 
 from pyrpckit.codec import RpcCodec
-from pyrpckit.connection import ConnectionRejected
-from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
@@ -16,12 +14,17 @@ from pyrpckit.errors import (
     RpcInvalidRequestError,
     RpcParseError,
 )
+from pyrpckit.observer import (
+    RpcObserver,
+    RpcRequestContext,
+    RpcResponseContext,
+    notify_observer,
+)
 from pyrpckit.protocol import RpcProtocol
 
 type RpcErrorMapper = Callable[[Exception], RpcError | None]
 type RpcResponse = RpcSuccess | RpcFailure
 type RpcResponseMessage = RpcResponse | list[RpcResponse] | None
-logger = logging.getLogger(LOGGER_NAME)
 
 
 class RpcServer:
@@ -37,11 +40,13 @@ class RpcServer:
         *,
         resolver: RpcResolver | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        observer: RpcObserver | None = None,
     ) -> "RpcServer":
         server = cls.__new__(cls)
         server._protocol = protocol
         server._dispatcher = RpcDispatcher(protocol, resolver=resolver)
         server._error_mapper = error_mapper
+        server._observer = observer
         server._codec = RpcCodec()
         return server
 
@@ -68,20 +73,42 @@ class RpcServer:
         return None if response is None else self._codec.encode(response)
 
     async def _handle_one(self, raw_request: object) -> RpcResponse | None:
+        request_context = RpcRequestContext(
+            raw_request=raw_request,
+            method=_request_method(raw_request),
+            request_id=_request_id(raw_request),
+            notification=_looks_like_notification(raw_request),
+        )
+        started = time.perf_counter()
+        await notify_observer(self._observer, "request_started", request_context)
         try:
             invocation = self._dispatcher.parse_request(raw_request)
             result = await self._dispatcher.execute(invocation)
         except Exception as error:
             if _looks_like_notification(raw_request):
-                return None
-            return self.failure(_request_id(raw_request), error)
-        if not invocation.request.expects_response:
-            return None
-        return RpcSuccess._with_result_annotation(
-            invocation.request.id,
-            result,
-            invocation.method.result,
+                response = None
+            else:
+                response = self.failure(_request_id(raw_request), error)
+        else:
+            response = (
+                RpcSuccess._with_result_annotation(
+                    invocation.request.id,
+                    result,
+                    invocation.method.result,
+                )
+                if invocation.request.expects_response
+                else None
+            )
+        await notify_observer(
+            self._observer,
+            "request_finished",
+            RpcResponseContext(
+                request=request_context,
+                response=response,
+                duration=time.perf_counter() - started,
+            ),
         )
+        return response
 
     def failure(self, request_id: RpcRequestId, error: Exception) -> RpcFailure:
         rpc_error = self._rpc_error(error)
@@ -90,12 +117,6 @@ class RpcServer:
     def _rpc_error(self, error: Exception) -> RpcError:
         if isinstance(error, RpcError):
             return error
-        if isinstance(error, ConnectionRejected):
-            logger.error(
-                "ConnectionRejected raised after the connection was accepted; "
-                "use RpcConnection.close() instead"
-            )
-            return RpcInternalError()
         if self._error_mapper is not None:
             mapped = self._error_mapper(error)
             if mapped is not None:
@@ -118,6 +139,13 @@ def _request_id(raw_request: object) -> RpcRequestId:
     if isinstance(request_id, bool):
         return None
     return request_id if isinstance(request_id, str | int) else None
+
+
+def _request_method(raw_request: object) -> str | None:
+    if not isinstance(raw_request, dict):
+        return None
+    method = raw_request.get("method")
+    return method if isinstance(method, str) else None
 
 
 def _looks_like_notification(raw_request: object) -> bool:

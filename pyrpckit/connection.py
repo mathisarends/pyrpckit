@@ -6,8 +6,6 @@ from typing import Protocol
 
 
 class RpcRejection(StrEnum):
-    UNAUTHORIZED = "unauthorized"
-    FORBIDDEN = "forbidden"
     NOT_FOUND = "not_found"
     PROTOCOL_ERROR = "protocol_error"
     UNAVAILABLE = "unavailable"
@@ -23,17 +21,16 @@ class RpcConnectionClose(StrEnum):
     INTERNAL_ERROR = "internal_error"
 
 
-class ConnectionRejected(Exception):
-    def __init__(self, rejection: RpcRejection, reason: str = "") -> None:
-        if not isinstance(rejection, RpcRejection):
-            raise TypeError("rejection must be an RpcRejection")
-        self.rejection = rejection
-        self.reason = reason or rejection.value.replace("_", " ").capitalize()
-        super().__init__(self.reason)
-
-
 class RpcDisconnect(Exception):
-    pass
+    def __init__(
+        self,
+        reason: str = "",
+        *,
+        code: RpcConnectionClose | int | None = None,
+    ) -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(reason)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +89,8 @@ class RpcConnection:
         "_closed",
         "_endpoint",
         "_handshake",
+        "_close_code",
+        "_close_reason",
         "_on_close",
         "_path_params",
     )
@@ -111,6 +110,8 @@ class RpcConnection:
         )
         self._accepted = False
         self._closed = False
+        self._close_code = None
+        self._close_reason = ""
         self._on_close = None
         return self
 
@@ -124,14 +125,15 @@ class RpcConnection:
     subprotocols = property(lambda self: self._handshake.subprotocols)
     client = property(lambda self: self._handshake.client)
     closed = property(lambda self: self._closed)
+    close_code = property(lambda self: self._close_code)
+    close_reason = property(lambda self: self._close_reason)
 
     async def close(
         self, close: RpcConnectionClose = RpcConnectionClose.NORMAL, *, reason: str = ""
     ) -> None:
         if not self._accepted:
             raise RuntimeError(
-                "RpcConnection.close() is only valid after the connection was "
-                "accepted; raise ConnectionRejected in connect hooks"
+                "RpcConnection.close() is only valid after the connection was accepted"
             )
         if self._on_close is not None:
             self._on_close(close, reason)

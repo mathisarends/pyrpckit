@@ -1,14 +1,14 @@
 import asyncio
 import logging
+import time
 from collections.abc import Mapping
 from contextlib import suppress
-from typing import Any, get_type_hints
+from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connection import (
-    ConnectionRejected,
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
@@ -18,21 +18,21 @@ from pyrpckit.connection import (
 )
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import (
-    ContextResolver,
     RpcResolverLike,
     as_resolver,
-    call_scope,
     connection_scope,
     context_values,
 )
 from pyrpckit.envelopes import RpcNotification
+from pyrpckit.observer import RpcConnectionContext, notify_observer
 from pyrpckit.server import RpcErrorMapper, RpcServer
-from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint, analyze_connect_hook
+from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
+from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcInputEndMessage
 
 logger = logging.getLogger(LOGGER_NAME)
 
 
-async def _prepare(endpoint, socket, resolver, context):
+async def _prepare(endpoint, socket, resolver, context, path_model=None):
     endpoint.service.freeze()
     resolved = as_resolver(resolver)
     values = context_values(context)
@@ -41,52 +41,23 @@ async def _prepare(endpoint, socket, resolver, context):
     )
     connection = RpcConnection._create(endpoint, socket, path_params)
     base_values = {**values, RpcConnection: connection}
-    hook_result = None
-    hook_type = None
-    if endpoint.connect is not None:
-        injected, hook_type = analyze_connect_hook(endpoint.connect)
-        if hook_type is not None and hook_type in values:
-            raise ValueError(
-                f"connect hook provides {hook_type.__name__}, which is also "
-                "passed as context"
-            )
-        try:
-            async with call_scope(ContextResolver(resolved, base_values)) as scoped:
-                hints = get_type_hints(endpoint.connect, include_extras=True)
-                arguments = {}
-                for parameter in endpoint.connect.__annotations__:
-                    if parameter == "return":
-                        continue
-                    if hints[parameter] is RpcConnection:
-                        arguments[parameter] = connection
-                    else:
-                        dependency = next(
-                            item for item in injected if item.name == parameter
-                        )
-                        arguments[parameter] = await scoped.resolve(
-                            dependency.dependency
-                        )
-                hook_result = await endpoint.connect(**arguments)
-        except ConnectionRejected as error:
-            await socket.reject(error.rejection, error.reason)
-            return None
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("RPC connect hook failed")
-            await socket.reject(RpcRejection.INTERNAL_ERROR, "Internal error")
-            return None
     if (
         endpoint.subprotocol is not None
         and endpoint.subprotocol not in socket.handshake.subprotocols
     ):
         await socket.reject(RpcRejection.PROTOCOL_ERROR, "Unsupported subprotocol")
         return None
+    path_values: dict[str, Any] = {}
+    if path_model is not None:
+        try:
+            parsed = path_model.model_validate(dict(path_params))
+        except ValidationError:
+            await socket.reject(RpcRejection.NOT_FOUND, "Invalid path variable")
+            return None
+        path_values = {name: getattr(parsed, name) for name in path_model.model_fields}
     await socket.accept(endpoint.subprotocol)
     connection._accepted = True
-    if hook_type is not None:
-        base_values[hook_type] = hook_result
-    return connection, resolved, base_values
+    return connection, resolved, base_values, path_values
 
 
 async def serve_endpoint(
@@ -102,7 +73,8 @@ async def serve_endpoint(
     prepared = await _prepare(endpoint, socket, resolver, context)
     if prepared is None:
         return
-    connection, resolved, values = prepared
+    connection, resolved, values, _ = prepared
+    started = time.perf_counter()
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     peer_closed = False
@@ -110,6 +82,8 @@ async def serve_endpoint(
     def request_close(code, reason):
         if not close_event.is_set():
             close_value[:] = [code, reason]
+            connection._close_code = code
+            connection._close_reason = reason
             close_event.set()
 
     connection._on_close = request_close
@@ -118,7 +92,10 @@ async def serve_endpoint(
     try:
         async with connection_scope(resolved, values) as scoped:
             server = RpcServer._from_channel(
-                endpoint.protocol, resolver=scoped, error_mapper=error_mapper
+                endpoint.protocol,
+                resolver=scoped,
+                error_mapper=error_mapper,
+                observer=endpoint.observer,
             )
 
             async def writer():
@@ -160,9 +137,9 @@ async def serve_endpoint(
                         task = asyncio.create_task(invoke(frame))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
-                except RpcDisconnect:
+                except RpcDisconnect as error:
                     peer_closed = True
-                    close_event.set()
+                    request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
 
             async def events():
                 try:
@@ -197,6 +174,8 @@ async def serve_endpoint(
                         await socket.send(outgoing.get_nowait())
     except asyncio.CancelledError:
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
+        connection._close_code = RpcConnectionClose.SHUTDOWN
+        connection._close_reason = ""
         if not peer_closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
@@ -207,6 +186,16 @@ async def serve_endpoint(
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
+        await notify_observer(
+            endpoint.observer,
+            "connection_closed",
+            RpcConnectionContext(
+                connection=connection,
+                close_code=connection.close_code,
+                close_reason=connection.close_reason,
+                duration=time.perf_counter() - started,
+            ),
+        )
 
 
 async def _event_source(event, resolver, outgoing):
@@ -234,10 +223,13 @@ async def serve_stream_endpoint(
     context: object | Mapping[type[Any], object] | None = None,
     limits: RpcLimits | None = None,
 ) -> None:
-    prepared = await _prepare(endpoint, socket, resolver, context)
+    limits = limits or RpcLimits()
+    stream = endpoint.stream
+    prepared = await _prepare(endpoint, socket, resolver, context, stream.path_model)
     if prepared is None:
         return
-    connection, resolved, values = prepared
+    connection, resolved, values, path_values = prepared
+    started = time.perf_counter()
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     peer_closed = False
@@ -245,20 +237,37 @@ async def serve_stream_endpoint(
     def request_close(code, reason):
         if not close_event.is_set():
             close_value[:] = [code, reason]
+            connection._close_code = code
+            connection._close_reason = reason
             close_event.set()
 
+    def peer_disconnected(error: RpcDisconnect) -> None:
+        nonlocal peer_closed
+        peer_closed = True
+        request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+
     connection._on_close = request_close
+    binary_input = (
+        RpcBinaryInput._create(limits.max_queue_size) if stream.has_input else None
+    )
+    if not stream.is_generator:
+        values = {
+            **values,
+            RpcBinaryOutput: RpcBinaryOutput._create(socket, connection),
+        }
+        if binary_input is not None:
+            values[RpcBinaryInput] = binary_input
     generator = None
     try:
         async with (
             connection_scope(resolved, values) as scoped,
-            endpoint.stream.resolver_scope(scoped) as stream_resolver,
+            stream.resolver_scope(scoped) as stream_resolver,
         ):
             arguments = {
                 p.name: await stream_resolver.resolve(p.dependency)
-                for p in endpoint.stream.injected_parameters
+                for p in stream.injected_parameters
             }
-            generator = endpoint.stream.function(**arguments)
+            arguments.update(path_values)
 
             async def write():
                 try:
@@ -273,29 +282,76 @@ async def serve_stream_endpoint(
                     request_close(RpcConnectionClose.NORMAL, "")
                 except asyncio.CancelledError:
                     raise
+                except RpcDisconnect as error:
+                    peer_disconnected(error)
+                except Exception:
+                    logger.exception("RPC binary stream failed")
+                    request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+
+            async def handle():
+                try:
+                    await stream.function(**arguments)
+                    request_close(RpcConnectionClose.NORMAL, "")
+                except asyncio.CancelledError:
+                    raise
+                except RpcDisconnect as error:
+                    peer_disconnected(error)
                 except Exception:
                     logger.exception("RPC binary stream failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
             async def read():
-                nonlocal peer_closed
+                input_ended = False
                 try:
-                    await socket.receive()
-                    request_close(
-                        RpcConnectionClose.PROTOCOL_ERROR,
-                        "Binary stream is server-to-client",
-                    )
-                except RpcDisconnect:
-                    peer_closed = True
-                    close_event.set()
+                    while True:
+                        frame = await socket.receive()
+                        if binary_input is None:
+                            request_close(
+                                RpcConnectionClose.PROTOCOL_ERROR,
+                                "Binary stream is server-to-client",
+                            )
+                            return
+                        size = len(frame.encode() if isinstance(frame, str) else frame)
+                        if (
+                            limits.max_message_bytes is not None
+                            and size > limits.max_message_bytes
+                        ):
+                            request_close(RpcConnectionClose.MESSAGE_TOO_BIG, "")
+                            return
+                        if isinstance(frame, str):
+                            if input_ended or not _is_input_end(frame):
+                                request_close(
+                                    RpcConnectionClose.PROTOCOL_ERROR,
+                                    "Unexpected text frame on a binary stream",
+                                )
+                                return
+                            input_ended = True
+                            await binary_input._end()
+                        elif input_ended:
+                            request_close(
+                                RpcConnectionClose.PROTOCOL_ERROR,
+                                "Binary input after end",
+                            )
+                            return
+                        else:
+                            await binary_input._put(frame)
+                except RpcDisconnect as error:
+                    peer_disconnected(error)
 
-            tasks = [asyncio.create_task(write()), asyncio.create_task(read())]
+            if stream.is_generator:
+                generator = stream.function(**arguments)
+                run = write()
+            else:
+                run = handle()
+            tasks = [asyncio.create_task(run), asyncio.create_task(read())]
             await close_event.wait()
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
+        connection._close_code = RpcConnectionClose.SHUTDOWN
+        connection._close_reason = ""
         raise
     finally:
         if generator is not None:
@@ -305,3 +361,21 @@ async def serve_stream_endpoint(
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
+        await notify_observer(
+            endpoint.observer,
+            "connection_closed",
+            RpcConnectionContext(
+                connection=connection,
+                close_code=connection.close_code,
+                close_reason=connection.close_reason,
+                duration=time.perf_counter() - started,
+            ),
+        )
+
+
+def _is_input_end(frame: str) -> bool:
+    try:
+        RpcInputEndMessage.model_validate_json(frame)
+    except ValidationError:
+        return False
+    return True

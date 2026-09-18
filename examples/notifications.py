@@ -35,7 +35,7 @@ async def job_changes(events: Inject[JobEvents]) -> AsyncIterator[JobUpdate]:
 
 
 app = RpcService()
-app.socket("/rpc", router)
+app.socket("/rpc", channels=(router,))
 
 
 def main() -> None:

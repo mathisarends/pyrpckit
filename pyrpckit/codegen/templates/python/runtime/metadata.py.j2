@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,7 +14,7 @@ class RpcContractInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class RpcRouteInfo[ResultT]:
+class RpcRouteInfo[ParamsT: BaseModel | None, ResultT]:
     method: str
     result_adapter: TypeAdapter[ResultT]
     server: str | None = None

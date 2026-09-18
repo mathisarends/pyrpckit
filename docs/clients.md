@@ -19,7 +19,7 @@ from pyrpckit import ServerVariable
 contract = app.contract(
     title="Tasks API",
     description="Realtime task operations.",
-    base_url="wss://{host}",
+    base_url="https://{host}",
     variables={
         "host": ServerVariable(
             default="api.example.com",
@@ -30,8 +30,13 @@ contract = app.contract(
 ```
 
 Endpoint paths, names, subprotocols, protocol version, typed errors, and binary
-streams are derived from the service. `base_url` must be a WebSocket URL or a
-URL template. Every supplied variable must occur in the resulting server URLs.
+streams are derived from the service. `base_url` accepts either an HTTP or
+WebSocket URL (or a URL template); `http` and `https` are translated to `ws`
+and `wss`. Every supplied variable must occur in the resulting server URLs.
+
+`contract.to_openrpc()` returns the complete document, including binary stream
+extensions, for integrations that need a dictionary instead of rendered JSON.
+The built-in renderer preserves Unicode characters.
 
 ## One configuration for contract and clients
 
@@ -105,8 +110,7 @@ declared error classes, endpoint metadata, routes, and transport building
 blocks. Applications normally need only the client and their domain models.
 
 With the generated WebSocket transport, Python exposes an async connection
-context. `connect()` itself is synchronous; enter the returned context rather
-than awaiting it:
+context:
 
 ```python
 from tasks_client import TasksClient
@@ -115,6 +119,27 @@ async with TasksClient.connect(host="api.example.com") as client:
     task = await client.tasks.create(title="Write docs")
     async for update in client.tasks.updated():
         print(update)
+```
+
+Pass handshake headers directly when authentication is transport-owned:
+
+```python
+async with TasksClient.connect(
+    host="api.example.com",
+    headers={"Authorization": f"Bearer {token}"},
+) as client:
+    ...
+```
+
+When the client outlives a context manager, await the connection directly. The
+caller then owns the returned client and must close it:
+
+```python
+client = await TasksClient.connect(host="api.example.com")
+try:
+    ...
+finally:
+    await client.close()
 ```
 
 TypeScript connects explicitly and should be closed when no longer needed:
@@ -143,12 +168,13 @@ owns.
 
 Contracts may route different methods to different WebSocket servers. A
 generated client still presents one namespace tree and selects the declared
-server for each call. By default, `connect()` resolves all endpoints but opens
-each socket only when a method routed to that server is first called. Concurrent
+server for each call. A single-server client opens eagerly so authentication or
+network failures occur at connection time. Multi-server clients open each
+socket only when a method routed to that server is first called; concurrent
 first calls share the same connection attempt.
 
-Pass `eager=True` in Python or `eager: true` in TypeScript to open all declared
-servers in parallel while connecting:
+Pass `eager=True` / `eager: true` to open every server in parallel, or false to
+force lazy behavior:
 
 ```python
 async with TasksClient.connect(host="stage.example.com", eager=True) as client:

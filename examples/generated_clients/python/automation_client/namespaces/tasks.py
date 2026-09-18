@@ -28,7 +28,7 @@ class Tasks:
         )
         return await self._rpc.request(
             TASKS_CREATE,
-            params=params.model_dump(mode="json", by_alias=True, exclude_unset=True),
+            params=params,
         )
 
     def updated(self) -> AsyncIterator[TaskUpdated]:

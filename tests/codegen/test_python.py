@@ -1,17 +1,35 @@
 import subprocess
 import sys
+from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import pyrpckit as rpc
 from pyrpckit.codegen import generate_python_client, render_python_client
 from pyrpckit.codegen.ir import UnsupportedSchemaError
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.codegen.writer import MANIFEST
 
 from .conftest import PACKAGE
+
+
+class _Params(rpc.RpcModel):
+    x: int
+
+
+class _Result(rpc.RpcModel):
+    x: int
+
+
+class _Tick(rpc.RpcModel):
+    n: int
+
+
+class _MissingError(rpc.RpcError):
+    pass
 
 
 def test_the_generated_package_has_one_module_per_concern(
@@ -78,6 +96,7 @@ def test_websocket_lifecycle_stays_out_of_the_public_client(
 
     assert "internal/connection.py" in files
     assert "return ClientConnection(" in client
+    assert "eager: bool = True" in client
     assert "async def open(" not in client
     assert "_ConnectionContext" not in client
 
@@ -143,8 +162,25 @@ def test_route_definitions_preserve_the_wire_contract(
     routes = render_python_client(document, options)["routes.py"]
 
     assert 'method="greeting.say"' in routes
+    assert "GREETING_SAY: RpcRouteInfo[SayParams, SayResult]" in routes
+    assert "GREETING_GREETED: RpcRouteInfo[None, GreetedResult]" in routes
     assert "result_adapter=TypeAdapter(SayResult)" in routes
     assert 'method="greeting.changed"' in routes
+
+
+def test_parameter_models_are_serialized_once_in_the_runtime(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+) -> None:
+    files = render_python_client(document, options)
+
+    api = files["namespaces/greeting.py"]
+    runtime = files["internal/core.py"]
+
+    assert "params=params," in api
+    assert "params.model_dump" not in api
+    serialization = 'params.model_dump(mode="json", by_alias=True, exclude_unset=True)'
+    assert serialization in runtime
 
 
 def test_stably_named_remote_errors_get_their_own_module(
@@ -227,7 +263,7 @@ def test_optional_nullable_params_use_unset_instead_of_dropping_none(
     assert "title: str | None | UnsetType = UNSET" in api
     assert "if title is not UNSET:" in api
     assert 'values["title"] = title' in api
-    assert "exclude_unset=True" in api
+    assert "params=params," in api
     assert "exclude_none" not in api
 
 
@@ -354,13 +390,14 @@ def test_binary_streams_generate_typed_media_clients(
     media = files["streams.py"]
 
     assert "class BinaryWebSocketStream:" in media
-    assert "class BinaryStreamOpening:" in media
+    assert "async def open_binary_stream[" in media
     assert "frame = await self._socket.recv()" in media
     assert "json.dumps" not in media
     assert "base64" not in media.lower()
     assert "def voice(" in files["client.py"]
-    assert "session_id: str | None = None," in files["client.py"]
-    assert "defaults=self._rpc.variables," in files["client.py"]
+    assert files["client.py"].count("session_id: str | None = None,") == 1
+    assert "self._rpc.variables," in files["client.py"]
+    assert "url=url" not in files["client.py"]
     assert 'content_type="audio/pcm;rate=24000"' in media
     assert 'default="demo"' in media
     assert "BinaryWebSocketStream" in files["__init__.py"]
@@ -406,7 +443,6 @@ def test_generated_python_is_ruff_formatted(
     options: PythonClientOptions,
     tmp_path: Path,
 ) -> None:
-    output = tmp_path / PACKAGE
     deployed = deepcopy(document)
     deployed["x-rpckit-binary-streams"] = [
         {
@@ -416,7 +452,100 @@ def test_generated_python_is_ruff_formatted(
             "frameType": "binary",
         }
     ]
-    generate_python_client(deployed, output, options)
+
+    _assert_ruff_clean(deployed, options, tmp_path)
+
+
+def _methods_only() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("demo")
+
+    @channel.method
+    async def echo(params: _Params) -> _Result: ...
+
+    return channel
+
+
+def _events_only() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("demo")
+
+    @channel.event
+    async def ticks() -> AsyncIterator[_Tick]:
+        yield _Tick(n=1)
+
+    return channel
+
+
+def _methods_and_events() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("demo", raises=(_MissingError,))
+
+    @channel.method
+    async def echo(params: _Params) -> _Result: ...
+
+    @channel.event
+    async def ticks() -> AsyncIterator[_Tick]:
+        yield _Tick(n=1)
+
+    return channel
+
+
+def _all_stream_directions() -> rpc.RpcChannel:
+    channel = rpc.RpcChannel("media")
+
+    @channel.method
+    async def echo(params: _Params) -> _Result: ...
+
+    @channel.stream
+    async def preview() -> AsyncIterator[bytes]:
+        yield b""
+
+    @channel.stream(input_content_type="audio/pcm")
+    async def upload(session_id: str, frames: rpc.Inject[rpc.RpcBinaryInput]) -> None:
+        pass
+
+    @channel.stream(content_type="audio/opus")
+    async def talk(
+        session_id: str,
+        frames: rpc.Inject[rpc.RpcBinaryInput],
+        output: rpc.Inject[rpc.RpcBinaryOutput],
+    ) -> None:
+        pass
+
+    return channel
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [_methods_only, _events_only, _methods_and_events, _all_stream_directions],
+)
+@pytest.mark.parametrize("transport", [None, "websocket"])
+def test_generated_python_from_services_is_ruff_clean(
+    channel: Callable[[], rpc.RpcChannel],
+    transport: str | None,
+    tmp_path: Path,
+) -> None:
+    service = rpc.RpcService()
+    mounted = channel()
+    service.socket("/v1/gateway", channels=[mounted])
+    for stream in mounted.streams:
+        local = stream.name.rsplit(".", 1)[-1]
+        prefix = "/v1/{session_id}" if stream.path_parameters else "/v1"
+        service.stream(f"{prefix}/{local}", stream.function)
+    contract = service.contract(title="Gateway", base_url="http://localhost")
+
+    _assert_ruff_clean(
+        contract.to_openrpc(),
+        PythonClientOptions(package=PACKAGE, with_transport=transport),
+        tmp_path,
+    )
+
+
+def _assert_ruff_clean(
+    document: dict[str, Any],
+    options: PythonClientOptions,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / PACKAGE
+    generate_python_client(document, output, options)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nline-length = 88\n[tool.ruff.lint]\nselect = ["E", "F", "I"]\n'
         f'[tool.ruff.lint.isort]\nknown-first-party = ["{PACKAGE}"]\n',

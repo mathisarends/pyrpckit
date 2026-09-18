@@ -5,8 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from pyrpckit.dishka import DishkaResolver
+from pyrpckit import Inject, RpcChannel, RpcService
+from pyrpckit.dishka import DishkaResolver, dishka_router
 
 dishka = pytest.importorskip("dishka")
 Scope = dishka.Scope
@@ -78,3 +81,43 @@ async def test_dishka_resolver_explains_when_the_optional_extra_is_missing(
     with pytest.raises(ModuleNotFoundError, match="dishka requires the 'dishka' extra"):
         async with resolver.enter_connection({}):
             pass
+
+
+async def test_dishka_resolver_rejects_a_non_app_container() -> None:
+    container = Container({})
+    container.scope = Scope.SESSION
+    resolver = DishkaResolver(container)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="needs the APP container.*SESSION"):
+        async with resolver.enter_connection({}):
+            pass
+
+
+def test_dishka_router_reads_the_app_container_at_connection_time() -> None:
+    expected = Service()
+    request = Container({Service: expected})
+    session = Container({})
+    session.child = request
+    root = Container({})
+    root.child = session
+
+    channel = RpcChannel("demo")
+
+    @channel.method()
+    async def resolve(service: Inject[Service]) -> bool:
+        return service is expected
+
+    rpc = RpcService()
+    rpc.socket("/rpc", channels=(channel,))
+    app = FastAPI()
+    app.state.dishka_container = root
+    app.include_router(dishka_router(rpc))
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/rpc") as websocket,
+    ):
+        websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.resolve"})
+        assert websocket.receive_json()["result"] is True
+
+    assert root.calls[0]["scope"] is Scope.SESSION

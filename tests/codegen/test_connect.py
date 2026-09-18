@@ -40,11 +40,19 @@ class FakeSocket:
 class FakeNetwork:
     def __init__(self, result: Any = None) -> None:
         self.sockets: list[FakeSocket] = []
+        self.headers: list[dict[str, str] | None] = []
         self.result = result
 
-    async def __call__(self, url: str, *, subprotocols: list[str] | None) -> FakeSocket:
+    async def __call__(
+        self,
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ) -> FakeSocket:
         socket = FakeSocket(url, self.result)
         self.sockets.append(socket)
+        self.headers.append(additional_headers)
         return socket
 
     @property
@@ -144,6 +152,23 @@ async def test_connecting_eagerly_opens_every_declared_server(
         ]
 
 
+async def test_connect_forwards_headers_to_websocket_factories(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "Hello, Mathis!"})
+
+    client = await client_module.GreetingClient.connect(
+        socket_factory=network,
+        headers={"Authorization": "Bearer secret"},
+    )
+    try:
+        await client.greeting.say(name="Mathis")
+    finally:
+        await client.close()
+
+    assert network.headers == [{"Authorization": "Bearer secret"}]
+
+
 async def test_a_single_server_can_be_pointed_somewhere_else(
     client_module: ModuleType,
 ) -> None:
@@ -179,7 +204,12 @@ async def test_binary_streams_reuse_the_host_the_client_connected_with(
     network = FakeNetwork()
     opened: list[str] = []
 
-    async def stream_factory(url: str, *, subprotocols: list[str] | None) -> FakeSocket:
+    async def stream_factory(
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ) -> FakeSocket:
         opened.append(url)
         return FakeSocket(url, None)
 
@@ -190,13 +220,10 @@ async def test_binary_streams_reuse_the_host_the_client_connected_with(
     ) as client:
         async with client.greeting.frames():
             pass
-        async with client.greeting.frames(host="other.example.com"):
-            pass
+        with pytest.raises(TypeError, match="host"):
+            client.greeting.frames(host="other.example.com")
 
-    assert opened == [
-        "wss://stage.example.com/frames",
-        "wss://other.example.com/frames",
-    ]
+    assert opened == ["wss://stage.example.com/frames"]
 
 
 async def test_an_unknown_stream_variable_is_rejected(
@@ -206,4 +233,4 @@ async def test_an_unknown_stream_variable_is_rejected(
     info = streams.BINARY_STREAMS[streams.BinaryStreamName.GREETING_FRAMES]
 
     with pytest.raises(ValueError, match="Unknown variables"):
-        streams.resolve_stream_endpoint(info, {"token": "secret"})
+        streams.resolve_stream_endpoint(info, values={"token": "secret"})

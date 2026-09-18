@@ -15,6 +15,7 @@ from pyrpckit.connection import (
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.server import RpcErrorMapper
 from pyrpckit.service import RpcService, RpcStreamEndpoint
+from pyrpckit.streams import RpcInputEndMessage
 
 _DISCONNECT = object()
 
@@ -53,8 +54,8 @@ class InMemorySocket:
 
     async def receive(self) -> str | bytes:
         value = await self._incoming.get()
-        if value is _DISCONNECT:
-            raise RpcDisconnect()
+        if isinstance(value, RpcDisconnect):
+            raise value
         return value
 
     async def send(self, message: str) -> None:
@@ -76,8 +77,12 @@ class InMemorySocket:
             raise RpcDisconnect()
         return value
 
-    async def client_disconnect(self, reason: str = "") -> None:
-        await self._incoming.put(_DISCONNECT)
+    async def client_disconnect(
+        self,
+        code: RpcConnectionClose | int = RpcConnectionClose.NORMAL,
+        reason: str = "",
+    ) -> None:
+        await self._incoming.put(RpcDisconnect(reason, code=code))
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +121,7 @@ class RpcTestClient:
         self._notifications: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         matched = service.match(path)
         self._stream = matched is not None and isinstance(matched[0], RpcStreamEndpoint)
+        self._input = self._stream and matched[0].stream.has_input
 
     async def __aenter__(self):
         self._task = asyncio.create_task(
@@ -201,3 +207,20 @@ class RpcTestClient:
         if not isinstance(value, bytes):
             raise TypeError("Expected a binary frame")
         return value
+
+    async def send_frame(self, data: bytes | bytearray | memoryview) -> None:
+        if not self._input:
+            raise TypeError("send_frame() is only available for streams with input")
+        await self.socket.client_send(bytes(data))
+
+    async def end_input(self) -> None:
+        if not self._input:
+            raise TypeError("end_input() is only available for streams with input")
+        await self.socket.client_send(RpcInputEndMessage(type="end").model_dump_json())
+
+    async def closed(self) -> tuple[RpcConnectionClose, str] | None:
+        """Wait until the server finished the connection and return its close."""
+        if self._task is not None:
+            with suppress(asyncio.CancelledError):
+                await self._task
+        return self.socket.closed

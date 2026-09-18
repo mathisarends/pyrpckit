@@ -15,13 +15,20 @@ export type { Endpoint, ServerName } from "./endpoints";
 {% endif %}{% if with_websocket %}export { WebSocketTransport } from "./transport";
 export type { WebSocketFactory, WebSocketOptions } from "./transport";
 {% endif %}{% if binary_streams %}export {
-  BinaryStreamConnection,
+  BinaryChannel,
+  BinaryReceiver,
+  BinarySender,
   RpcStreamClosed,
+  RpcStreamFailed,
+  RpcStreamRefused,
+  RpcStreamTimeout,
   RpcStreamsUnavailableError,
   binaryStreams,
   resolveStreamEndpoint,
 } from "./streams";
 export type {
+  BinaryInputEnd,
+  BinaryInputTransport,
   BinaryStreamDirection,
   BinaryStreamEndpoint,
   BinaryStreamName,
@@ -29,4 +36,4 @@ export type {
 } from "./streams";
 {% if with_websocket %}export { BinaryWebSocketStream } from "./streams";
 export type { BinaryWebSocketFactory, BinaryWebSocketOptions } from "./streams";
-{% endif %}{% endif %}export type * from "./models";
+{% endif %}{% endif %}{% if models %}export type * from "./models";{% endif %}

@@ -1,4 +1,5 @@
 import inspect
+from collections import Counter
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 from dataclasses import dataclass
 from types import FunctionType, UnionType
@@ -12,7 +13,7 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PydanticSchemaGenerationError, create_model
 
 from pyrpckit.dependencies import (
     RpcInjectedParameter,
@@ -20,6 +21,7 @@ from pyrpckit.dependencies import (
     injected_parameter,
 )
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
+from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcStreamDirection
 from pyrpckit.wire import wire_annotation
 
 
@@ -58,6 +60,18 @@ class RpcStreamDefinition:
     injected_parameters: tuple[RpcInjectedParameter, ...]
     resolver_scope: RpcResolverScope
     server: str | None = None
+    direction: RpcStreamDirection = RpcStreamDirection.SERVER_TO_CLIENT
+    input_content_type: str | None = None
+    path_parameters: tuple[str, ...] = ()
+    path_model: type[BaseModel] | None = None
+
+    @property
+    def has_input(self) -> bool:
+        return self.direction is not RpcStreamDirection.SERVER_TO_CLIENT
+
+    @property
+    def is_generator(self) -> bool:
+        return inspect.isasyncgenfunction(self.function)
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +170,32 @@ def _router_params_model(
     str | None,
     tuple[RpcInjectedParameter, ...],
 ]:
+    hints, injected, wire_parameters = _split_parameters(function)
+    if not wire_parameters:
+        return None, None, injected
+
+    if len(wire_parameters) == 1:
+        parameter = wire_parameters[0]
+        annotation = hints[parameter.name]
+        if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,) and _is_model(
+            annotation
+        ):
+            return wire_annotation(annotation), parameter.name, injected
+
+    names = ", ".join(parameter.name for parameter in wire_parameters)
+    raise ProtocolDefinitionError(
+        f"RPC handler {function.__qualname__} must use at most one positional "
+        f"Pydantic params model; unsupported wire parameters: {names}"
+    )
+
+
+def _split_parameters(
+    function: Any,
+) -> tuple[
+    dict[str, Any],
+    tuple[RpcInjectedParameter, ...],
+    list[inspect.Parameter],
+]:
     parameters = tuple(inspect.signature(function).parameters.values())
     hints = get_type_hints(function, include_extras=True)
     injected: list[RpcInjectedParameter] = []
@@ -187,27 +227,7 @@ def _router_params_model(
                 f"Injected RPC parameter {parameter.name!r} cannot have a default"
             )
         injected.append(dependency)
-
-    if not wire_parameters:
-        return None, None, tuple(injected)
-
-    if len(wire_parameters) == 1:
-        parameter = wire_parameters[0]
-        annotation = hints[parameter.name]
-        if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,) and _is_model(
-            annotation
-        ):
-            return (
-                wire_annotation(annotation),
-                parameter.name,
-                tuple(injected),
-            )
-
-    names = ", ".join(parameter.name for parameter in wire_parameters)
-    raise ProtocolDefinitionError(
-        f"RPC handler {function.__qualname__} must use at most one positional "
-        f"Pydantic params model; unsupported wire parameters: {names}"
-    )
+    return hints, tuple(injected), wire_parameters
 
 
 def _result_annotation(function: Any) -> Any:
@@ -291,26 +311,64 @@ def stream_definition(
     content_type: str,
     summary: str | None,
     resolver_scope: RpcResolverScope,
+    input_content_type: str | None = None,
 ) -> RpcStreamDefinition:
-    if not inspect.isasyncgenfunction(function):
-        raise ProtocolDefinitionError(
-            f"RPC binary stream {function.__qualname__} must be an async generator"
-        )
-    hints = get_type_hints(function, include_extras=True)
+    qualname = function.__qualname__
+    hints, injected, path_parameters = _split_parameters(function)
+    counts = Counter(parameter.dependency for parameter in injected)
+    for dependency in (RpcBinaryInput, RpcBinaryOutput):
+        if counts[dependency] > 1:
+            raise ProtocolDefinitionError(
+                f"RPC binary stream {qualname} injects {dependency.__name__} "
+                "more than once"
+            )
+    has_input = RpcBinaryInput in counts
+    has_output = RpcBinaryOutput in counts
     result = hints.get("return")
-    if (
-        get_origin(result) not in (AsyncIterator, AsyncGenerator)
-        or get_args(result)[0] is not bytes
-    ):
+    if inspect.isasyncgenfunction(function):
+        if (
+            get_origin(result) not in (AsyncIterator, AsyncGenerator)
+            or get_args(result)[0] is not bytes
+        ):
+            raise ProtocolDefinitionError(
+                f"RPC binary stream {qualname} must yield bytes and be annotated "
+                "as AsyncIterator[bytes]"
+            )
+        if has_input or has_output:
+            raise ProtocolDefinitionError(
+                f"RPC binary stream {qualname} is an async generator and cannot "
+                "inject RpcBinaryInput or RpcBinaryOutput; write an async "
+                "function that injects them and calls `await output.send(frame)` "
+                "instead of yielding"
+            )
+        direction = RpcStreamDirection.SERVER_TO_CLIENT
+    elif inspect.iscoroutinefunction(function):
+        if not (has_input or has_output):
+            raise ProtocolDefinitionError(
+                f"RPC binary stream {qualname} must be an async generator "
+                "yielding bytes or an async function that injects "
+                "RpcBinaryInput and/or RpcBinaryOutput"
+            )
+        if result is not None and result is not type(None):
+            raise ProtocolDefinitionError(
+                f"RPC binary stream {qualname} must return None; send output "
+                "frames through RpcBinaryOutput"
+            )
+        if has_input and has_output:
+            direction = RpcStreamDirection.BIDIRECTIONAL
+        elif has_input:
+            direction = RpcStreamDirection.CLIENT_TO_SERVER
+        else:
+            direction = RpcStreamDirection.SERVER_TO_CLIENT
+    else:
         raise ProtocolDefinitionError(
-            "binary streams must yield bytes; only server-to-client streams "
-            "are supported"
+            f"RPC binary stream {qualname} must be an async generator or an "
+            "async function"
         )
-    params, _, injected = _router_params_model(function)
-    if params is not None:
+    if input_content_type is not None and not has_input:
         raise ProtocolDefinitionError(
-            "binary stream parameters must use Inject[T]; client-to-server "
-            "streams are not supported"
+            f"RPC binary stream {qualname} declares input_content_type but does "
+            "not inject RpcBinaryInput"
         )
     return RpcStreamDefinition(
         name=name,
@@ -319,6 +377,49 @@ def stream_definition(
         summary=summary,
         injected_parameters=injected,
         resolver_scope=resolver_scope,
+        direction=direction,
+        input_content_type=(input_content_type or content_type) if has_input else None,
+        path_parameters=tuple(parameter.name for parameter in path_parameters),
+        path_model=_path_model(function, hints, path_parameters),
+    )
+
+
+def _path_model(
+    function: Any,
+    hints: dict[str, Any],
+    parameters: list[inspect.Parameter],
+) -> type[BaseModel] | None:
+    if not parameters:
+        return None
+    fields: dict[str, Any] = {}
+    for parameter in parameters:
+        if parameter.kind not in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            raise ProtocolDefinitionError(
+                f"RPC binary stream path parameter {parameter.name!r} must be "
+                "passable by name"
+            )
+        annotation = hints[parameter.name]
+        if _is_model(annotation):
+            raise ProtocolDefinitionError(_path_type_message(parameter.name))
+        default = (
+            ... if parameter.default is inspect.Parameter.empty else parameter.default
+        )
+        fields[parameter.name] = (annotation, default)
+    try:
+        return create_model(f"{_pascal_case(function.__name__)}PathParams", **fields)
+    except PydanticSchemaGenerationError as error:
+        names = ", ".join(fields)
+        raise ProtocolDefinitionError(_path_type_message(names)) from error
+
+
+def _path_type_message(name: str) -> str:
+    return (
+        f"RPC binary stream parameter {name!r} is not a path variable type; "
+        "path variables are scalars such as str, int, UUID, or an Enum, and "
+        "dependencies use Inject[T]"
     )
 
 

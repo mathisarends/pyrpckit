@@ -1,8 +1,11 @@
 {% from "python/macros.py.j2" import operation, notification, stream with context %}class {{ client_name }}:
     def __init__(
         self,
-        transport: {{ "RpcTransport | Mapping[str, RpcTransport] | RpcTransportSource" if servers else "RpcTransport | RpcTransportSource" }},
-        *,
+{% if servers %}        transport: (
+            RpcTransport | Mapping[ServerName, RpcTransport] | RpcTransportSource
+        ),
+{% else %}        transport: RpcTransport | RpcTransportSource,
+{% endif %}        *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
 {% if binary_streams %}        stream_opener: BinaryStreamOpener | None = None,
@@ -43,12 +46,13 @@
 {% endif %}        servers: Mapping[ServerName, str | Endpoint] | None = None,
         request_timeout: float | None = None,
         notification_queue_size: int = 100,
+        headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
 {% if binary_streams %}        stream_socket_factory: BinaryWebSocketFactory | None = None,
 {% endif %}        hooks: Iterable[RpcClientHook] = (),
-        eager: bool = False,
+        eager: bool = {{ "True" if servers | length == 1 else "False" }},
     ) -> ClientConnection[Self, ServerName]:
-        """Connect to every declared server, opening each socket on first use."""
+        """Configure the declared servers and optionally open them eagerly."""
 {% if variables %}        variables: dict[str, str | None] = {
 {% for variable in variables %}            {{ variable.name | literal }}: {{ variable.name | identifier }},
 {% endfor %}        }
@@ -69,12 +73,14 @@
                 subprotocols=subprotocols,
                 request_timeout=request_timeout,
                 notification_queue_size=notification_queue_size,
+                headers=headers,
                 socket_factory=socket_factory,
             )
 {% if binary_streams %}
         async def open_stream(endpoint: BinaryStreamEndpoint) -> BinaryStreamTransport:
             return await BinaryWebSocketStream.open(
                 endpoint,
+                headers=headers,
                 socket_factory=stream_socket_factory,
             )
 {% endif %}

@@ -26,7 +26,9 @@ from automation_client.transport import WebSocketFactory, WebSocketTransport
 class AutomationClient:
     def __init__(
         self,
-        transport: RpcTransport | Mapping[str, RpcTransport] | RpcTransportSource,
+        transport: (
+            RpcTransport | Mapping[ServerName, RpcTransport] | RpcTransportSource
+        ),
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
@@ -68,12 +70,13 @@ class AutomationClient:
         servers: Mapping[ServerName, str | Endpoint] | None = None,
         request_timeout: float | None = None,
         notification_queue_size: int = 100,
+        headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
         stream_socket_factory: BinaryWebSocketFactory | None = None,
         hooks: Iterable[RpcClientHook] = (),
         eager: bool = False,
     ) -> ClientConnection[Self, ServerName]:
-        """Connect to every declared server, opening each socket on first use."""
+        """Configure the declared servers and optionally open them eagerly."""
         variables: dict[str, str | None] = {
             "host": host,
         }
@@ -90,12 +93,14 @@ class AutomationClient:
                 subprotocols=subprotocols,
                 request_timeout=request_timeout,
                 notification_queue_size=notification_queue_size,
+                headers=headers,
                 socket_factory=socket_factory,
             )
 
         async def open_stream(endpoint: BinaryStreamEndpoint) -> BinaryStreamTransport:
             return await BinaryWebSocketStream.open(
                 endpoint,
+                headers=headers,
                 socket_factory=stream_socket_factory,
             )
 

@@ -67,7 +67,7 @@ export class {{ client_name }} {
           socketFactory: options.socketFactory,
         }),
     });
-    if (options.eager === true) await pool.openAll();
+    if (options.eager ?? {{ "true" if servers | length == 1 else "false" }}) await pool.openAll();
     return new {{ client_name }}(pool, {
       hooks: options.hooks,
 {% if binary_streams %}      streamOpener: (endpoint) =>

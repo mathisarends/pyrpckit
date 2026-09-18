@@ -4,9 +4,11 @@
 
 import type { RpcClientCore } from "../core";
 import {
+  BinaryChannel,
+  BinaryReceiver,
+  BinarySender,
   binaryStreams,
   resolveStreamEndpoint,
-  type BinaryStreamConnection,
 } from "../streams";
 import { routes } from "../routes";
 import type { OpenTabParams, StartScreencastParams, Tab } from "../models";
@@ -16,7 +18,7 @@ export class BrowserTabs {
 
   /** Open a browser tab. */
   open(params: OpenTabParams): Promise<Tab> {
-    return this.rpc.request<Tab>(routes.browserTabsOpen, params);
+    return this.rpc.request(routes.browserTabsOpen, params);
   }
 }
 
@@ -25,22 +27,39 @@ export class BrowserScreencast {
 
   /** Start the browser screencast. */
   async start(params: StartScreencastParams = {}): Promise<void> {
-    await this.rpc.request<null>(routes.browserScreencastStart, params);
+    await this.rpc.request(routes.browserScreencastStart, params);
   }
 
   /** Raw screencast frames as binary WebSocket messages. */
-  frames(options?: {
-    readonly host?: string;
-    readonly url?: string | URL;
-  }): Promise<BinaryStreamConnection> {
+  frames(): Promise<BinaryReceiver> {
     return this.rpc.openStream(
       resolveStreamEndpoint(
         binaryStreams.browserScreencastFrames,
-        {
-          host: options?.host,
-        },
-        { url: options?.url, defaults: this.rpc.variables },
+        this.rpc.variables,
       ),
+      (transport) => new BinaryReceiver(transport),
+    );
+  }
+
+  /** Upload a recorded screencast as binary WebSocket messages. */
+  upload(): Promise<BinarySender> {
+    return this.rpc.openStream(
+      resolveStreamEndpoint(
+        binaryStreams.browserScreencastUpload,
+        this.rpc.variables,
+      ),
+      (transport) => new BinarySender(transport),
+    );
+  }
+
+  /** Receive frames while sending input events back. */
+  control(): Promise<BinaryChannel> {
+    return this.rpc.openStream(
+      resolveStreamEndpoint(
+        binaryStreams.browserScreencastControl,
+        this.rpc.variables,
+      ),
+      (transport) => new BinaryChannel(transport),
     );
   }
 }

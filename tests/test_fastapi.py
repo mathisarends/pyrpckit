@@ -1,10 +1,20 @@
 from collections.abc import AsyncIterator
 
+import pytest
 from fastapi import Depends, FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from starlette.testclient import WebSocketDenialResponse
 
-from pyrpckit import RpcChannel, RpcConnection, RpcDisconnect, RpcService
+from pyrpckit import (
+    Inject,
+    RpcBinaryInput,
+    RpcBinaryOutput,
+    RpcChannel,
+    RpcConnection,
+    RpcDisconnect,
+    RpcService,
+)
 from pyrpckit.fastapi import FastApiSocket, create_router
 
 
@@ -12,15 +22,19 @@ class EchoParams(BaseModel):
     value: str
 
 
-def create_service(*, path: str = "/rpc", connect=None) -> RpcService:
+def create_service(
+    *, path: str = "/rpc", connections: list[RpcConnection] | None = None
+) -> RpcService:
     channel = RpcChannel("demo")
 
     @channel.method()
-    async def echo(params: EchoParams) -> EchoParams:
+    async def echo(params: EchoParams, connection: Inject[RpcConnection]) -> EchoParams:
+        if connections is not None:
+            connections.append(connection)
         return params
 
-    service = RpcService(connect=connect)
-    service.socket(path, channel)
+    service = RpcService()
+    service.socket(path, channels=(channel,))
     return service
 
 
@@ -31,12 +45,9 @@ def test_router_serves_websocket_with_fastapi_options() -> None:
     async def dependency() -> None:
         dependencies_called.append(True)
 
-    async def connect(connection: RpcConnection) -> None:
-        handshakes.append(connection)
-
     web = FastAPI()
     web.include_router(
-        create_router(create_service(path="/rpc/{endpoint}", connect=connect)),
+        create_router(create_service(path="/rpc/{endpoint}", connections=handshakes)),
         prefix="/api",
         dependencies=[Depends(dependency)],
     )
@@ -72,6 +83,24 @@ def test_router_serves_websocket_with_fastapi_options() -> None:
     assert connection.headers["x-test"] == "yes"
     assert connection.subprotocols == ("rpc.test",)
     assert connection.client is not None
+
+
+def test_repeated_test_client_disconnects_do_not_leak_cancellation() -> None:
+    web = FastAPI()
+    web.include_router(create_router(create_service()))
+
+    with TestClient(web) as client:
+        for value in range(200):
+            with client.websocket_connect("/rpc") as websocket:
+                websocket.send_json(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": value,
+                        "method": "demo.echo",
+                        "params": {"value": str(value)},
+                    }
+                )
+                assert websocket.receive_json()["result"] == {"value": str(value)}
 
 
 def test_router_serves_binary_stream() -> None:
@@ -123,3 +152,49 @@ async def test_send_preserves_unexpected_runtime_errors() -> None:
         assert str(error) == "invalid WebSocket state"
     else:
         raise AssertionError("RuntimeError was not raised")
+
+
+def test_router_serves_bidirectional_streams_without_cancellation_leaks() -> None:
+    channel = RpcChannel("voice")
+
+    @channel.stream()
+    async def media(
+        session_id: int,
+        frames: Inject[RpcBinaryInput],
+        output: Inject[RpcBinaryOutput],
+    ) -> None:
+        async for frame in frames:
+            await output.send(str(session_id).encode() + b":" + frame)
+
+    service = RpcService()
+    service.stream("/voice/{session_id}/media", media)
+    web = FastAPI()
+    web.include_router(create_router(service))
+
+    with TestClient(web) as client:
+        for session_id in range(200):
+            with client.websocket_connect(f"/voice/{session_id}/media") as websocket:
+                websocket.send_bytes(b"pcm")
+                assert websocket.receive_bytes() == f"{session_id}:pcm".encode()
+                websocket.send_text('{"type":"end"}')
+                assert websocket.receive()["code"] == 1000
+
+
+def test_router_rejects_invalid_stream_path_variables_as_not_found() -> None:
+    channel = RpcChannel("voice")
+
+    @channel.stream()
+    async def media(session_id: int, output: Inject[RpcBinaryOutput]) -> None: ...
+
+    service = RpcService()
+    service.stream("/voice/{session_id}/media", media)
+    web = FastAPI()
+    web.include_router(create_router(service))
+
+    with (
+        TestClient(web) as client,
+        pytest.raises(WebSocketDenialResponse) as denied,
+        client.websocket_connect("/voice/abc/media"),
+    ):
+        pass
+    assert denied.value.status_code == 404
