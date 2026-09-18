@@ -494,7 +494,7 @@ wheels = [
 
 [[package]]
 name = "pyrpckit"
-version = "0.6.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -513,6 +513,7 @@ fastapi = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "dishka" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
@@ -534,6 +535,7 @@ provides-extras = ["codegen", "dishka", "fastapi"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "dishka", specifier = ">=1.7" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },

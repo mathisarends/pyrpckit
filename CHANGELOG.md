@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 - 2026-09-17
+## 0.5.0 - 2026-09-18
 
 ### Added
 
@@ -17,6 +17,14 @@
 - Add request hooks to both generated clients and async disposal support to the
   TypeScript client.
 - Add `create_router()` and `FastApiSocket` as the FastAPI integration.
+- Accept typed `context` values in `RpcChannel.server()` for lightweight tests,
+  scripts, and custom transports without a bespoke resolver.
+- Add an optional `[contract]` source and output to codegen TOML configs. A
+  single `pyrpckit generate --config ...` invocation now renders the OpenRPC
+  contract and every client, and `--check` verifies that complete pipeline.
+- Let generated TypeScript WebSocket transports and endpoint overrides accept
+  `URL` objects. Endpoint `subprotocols` are optional and inherit their contract
+  default; single-server clients also accept `connect({ url })`.
 
 ### Changed
 
@@ -51,23 +59,8 @@
 - Remove client-to-server and bidirectional binary streams.
 - Replace generated `from_transport*` / `fromTransport*` constructors with
   `with_transports()` / `withTransports()`.
+- Stop exporting the generated TypeScript `ConnectOptions` and
+  `<Name>Transports` types; the options are declared inline on `connect()` and
+  `withTransports()`.
 - Remove awaiting a Python `BinaryStreamOpening` directly; use `async with` or
   call `.open()` and close the returned connection explicitly.
-
-## 0.5.0 - 2026-09-10
-
-### Added
-
-- Export every generated TypeScript model from the package root, so request and
-  response types no longer require a manually configured `./models` subpath.
-- Accept typed `context` values in `RpcChannel.server()` for lightweight tests,
-  scripts, and custom transports without a bespoke resolver.
-- Add an optional `[contract]` source and output to codegen TOML configs. A
-  single `pyrpckit generate --config ...` invocation now renders the OpenRPC
-  contract and every client, and `--check` verifies that complete pipeline.
-- Let generated TypeScript WebSocket transports and endpoint overrides accept
-  `URL` objects. Endpoint `subprotocols` are optional and inherit their contract
-  default; single-server clients also accept `connect({ url })`.
-- Support declarative `modules=` composition in `RpcChannel` and add an explicit,
-  idempotent `freeze()` method. Freeze errors now identify the channel and
-  explain that contract generation may have materialized its protocol.

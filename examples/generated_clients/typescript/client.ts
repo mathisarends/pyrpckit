@@ -31,7 +31,7 @@ export class AutomationClient {
   constructor(
     transport:
       | RpcTransport
-      | Readonly<Record<string, RpcTransport>>
+      | Readonly<Record<ServerName, RpcTransport>>
       | RpcTransportSource,
     options?: {
       readonly closeTransport?: boolean;

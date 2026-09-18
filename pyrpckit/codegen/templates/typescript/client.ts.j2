@@ -6,11 +6,12 @@ export class {{ client_name }} {
 {% endif %}  readonly #rpc: RpcClientCore;
 
   constructor(
-    transport:
+{% if servers %}    transport:
       | RpcTransport
-      | Readonly<Record<string, RpcTransport>>
+      | Readonly<Record<ServerName, RpcTransport>>
       | RpcTransportSource,
-    options?: {
+{% else %}    transport: RpcTransport | RpcTransportSource,
+{% endif %}    options?: {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
 {% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
