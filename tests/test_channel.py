@@ -62,3 +62,38 @@ def test_invalid_stream_type_is_rejected() -> None:
         @channel.stream()
         async def text() -> AsyncIterator[str]:
             yield "x"
+
+
+def test_child_channels_inherit_namespace_errors_and_scope() -> None:
+    root = RpcChannel("voice", raises=(SharedError,))
+    turn = root.child("turn", raises=(LocalError,))
+
+    @root.event()
+    async def event() -> AsyncIterator[Event]:
+        yield Event(value="root")
+
+    @turn.method()
+    async def start() -> None: ...
+
+    protocol = root.freeze()
+
+    assert turn.name == "voice.turn"
+    assert turn.namespace == "voice.turn"
+    assert turn.raises == (SharedError, LocalError)
+    assert protocol.methods[0].name == "voice.turn.start"
+    assert protocol.methods[0].raises == (SharedError, LocalError)
+    assert protocol.notifications[0].name == "voice.event"
+
+
+def test_channel_name_defaults_to_namespace() -> None:
+    channel = RpcChannel(namespace="voice.turn")
+
+    assert channel.name == "voice.turn"
+    assert channel.namespace == "voice.turn"
+
+
+def test_dotted_operation_name_suggests_a_child_channel() -> None:
+    channel = RpcChannel("voice")
+
+    with pytest.raises(ProtocolDefinitionError, match=r"contains '\.'.*child"):
+        channel.method("turn.start")

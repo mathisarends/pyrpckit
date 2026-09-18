@@ -86,6 +86,22 @@ Path variables are available from `RpcConnection.path_params`. Endpoint names
 identify servers in OpenRPC and generated clients; when omitted, the last
 static path segment is used. A channel can be mounted only once in a service.
 
+Use child channels for nested wire namespaces. Mount only the root; its children
+inherit declared errors and the resolver scope:
+
+```python
+voice = RpcChannel("voice", raises=(ResourceNotFoundError,))
+turn = voice.child("turn")
+
+@turn.method()
+async def start() -> None: ...  # voice.turn.start
+
+app.socket("/rpc", channels=(voice,))
+```
+
+For a standalone dotted namespace, the channel name can default to it:
+`RpcChannel(namespace="voice.turn")`.
+
 The service stays mutable until `freeze()`, `protocol`, `contract()`, or an
 adapter materializes its protocol. Add all channels and endpoints before that
 point.

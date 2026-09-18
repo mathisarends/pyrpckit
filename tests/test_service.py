@@ -61,3 +61,16 @@ def test_endpoints_inherit_and_override_serve_configuration() -> None:
     assert inherited.limits is default_limits
     assert overridden.error_mapper is endpoint_mapper
     assert overridden.limits is endpoint_limits
+
+
+def test_mounting_a_root_channel_includes_its_children() -> None:
+    root = RpcChannel("voice")
+    turn = root.child("turn")
+
+    @turn.method()
+    async def start() -> None: ...
+
+    service = RpcService()
+    service.socket("/rpc", channels=(root,))
+
+    assert service.protocol.methods[0].name == "voice.turn.start"

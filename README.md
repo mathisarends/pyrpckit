@@ -32,7 +32,7 @@ async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     return await store.create(params.title)
 
 
-@tasks.event(payload=TaskUpdated)
+@tasks.event()
 async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
     async for task in store.watch():
         yield TaskUpdated(task=task)

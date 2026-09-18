@@ -16,6 +16,10 @@
   optional endpoint overrides, so production routes and `RpcTestClient` share
   the same serving behavior.
 - Pass mounted channels through the explicit `channels=` sequence argument.
+- Add nested channels with `channel.child()`. Children inherit their parent's
+  namespace, declared errors, and resolver scope, and are included when the root
+  channel is mounted. Channel names may default to a dotted `namespace=`.
+- Explain dotted operation-name errors with the nested-channel solution.
 - Resolve FastAPI dependencies per connection with `resolver_factory=`. Add
   `dishka_router()` to read Dishka's APP container from `app.state` and reject
   accidentally supplied SESSION containers with a targeted error.

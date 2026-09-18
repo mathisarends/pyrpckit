@@ -6,9 +6,13 @@ for the pre-0.6 composition API.
 
 ## Public model
 
-- `RpcChannel(name, /, *, namespace=None, raises=(), resolver_scope=call_scope)`
-  groups methods, events, and streams. `name` is positional; its default
-  namespace is the same name. `namespace=""` creates root operations.
+- `RpcChannel(name=None, /, *, namespace=None, raises=(),
+  resolver_scope=call_scope)` groups methods, events, and streams. A supplied
+  name provides the default namespace; otherwise the namespace is also the
+  channel identity. `namespace=""` creates root operations when a name exists.
+- `channel.child(segment, raises=(), resolver_scope=None)` creates a nested
+  namespace that inherits the parent's errors and scope. Mounting the root
+  includes all descendants.
 - `RpcService(*, version=1, error_mapper=None, limits=None)` owns the complete
   application and its serving defaults.
   Examples call the instance `app`, matching common FastAPI usage.
