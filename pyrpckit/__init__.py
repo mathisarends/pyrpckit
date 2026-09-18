@@ -26,7 +26,14 @@ from .errors import (
     error_message,
 )
 from .models import RpcModel
-from .server import RpcErrorMapper, RpcServer
+from .server import (
+    RpcErrorMapper,
+    RpcRequestContext,
+    RpcRequestHook,
+    RpcResponseContext,
+    RpcResponseHook,
+    RpcServer,
+)
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 
 __version__ = "0.5.0"
@@ -57,8 +64,12 @@ __all__ = [
     "RpcParseError",
     "RpcRejection",
     "RpcRequestId",
+    "RpcRequestContext",
+    "RpcRequestHook",
     "RpcResolver",
     "RpcResolverScope",
+    "RpcResponseContext",
+    "RpcResponseHook",
     "RpcServer",
     "RpcService",
     "RpcSocket",

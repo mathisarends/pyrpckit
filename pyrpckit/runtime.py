@@ -70,6 +70,8 @@ async def serve_endpoint(
     def request_close(code, reason):
         if not close_event.is_set():
             close_value[:] = [code, reason]
+            connection._close_code = code
+            connection._close_reason = reason
             close_event.set()
 
     connection._on_close = request_close
@@ -78,7 +80,11 @@ async def serve_endpoint(
     try:
         async with connection_scope(resolved, values) as scoped:
             server = RpcServer._from_channel(
-                endpoint.protocol, resolver=scoped, error_mapper=error_mapper
+                endpoint.protocol,
+                resolver=scoped,
+                error_mapper=error_mapper,
+                on_request=endpoint.on_request,
+                on_response=endpoint.on_response,
             )
 
             async def writer():
@@ -120,9 +126,9 @@ async def serve_endpoint(
                         task = asyncio.create_task(invoke(frame))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
-                except RpcDisconnect:
+                except RpcDisconnect as error:
                     peer_closed = True
-                    close_event.set()
+                    request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
 
             async def events():
                 try:
@@ -157,6 +163,8 @@ async def serve_endpoint(
                         await socket.send(outgoing.get_nowait())
     except asyncio.CancelledError:
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
+        connection._close_code = RpcConnectionClose.SHUTDOWN
+        connection._close_reason = ""
         if not peer_closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
@@ -205,6 +213,8 @@ async def serve_stream_endpoint(
     def request_close(code, reason):
         if not close_event.is_set():
             close_value[:] = [code, reason]
+            connection._close_code = code
+            connection._close_reason = reason
             close_event.set()
 
     connection._on_close = request_close
@@ -245,9 +255,9 @@ async def serve_stream_endpoint(
                         RpcConnectionClose.PROTOCOL_ERROR,
                         "Binary stream is server-to-client",
                     )
-                except RpcDisconnect:
+                except RpcDisconnect as error:
                     peer_closed = True
-                    close_event.set()
+                    request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
 
             tasks = [asyncio.create_task(write()), asyncio.create_task(read())]
             await close_event.wait()
@@ -256,6 +266,8 @@ async def serve_stream_endpoint(
             await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
+        connection._close_code = RpcConnectionClose.SHUTDOWN
+        connection._close_reason = ""
         raise
     finally:
         if generator is not None:

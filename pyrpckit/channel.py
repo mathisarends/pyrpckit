@@ -22,7 +22,12 @@ from pyrpckit.protocol import (
     notification_type_definitions,
     stream_definition,
 )
-from pyrpckit.server import RpcErrorMapper, RpcServer
+from pyrpckit.server import (
+    RpcErrorMapper,
+    RpcRequestHook,
+    RpcResponseHook,
+    RpcServer,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +277,8 @@ class RpcChannel:
         context: object | Mapping[type[Any], object] | None = None,
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        on_request: RpcRequestHook | None = None,
+        on_response: RpcResponseHook | None = None,
     ) -> RpcServer:
         from pyrpckit.dependencies import ContextResolver, context_values
 
@@ -280,7 +287,11 @@ class RpcChannel:
         if values:
             resolved = ContextResolver(resolved, values)
         return RpcServer._from_channel(
-            self.protocol, resolver=resolved, error_mapper=error_mapper
+            self.protocol,
+            resolver=resolved,
+            error_mapper=error_mapper,
+            on_request=on_request,
+            on_response=on_response,
         )
 
     def _reserve(self, name: str) -> None:

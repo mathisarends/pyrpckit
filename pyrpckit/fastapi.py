@@ -59,7 +59,9 @@ class FastApiSocket:
     async def receive(self) -> str | bytes:
         message = await self._websocket.receive()
         if message["type"] == "websocket.disconnect":
-            raise RpcDisconnect(str(message.get("reason", "")))
+            raise RpcDisconnect(
+                str(message.get("reason", "")), code=message.get("code")
+            )
         value = message.get("text")
         return value if value is not None else message.get("bytes", b"")
 
@@ -67,13 +69,13 @@ class FastApiSocket:
         try:
             await self._websocket.send_text(message)
         except WebSocketDisconnect as error:
-            raise RpcDisconnect() from error
+            raise RpcDisconnect(error.reason or "", code=error.code) from error
 
     async def send_bytes(self, data: bytes) -> None:
         try:
             await self._websocket.send_bytes(data)
         except WebSocketDisconnect as error:
-            raise RpcDisconnect() from error
+            raise RpcDisconnect(error.reason or "", code=error.code) from error
 
     async def close(self, close: RpcConnectionClose, reason: str) -> None:
         await self._websocket.close(CLOSE_CODES[close], close_reason(reason))

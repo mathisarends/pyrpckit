@@ -53,8 +53,8 @@ class InMemorySocket:
 
     async def receive(self) -> str | bytes:
         value = await self._incoming.get()
-        if value is _DISCONNECT:
-            raise RpcDisconnect()
+        if isinstance(value, RpcDisconnect):
+            raise value
         return value
 
     async def send(self, message: str) -> None:
@@ -76,8 +76,12 @@ class InMemorySocket:
             raise RpcDisconnect()
         return value
 
-    async def client_disconnect(self, reason: str = "") -> None:
-        await self._incoming.put(_DISCONNECT)
+    async def client_disconnect(
+        self,
+        code: RpcConnectionClose | int = RpcConnectionClose.NORMAL,
+        reason: str = "",
+    ) -> None:
+        await self._incoming.put(RpcDisconnect(reason, code=code))
 
 
 @dataclass(frozen=True, slots=True)

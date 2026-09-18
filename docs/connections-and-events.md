@@ -21,7 +21,9 @@ app.socket("/rpc", channels=(tasks,))
 ```
 
 Headers are case-insensitive. `RpcConnection` also exposes `endpoint`, `path`,
-`path_params`, `query_params`, `subprotocols`, `client`, and `closed`.
+`path_params`, `query_params`, `subprotocols`, `client`, `closed`, `close_code`,
+and `close_reason`. Connection-scope finalizers can inspect the close fields to
+log why a socket ended.
 
 Inject it like any other server-side dependency:
 
@@ -68,6 +70,28 @@ parameters; callers do not subscribe with request parameters. A union of
 Pydantic models is supported for event families, and a literal `type` field can
 serve as their discriminator in generated clients.
 
+## Observe requests
+
+Configure async lifecycle hooks on the service or override them on an endpoint:
+
+```python
+async def on_response(context: RpcResponseContext) -> None:
+    logger.info(
+        "rpc method=%s id=%s duration=%f success=%s",
+        context.request.method,
+        context.request.request_id,
+        context.duration,
+        isinstance(context.response, RpcSuccess),
+    )
+
+
+app = RpcService(on_response=on_response)
+```
+
+`on_request` receives `RpcRequestContext`; `on_response` receives the same
+request context plus the response (or `None` for a notification) and elapsed
+seconds. Hook failures are logged without replacing the RPC result.
+
 ## Runtime limits
 
 Configure per-connection backpressure and message limits with `RpcLimits`:
@@ -84,6 +108,8 @@ limits = RpcLimits(
 
 `max_concurrency` bounds in-flight calls, `max_queue_size` bounds outgoing
 responses and events, and `max_message_bytes` rejects oversized incoming
-frames. Pass `None` only when intentionally disabling the byte limit.
+frames. Calls on one connection may finish out of order; set concurrency to
+`1` when strict arrival order is required. Pass `None` only when intentionally
+disabling the byte limit.
 
 [Back to documentation](README.md)

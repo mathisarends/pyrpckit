@@ -22,7 +22,15 @@ class RpcConnectionClose(StrEnum):
 
 
 class RpcDisconnect(Exception):
-    pass
+    def __init__(
+        self,
+        reason: str = "",
+        *,
+        code: RpcConnectionClose | int | None = None,
+    ) -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(reason)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +89,8 @@ class RpcConnection:
         "_closed",
         "_endpoint",
         "_handshake",
+        "_close_code",
+        "_close_reason",
         "_on_close",
         "_path_params",
     )
@@ -100,6 +110,8 @@ class RpcConnection:
         )
         self._accepted = False
         self._closed = False
+        self._close_code = None
+        self._close_reason = ""
         self._on_close = None
         return self
 
@@ -113,6 +125,8 @@ class RpcConnection:
     subprotocols = property(lambda self: self._handshake.subprotocols)
     client = property(lambda self: self._handshake.client)
     closed = property(lambda self: self._closed)
+    close_code = property(lambda self: self._close_code)
+    close_reason = property(lambda self: self._close_reason)
 
     async def close(
         self, close: RpcConnectionClose = RpcConnectionClose.NORMAL, *, reason: str = ""

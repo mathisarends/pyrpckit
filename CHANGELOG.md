@@ -23,6 +23,10 @@
 - Derive application error codes by stripping either `Error` or `RpcError`,
   allow `RpcInvalidParamsError(message=...)` without synthetic validation
   issues, and suggest `message=` for accidental positional strings.
+- Add async `on_request` and `on_response` server hooks with structured request,
+  outcome, and duration context for logging and instrumentation.
+- Expose `close_code` and `close_reason` on `RpcConnection`, including close
+  information received from the peer.
 - Resolve FastAPI dependencies per connection with `resolver_factory=`. Add
   `dishka_router()` to read Dishka's APP container from `app.state` and reject
   accidentally supplied SESSION containers with a targeted error.
@@ -67,6 +71,8 @@
   and `rpcCode` in TypeScript.
 - Include `data.code` and `data.details` in every error envelope, including
   built-in errors whose details are `null`.
+- Process requests concurrently up to `RpcLimits.max_concurrency`; responses
+  may complete out of order even when requests arrive on the same connection.
 - Keep FastAPI WebSocket handler signatures free of captured endpoint
   parameters and preserve unexpected WebSocket state errors.
 - Make `RpcChannel` a lightweight group of methods, events, and streams; the

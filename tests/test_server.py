@@ -40,6 +40,40 @@ async def test_a_request_is_answered_with_its_result(
     assert response.result.text == "Hello, M!"
 
 
+async def test_request_lifecycle_hooks_receive_outcome_and_duration(
+    handler: GreetingState,
+) -> None:
+    requests = []
+    responses = []
+
+    async def on_request(context) -> None:
+        requests.append(context)
+
+    async def on_response(context) -> None:
+        responses.append(context)
+
+    server = GREETING_APP.server(
+        resolver=TestResolver(handler),
+        on_request=on_request,
+        on_response=on_response,
+    )
+    response = await server.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": GreetingRpcMethod.SAY,
+            "params": {"name": "M"},
+        }
+    )
+
+    assert requests[0].method == GreetingRpcMethod.SAY
+    assert requests[0].request_id == 7
+    assert requests[0].notification is False
+    assert responses[0].request is requests[0]
+    assert responses[0].response is response
+    assert responses[0].duration >= 0
+
+
 async def test_a_notification_is_served_without_a_response(
     handler: GreetingState,
 ) -> None:

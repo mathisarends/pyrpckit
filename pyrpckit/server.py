@@ -1,5 +1,7 @@
 import logging
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from pydantic import ValidationError
 
@@ -23,6 +25,25 @@ type RpcResponseMessage = RpcResponse | list[RpcResponse] | None
 logger = logging.getLogger(LOGGER_NAME)
 
 
+@dataclass(frozen=True, slots=True)
+class RpcRequestContext:
+    raw_request: object
+    method: str | None
+    request_id: RpcRequestId
+    notification: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RpcResponseContext:
+    request: RpcRequestContext
+    response: RpcResponse | None
+    duration: float
+
+
+type RpcRequestHook = Callable[[RpcRequestContext], Awaitable[None]]
+type RpcResponseHook = Callable[[RpcResponseContext], Awaitable[None]]
+
+
 class RpcServer:
     """Serve decoded or encoded JSON-RPC messages over any transport."""
 
@@ -36,11 +57,15 @@ class RpcServer:
         *,
         resolver: RpcResolver | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        on_request: RpcRequestHook | None = None,
+        on_response: RpcResponseHook | None = None,
     ) -> "RpcServer":
         server = cls.__new__(cls)
         server._protocol = protocol
         server._dispatcher = RpcDispatcher(protocol, resolver=resolver)
         server._error_mapper = error_mapper
+        server._on_request = on_request
+        server._on_response = on_response
         server._codec = RpcCodec()
         return server
 
@@ -67,20 +92,42 @@ class RpcServer:
         return None if response is None else self._codec.encode(response)
 
     async def _handle_one(self, raw_request: object) -> RpcResponse | None:
+        request_context = RpcRequestContext(
+            raw_request=raw_request,
+            method=_request_method(raw_request),
+            request_id=_request_id(raw_request),
+            notification=_looks_like_notification(raw_request),
+        )
+        started = time.perf_counter()
+        await _run_hook(self._on_request, request_context, "on_request")
         try:
             invocation = self._dispatcher.parse_request(raw_request)
             result = await self._dispatcher.execute(invocation)
         except Exception as error:
             if _looks_like_notification(raw_request):
-                return None
-            return self.failure(_request_id(raw_request), error)
-        if not invocation.request.expects_response:
-            return None
-        return RpcSuccess._with_result_annotation(
-            invocation.request.id,
-            result,
-            invocation.method.result,
+                response = None
+            else:
+                response = self.failure(_request_id(raw_request), error)
+        else:
+            response = (
+                RpcSuccess._with_result_annotation(
+                    invocation.request.id,
+                    result,
+                    invocation.method.result,
+                )
+                if invocation.request.expects_response
+                else None
+            )
+        await _run_hook(
+            self._on_response,
+            RpcResponseContext(
+                request=request_context,
+                response=response,
+                duration=time.perf_counter() - started,
+            ),
+            "on_response",
         )
+        return response
 
     def failure(self, request_id: RpcRequestId, error: Exception) -> RpcFailure:
         rpc_error = self._rpc_error(error)
@@ -113,6 +160,13 @@ def _request_id(raw_request: object) -> RpcRequestId:
     return request_id if isinstance(request_id, str | int) else None
 
 
+def _request_method(raw_request: object) -> str | None:
+    if not isinstance(raw_request, dict):
+        return None
+    method = raw_request.get("method")
+    return method if isinstance(method, str) else None
+
+
 def _looks_like_notification(raw_request: object) -> bool:
     return (
         isinstance(raw_request, dict)
@@ -120,3 +174,12 @@ def _looks_like_notification(raw_request: object) -> bool:
         and raw_request.get("jsonrpc") == "2.0"
         and isinstance(raw_request.get("method"), str)
     )
+
+
+async def _run_hook(hook, context, name: str) -> None:
+    if hook is None:
+        return
+    try:
+        await hook(context)
+    except Exception:
+        logger.exception("RPC %s hook failed", name)
