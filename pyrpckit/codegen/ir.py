@@ -238,6 +238,8 @@ class ClientIr:
     api: tuple[ApiNode, ...] = ()
     notifications: tuple[NotificationDecl, ...] = ()
     binary_streams: tuple[BinaryStreamDecl, ...] = ()
+    callbacks: tuple[RouteDecl, ...] = ()
+    """Requests the server sends and the client answers."""
 
     @property
     def models(self) -> tuple[ModelDecl, ...]:
@@ -272,7 +274,8 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         (stream for stream in binary_streams if stream.path),
     )
     notifications = _notifications(document)
-    _validate_server_references(routes, notifications, servers)
+    callbacks = tuple(_route(item) for item in document.get("x-rpc-callbacks", ()))
+    _validate_server_references((*routes, *callbacks), notifications, servers)
     declarations = (
         *discriminator_enums,
         *_schema_declarations(schemas, discriminator_fields),
@@ -284,12 +287,13 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         servers=servers,
         declarations=_reachable(
             declarations,
-            _roots(routes, notifications),
+            _roots((*routes, *callbacks), notifications),
         ),
         root_operations=root_operations,
         api=api,
         notifications=notifications,
         binary_streams=binary_streams,
+        callbacks=callbacks,
     )
 
 
