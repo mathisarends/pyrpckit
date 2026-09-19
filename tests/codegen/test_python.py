@@ -584,15 +584,15 @@ class SpeakerOfflineError(rpc.RpcError):
 
 
 @pytest.mark.parametrize("transport", [None, "websocket"])
-def test_generated_python_with_callbacks_is_ruff_clean(
+def test_generated_python_with_client_methods_is_ruff_clean(
     transport: str | None,
     tmp_path: Path,
 ) -> None:
     channel = rpc.RpcChannel("room")
-    channel.callback("ping")
+    channel.client.method("ping")
     for segment in ("kitchen_speaker_group", "living_room_speaker_group"):
         nested = channel.child(segment).child("media_playback_controls")
-        nested.callback(
+        nested.client.method(
             "play_extraordinarily_long_media",
             params=ExtraordinarilyLongMediaPlaybackRequestParams,
             result=ExtraordinarilyLongMediaPlaybackResultPayload,

@@ -40,14 +40,14 @@ class RpcEndpoint:
         notifications = tuple(
             n for n in self.service.protocol.notifications if n.server == self.name
         )
-        callbacks = tuple(
-            c for c in self.service.protocol.callbacks if c.server == self.name
+        client_methods = tuple(
+            c for c in self.service.protocol.client_methods if c.server == self.name
         )
         return RpcProtocol(
             methods=methods,
             notifications=notifications,
             notification_types=self.service.protocol.notification_types,
-            callbacks=callbacks,
+            client_methods=client_methods,
             version=self.service.version,
         )
 
@@ -267,7 +267,7 @@ class RpcService:
         notifications = []
         types = []
         streams = []
-        callbacks = []
+        client_methods = []
         owners: dict[str, str] = {}
         errors: dict[str, type] = {}
         for endpoint in self.endpoints:
@@ -282,17 +282,17 @@ class RpcService:
                         for item in protocol.notifications
                     )
                     types.extend(protocol.notification_types)
-                    callbacks.extend(
+                    client_methods.extend(
                         replace(item, server=endpoint.name)
-                        for item in protocol.callbacks
+                        for item in protocol.client_methods
                     )
                     for item in (
                         *protocol.methods,
                         *protocol.notifications,
-                        *protocol.callbacks,
+                        *protocol.client_methods,
                     ):
                         _unique_name(owners, item.name, channel.name)
-                    for method in (*protocol.methods, *protocol.callbacks):
+                    for method in (*protocol.methods, *protocol.client_methods):
                         for error in method.raises:
                             previous = errors.get(error.code)
                             if previous is not None and previous is not error:
@@ -334,7 +334,7 @@ class RpcService:
             notifications=notifications,
             notification_types=types,
             streams=streams,
-            callbacks=callbacks,
+            client_methods=client_methods,
             version=self.version,
         )
         return self._protocol

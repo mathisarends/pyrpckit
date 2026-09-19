@@ -1,15 +1,21 @@
-# Callbacks
+# Client methods
 
-Methods let the client call the server, and events let the server push
-notifications without an answer. Callbacks cover the third direction: the
+Server methods let the client call the server, and events let the server push
+notifications without an answer. Client methods cover the third direction: the
 server sends a request to a connected client and waits for its result or
 error.
 
+A channel groups its declarations by the side that implements them:
+
 ```python
-room_channel.method(...)    # client calls server, server responds
-room_channel.event(...)     # server sends, no response
-room_channel.callback(...)  # server calls client, client responds
+room_channel.server.method(...)  # client calls server, server responds
+room_channel.server.event(...)  # server sends, no response
+room_channel.client.method(...)  # server calls client, client responds
 ```
+
+`channel.method`, `channel.event`, and `channel.stream` remain shorthands for
+`channel.server.method`, `channel.server.event`, and `channel.server.stream`.
+Calling `channel.server(...)` still builds an `RpcServer`.
 
 JSON-RPC 2.0 assigns the client and server roles per message rather than per
 connection, so both sides can send requests on the same socket. The Language
@@ -21,9 +27,9 @@ hardware, such as a room process that controls a speaker. The client stays
 unreachable from outside, and the socket gives the server presence for free.
 The server can still send it commands and learn the outcome.
 
-## Declare a callback
+## Declare a client method
 
-A callback is a typed declaration, not a decorated function, because the
+A client method is a typed declaration, not a decorated function, because the
 server has nothing to implement:
 
 ```python
@@ -45,7 +51,7 @@ class MediaUnavailableError(RpcError):
 room = RpcChannel("room")
 media = room.child("media")
 
-media_play = media.callback(
+media_play = media.client.method(
     "play",
     params=MediaPlayParams,
     result=MediaPlayResult,
@@ -54,13 +60,13 @@ media_play = media.callback(
 )
 ```
 
-`callback()` returns an `RpcCallback[MediaPlayParams, MediaPlayResult]` named
-`room.media.play`. Like methods, callback names are single segments inside the
-channel namespace. Use `channel.child(...)` for nested namespaces. Omit
-`params=` for a callback without params, and omit `result=` for one that
-answers `null`. A callback name must not collide with a method, event, or
-stream name. Channel-level `raises=` apply to methods only, because callback
-errors come from the client.
+`client.method()` returns an `RpcClientMethod[MediaPlayParams, MediaPlayResult]`
+named `room.media.play`. Like server methods, client method names are single
+segments inside the channel namespace. Use `channel.child(...)` for nested
+namespaces. Omit `params=` for a client method without params, and omit
+`result=` for one that answers `null`. A client method name must not collide
+with a server method, event, or stream name. Channel-level `raises=` apply to
+server methods only, because client method errors come from the client.
 
 ## Call the client
 
@@ -81,7 +87,7 @@ class HelloParams(RpcModel):
     room_id: str
 
 
-@room.method("hello")
+@room.server.method("hello")
 async def hello(
     params: HelloParams,
     peer: Inject[RpcPeer],
@@ -104,33 +110,34 @@ peer without ever answering them. `peer.call()` fails as follows:
 | Situation | Raised |
 | --- | --- |
 | The client answers with a declared error code | That `RpcError` subclass, with its details |
-| The client answers with any other error | `RpcCallbackRemoteError` (`rpc_code`, `code`, `message`, `details`) |
-| The result does not match the declared model | `RpcCallbackResultError` |
-| `timeout` elapses; a late response is dropped | `RpcCallbackTimeoutError`, also a `TimeoutError` |
+| The client answers with any other error | `RpcClientMethodFailedError` (`rpc_code`, `code`, `message`, `details`) |
+| The result does not match the declared model | `RpcClientMethodResultError` |
+| `timeout` elapses; a late response is dropped | `RpcClientMethodTimeoutError`, also a `TimeoutError` |
 | The connection closes before the answer | `RpcPeerClosedError` |
 
-All of these except the declared errors derive from `RpcCallbackError`. A peer
-is bound to its endpoint: calling a callback that the endpoint does not mount
+All of these except the declared errors derive from `RpcClientMethodError`. A
+peer is bound to its endpoint: calling a client method that the endpoint does
+not mount
 raises `ValueError`. `peer.closed` reports whether the connection has ended,
 and `peer.connection` returns its `RpcConnection`. Remove peers from your
 registry in a connection-scoped finalizer or when a call raises
 `RpcPeerClosedError`.
 
 Outgoing calls respect the endpoint's `RpcLimits`: `max_concurrency` bounds
-unanswered callbacks per connection, and a request larger than
+unanswered client method calls per connection, and a request larger than
 `max_message_bytes` raises `ValueError` before it is sent.
 
 ## Contract
 
-Callbacks appear under the `x-rpc-callbacks` extension of the OpenRPC document,
-next to `x-rpc-notifications`. Entries have the same shape as regular
+Client methods appear under the `x-rpc-client-methods` extension of the OpenRPC
+document, next to `x-rpc-notifications`. Entries have the same shape as regular
 `methods`: params, result, errors, `x-rpc-params-schema`, and a request schema
-named after the callback, such as `RoomMediaPlayCallback`.
+named after the client method, such as `RoomMediaPlayClientMethod`.
 
-## Answer callbacks in a generated Python client
+## Implement client methods in a generated Python client
 
-For every callback namespace, the generated client contains an abstract class
-named after the namespace path, such as `RoomMediaCallbacks`. Implement the
+For every client method namespace, the generated client contains an abstract
+class named after the namespace path, such as `RoomMediaClientMethods`. Implement the
 classes and pass the handlers to `connect()`:
 
 ```python
@@ -138,13 +145,13 @@ from rooms_client import (
     MediaPlayParams,
     MediaPlayResult,
     MediaUnavailableError,
-    RoomMediaCallbacks,
+    RoomMediaClientMethods,
     RoomsClient,
     SpeakerDetails,
 )
 
 
-class Media(RoomMediaCallbacks):
+class Media(RoomMediaClientMethods):
     async def play(self, params: MediaPlayParams) -> MediaPlayResult:
         if not speaker.online:
             raise MediaUnavailableError.create(SpeakerDetails(speaker_id="s1"))
@@ -152,27 +159,28 @@ class Media(RoomMediaCallbacks):
         return MediaPlayResult(started=True)
 
 
-async with RoomsClient.connect(url=url, callbacks=Media()) as client:
+async with RoomsClient.connect(url=url, client_methods=Media()) as client:
     ...
 ```
 
-`callbacks=` accepts one handler or several. One object may implement several
-namespace classes. Registration works per namespace: a callback whose class has
-no handler is answered with `-32601 Method not found`, and so is every callback
-sent to a client generated without callbacks. Invalid params are answered with
+`client_methods=` accepts one handler or several. One object may implement
+several namespace classes. Registration works per namespace: a client method
+whose class has no handler is answered with `-32601 Method not found`, and so is
+every request sent to a client generated without client methods. Invalid params are answered with
 `-32602`. Raise a declared error with its generated `create()` to answer with
 that error. Any other exception is logged and answered with `-32603`. Handlers
 run concurrently, so a slow handler never delays responses to the client's own
 requests.
 
 With custom transports, build the dispatcher yourself and pass it to the
-generated transport: `WebSocketTransport(socket, callbacks=callback_dispatcher(Media()))`.
-Generated TypeScript clients do not answer callbacks yet.
+generated transport:
+`WebSocketTransport(socket, client_methods=client_method_dispatcher(Media()))`.
+Generated TypeScript clients do not implement client methods yet.
 
 ## Test both directions
 
-`RpcTestClient` registers handlers with `callbacks=`, keyed by the
-`RpcCallback` or its wire name. Handlers receive the validated params model, may
+`RpcTestClient` registers handlers with `client_methods=`, keyed by the
+`RpcClientMethod` or its wire name. Handlers receive the validated params model, may
 be sync or async, and can raise declared `RpcError`s:
 
 ```python
@@ -183,12 +191,14 @@ async def test_play_reaches_the_room() -> None:
     async def play(params: MediaPlayParams) -> MediaPlayResult:
         return MediaPlayResult(started=True)
 
-    async with RpcTestClient(app, "/rpc", callbacks={media_play: play}) as client:
+    async with RpcTestClient(
+        app, "/rpc", client_methods={media_play: play}
+    ) as client:
         await client.request("room.hello", {"roomId": "kitchen"})
         ...
 ```
 
 The test client reads the socket in the background, so the server can call it
-at any time. Unregistered callbacks are answered with `-32601`.
+at any time. Unregistered client methods are answered with `-32601`.
 
 [Back to documentation](README.md)

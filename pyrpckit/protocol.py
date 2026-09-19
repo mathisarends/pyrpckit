@@ -47,7 +47,7 @@ class RpcMethodDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class RpcCallback[ParamsT: BaseModel | None, ResultT]:
+class RpcClientMethod[ParamsT: BaseModel | None, ResultT]:
     """A request the server sends to the client, which answers it."""
 
     name: str
@@ -107,7 +107,7 @@ class RpcProtocol:
         notifications: Iterable[RpcNotificationDefinition] = (),
         notification_types: Iterable[RpcNotificationTypeDefinition] = (),
         streams: Iterable[RpcStreamDefinition] = (),
-        callbacks: Iterable[RpcCallback[Any, Any]] = (),
+        client_methods: Iterable[RpcClientMethod[Any, Any]] = (),
         version: int = 1,
     ) -> None:
         self._version = version
@@ -124,7 +124,9 @@ class RpcProtocol:
             ((item.name, item) for item in notification_types),
         )
         self._streams = _unique("stream", ((item.name, item) for item in streams))
-        self._callbacks = _unique("callback", ((item.name, item) for item in callbacks))
+        self._client_methods = _unique(
+            "client method", ((item.name, item) for item in client_methods)
+        )
 
     @property
     def version(self) -> int:
@@ -147,8 +149,8 @@ class RpcProtocol:
         return tuple(self._streams.values())
 
     @property
-    def callbacks(self) -> tuple[RpcCallback[Any, Any], ...]:
-        return tuple(self._callbacks.values())
+    def client_methods(self) -> tuple[RpcClientMethod[Any, Any], ...]:
+        return tuple(self._client_methods.values())
 
     def method(self, name: str) -> RpcMethodDefinition:
         try:
@@ -186,26 +188,26 @@ def method_definition(
     )
 
 
-def callback_definition(
+def client_method_definition(
     *,
     name: str,
     params: Any,
     result: Any,
     summary: str | None,
     raises: tuple[type[RpcError], ...],
-) -> RpcCallback[Any, Any]:
+) -> RpcClientMethod[Any, Any]:
     if params is not None and not _is_model(params):
         raise ProtocolDefinitionError(
-            f"RPC callback {name} params must be a Pydantic model or None"
+            f"RPC client method {name} params must be a Pydantic model or None"
         )
     result = type(None) if result is None else result
     try:
         TypeAdapter(result).json_schema()
     except PydanticSchemaGenerationError as error:
         raise ProtocolDefinitionError(
-            f"RPC callback {name} result {result!r} has no JSON schema"
+            f"RPC client method {name} result {result!r} has no JSON schema"
         ) from error
-    return RpcCallback(
+    return RpcClientMethod(
         name=name,
         params=None if params is None else wire_annotation(params),
         result=wire_annotation(result),

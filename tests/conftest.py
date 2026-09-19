@@ -130,14 +130,14 @@ class HelloParams(BaseModel):
 ROOM_CHANNEL = rpc.RpcChannel("room")
 MEDIA_CHANNEL = ROOM_CHANNEL.child("media")
 
-MEDIA_PLAY = MEDIA_CHANNEL.callback(
+MEDIA_PLAY = MEDIA_CHANNEL.client.method(
     "play",
     params=MediaPlayParams,
     result=MediaPlayResult,
     raises=(MediaUnavailableError,),
     summary="Play a media URI on the room's speaker.",
 )
-ROOM_PING = ROOM_CHANNEL.callback("ping")
+ROOM_PING = ROOM_CHANNEL.client.method("ping")
 
 
 GREETING_PROTOCOL = GREETING_ROUTER.protocol

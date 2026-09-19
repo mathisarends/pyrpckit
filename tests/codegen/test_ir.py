@@ -233,10 +233,10 @@ def test_inline_enums_become_literal_unions() -> None:
     )
 
 
-def test_callbacks_are_lowered_like_routes(room_document: dict[str, Any]) -> None:
+def test_client_methods_are_lowered_like_routes(room_document: dict[str, Any]) -> None:
     ir = build_ir(room_document)
 
-    ping, play = ir.callbacks
+    ping, play = ir.client_methods
     assert play.rpc_name == "room.media.play"
     assert play.path == ("room", "media")
     assert play.operation_name == "play"
@@ -252,5 +252,7 @@ def test_callbacks_are_lowered_like_routes(room_document: dict[str, Any]) -> Non
     assert "room.media.play" not in [route.rpc_name for route in ir.operations]
 
 
-def test_documents_without_callbacks_lower_to_none(document: dict[str, Any]) -> None:
-    assert build_ir(document).callbacks == ()
+def test_documents_without_client_methods_lower_to_none(
+    document: dict[str, Any],
+) -> None:
+    assert build_ir(document).client_methods == ()

@@ -82,7 +82,7 @@ async def serve_endpoint(
     peer_closed = False
     outgoing: asyncio.Queue[str] = asyncio.Queue(limits.max_queue_size)
     peer = RpcPeer._create(
-        connection, endpoint.protocol.callbacks, outgoing.put, limits
+        connection, endpoint.protocol.client_methods, outgoing.put, limits
     )
     values = {**values, RpcPeer: peer}
     codec = RpcCodec()

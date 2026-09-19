@@ -4,9 +4,9 @@ from typing import Any
 from pydantic import TypeAdapter
 
 from pyrpckit.errors import ProtocolDefinitionError
-from pyrpckit.protocol import RpcCallback, RpcMethodDefinition, RpcProtocol
+from pyrpckit.protocol import RpcClientMethod, RpcMethodDefinition, RpcProtocol
 from pyrpckit.schema.components import (
-    callback_schema_name,
+    client_method_schema_name,
     components,
     described,
     notification_schema_name,
@@ -64,10 +64,10 @@ def render_openrpc(
             for item in protocol.notification_types
         ],
     }
-    if protocol.callbacks:
-        document["x-rpc-callbacks"] = [
-            _callback(callback, schemas, server_lookup)
-            for callback in protocol.callbacks
+    if protocol.client_methods:
+        document["x-rpc-client-methods"] = [
+            _client_method(client_method, schemas, server_lookup)
+            for client_method in protocol.client_methods
         ]
     streams = [dict(stream) for stream in binary_streams]
     if streams:
@@ -98,25 +98,28 @@ def _method(
     return document
 
 
-def _callback(
-    callback: RpcCallback,
+def _client_method(
+    client_method: RpcClientMethod,
     components: dict[str, Any],
     servers: Mapping[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    document: dict[str, Any] = {"name": callback.name}
-    if callback.summary is not None:
-        document["summary"] = callback.summary
+    document: dict[str, Any] = {"name": client_method.name}
+    if client_method.summary is not None:
+        document["summary"] = client_method.summary
     document |= {
         "paramStructure": "by-name",
-        "params": _params(callback, components),
-        "result": {"name": "result", "schema": _result_schema(callback, components)},
-        "x-rpc-request-schema": _ref(callback_schema_name(callback.name)),
+        "params": _params(client_method, components),
+        "result": {
+            "name": "result",
+            "schema": _result_schema(client_method, components),
+        },
+        "x-rpc-request-schema": _ref(client_method_schema_name(client_method.name)),
     }
-    if callback.params is not None:
-        document["x-rpc-params-schema"] = _ref(type_name(callback.params))
-    if callback.raises:
-        document["errors"] = [_error(error) for error in callback.raises]
-    return _with_server(document, callback.server, servers)
+    if client_method.params is not None:
+        document["x-rpc-params-schema"] = _ref(type_name(client_method.params))
+    if client_method.raises:
+        document["errors"] = [_error(error) for error in client_method.raises]
+    return _with_server(document, client_method.server, servers)
 
 
 def _error(error: type) -> dict[str, Any]:
@@ -159,9 +162,9 @@ def _validate_server_references(
         if notification.server is not None
     )
     references.extend(
-        ("callback", callback.name, callback.server)
-        for callback in protocol.callbacks
-        if callback.server is not None
+        ("client method", client_method.name, client_method.server)
+        for client_method in protocol.client_methods
+        if client_method.server is not None
     )
     missing = [reference for reference in references if reference[2] not in servers]
     if missing:
@@ -184,7 +187,7 @@ def _with_server(
 
 
 def _params(
-    method: RpcMethodDefinition | RpcCallback,
+    method: RpcMethodDefinition | RpcClientMethod,
     components: dict[str, Any],
 ) -> list[dict[str, Any]]:
     if method.params is None:
@@ -198,7 +201,7 @@ def _params(
 
 
 def _result_schema(
-    method: RpcMethodDefinition | RpcCallback,
+    method: RpcMethodDefinition | RpcClientMethod,
     components: dict[str, Any],
 ) -> dict[str, Any]:
     name = getattr(method.result, "__name__", None)

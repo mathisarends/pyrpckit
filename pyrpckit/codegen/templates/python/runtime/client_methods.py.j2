@@ -13,7 +13,7 @@ type JsonObject = dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
-class RpcCallbackInfo:
+class RpcClientMethodInfo:
     method: str
     owner: type[Any]
     attribute: str
@@ -22,16 +22,16 @@ class RpcCallbackInfo:
     server: str | None = None
 
 
-class RpcCallbackDispatcher:
+class RpcClientMethodDispatcher:
     """Answers the requests the server sends with the registered handlers.
 
-    Each handler implements one or more generated callback classes. Callbacks
-    whose class has no handler are answered with ``-32601 Method not found``.
+    Each handler implements one or more generated client method classes. Client
+    methods whose class has no handler are answered with ``-32601 Method not found``.
     """
 
     def __init__(
         self,
-        routes: Iterable[RpcCallbackInfo],
+        routes: Iterable[RpcClientMethodInfo],
         handlers: object | Iterable[object] = (),
     ) -> None:
         self._routes = {route.method: route for route in routes}
@@ -40,14 +40,14 @@ class RpcCallbackDispatcher:
             handlers = (handlers,)
         if not isinstance(handlers, Iterable):
             raise TypeError(
-                f"{type(handlers).__name__} implements no callback namespace"
+                f"{type(handlers).__name__} implements no client method namespace"
             )
         self._handlers: dict[type[Any], object] = {}
         for handler in handlers:
             implemented = [owner for owner in owners if isinstance(handler, owner)]
             if not implemented:
                 raise TypeError(
-                    f"{type(handler).__name__} implements no callback namespace"
+                    f"{type(handler).__name__} implements no client method namespace"
                 )
             for owner in implemented:
                 if owner in self._handlers:
@@ -97,7 +97,7 @@ class RpcCallbackDispatcher:
                 _json(error.details),
             )
         except Exception:
-            logger.exception("RPC callback %s failed", route.method)
+            logger.exception("RPC client method %s failed", route.method)
             return _failure(
                 request_id, -32603, "internal_error", "Internal error", None
             )

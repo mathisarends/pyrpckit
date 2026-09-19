@@ -17,11 +17,11 @@ from pyrpckit.dependencies import (
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import (
-    RpcCallback,
+    RpcClientMethod,
     RpcNotificationDefinition,
     RpcProtocol,
     RpcStreamDefinition,
-    callback_definition,
+    client_method_definition,
     method_definition,
     notification_definition,
     notification_type_definitions,
@@ -72,10 +72,12 @@ class RpcChannel:
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
         self._streams: list[RpcStreamDefinition] = []
-        self._callbacks: list[RpcCallback[Any, Any]] = []
+        self._client_methods: list[RpcClientMethod[Any, Any]] = []
         self._children: list[RpcChannel] = []
         self._names: set[str] = set()
         self._protocol: RpcProtocol | None = None
+        self._server = RpcServerSide(self)
+        self._client = RpcClientSide(self)
 
     name = property(lambda self: self._name)
     namespace = property(lambda self: self._namespace)
@@ -84,9 +86,19 @@ class RpcChannel:
     routes = property(lambda self: tuple(self._routes))
     events = property(lambda self: tuple(self._events))
     streams = property(lambda self: tuple(self._streams))
-    callbacks = property(lambda self: tuple(self._callbacks))
+    client_methods = property(lambda self: tuple(self._client_methods))
     children = property(lambda self: tuple(self._children))
     protocol = property(lambda self: self.freeze())
+
+    @property
+    def server(self) -> "RpcServerSide":
+        """What the server implements; calling it builds an ``RpcServer``."""
+        return self._server
+
+    @property
+    def client(self) -> "RpcClientSide":
+        """What the connected client implements."""
+        return self._client
 
     def child(
         self,
@@ -235,7 +247,7 @@ class RpcChannel:
 
         return decorate
 
-    def callback[ParamsT: BaseModel, ResultT](
+    def _client_method[ParamsT: BaseModel, ResultT](
         self,
         name: str,
         /,
@@ -244,11 +256,10 @@ class RpcChannel:
         result: type[ResultT] | None = None,
         raises: Iterable[type[RpcError]] = (),
         summary: str | None = None,
-    ) -> RpcCallback[ParamsT, ResultT]:
-        """Declare a request the server sends and the connected client answers."""
+    ) -> RpcClientMethod[ParamsT, ResultT]:
         self._ensure_mutable()
-        wire_name = join_rpc_name(self.namespace, _segment(name, "callback name"))
-        definition = callback_definition(
+        wire_name = join_rpc_name(self.namespace, _segment(name, "client method name"))
+        definition = client_method_definition(
             name=wire_name,
             params=params,
             result=result,
@@ -256,7 +267,7 @@ class RpcChannel:
             raises=tuple(dict.fromkeys(declared_error(e) for e in raises)),
         )
         self._reserve(wire_name)
-        self._callbacks.append(definition)
+        self._client_methods.append(definition)
         return definition
 
     def freeze(self) -> RpcProtocol:
@@ -280,14 +291,14 @@ class RpcChannel:
                 for item in notification_type_definitions(event.payload)
             ]
             streams = list(self.streams)
-            callbacks = list(self.callbacks)
+            client_methods = list(self.client_methods)
             for child in self.children:
                 protocol = child.freeze()
                 definitions.extend(protocol.methods)
                 notifications.extend(protocol.notifications)
                 notification_types.extend(protocol.notification_types)
                 streams.extend(protocol.streams)
-                callbacks.extend(protocol.callbacks)
+                client_methods.extend(protocol.client_methods)
             duplicate_requests = {
                 name
                 for name, count in Counter(d.request_name for d in definitions).items()
@@ -307,30 +318,9 @@ class RpcChannel:
                 notifications=notifications,
                 notification_types=notification_types,
                 streams=streams,
-                callbacks=callbacks,
+                client_methods=client_methods,
             )
         return self._protocol
-
-    def server(
-        self,
-        *,
-        context: object | Mapping[type[Any], object] | None = None,
-        resolver: RpcResolverLike | None = None,
-        error_mapper: RpcErrorMapper | None = None,
-        observer: RpcObserver | None = None,
-    ) -> RpcServer:
-        from pyrpckit.dependencies import ContextResolver, context_values
-
-        resolved = as_resolver(resolver)
-        values = context_values(context)
-        if values:
-            resolved = ContextResolver(resolved, values)
-        return RpcServer._from_channel(
-            self.protocol,
-            resolver=resolved,
-            error_mapper=error_mapper,
-            observer=observer,
-        )
 
     def _reserve(self, name: str) -> None:
         if name in self._names:
@@ -353,6 +343,63 @@ class RpcChannel:
                 f"RpcChannel {self.name!r} is frozen because its protocol was "
                 "already materialized (directly or by RpcService)"
             )
+
+
+class RpcServerSide:
+    """``channel.server``: methods, events and streams the server implements."""
+
+    __slots__ = ("_channel", "event", "method", "stream")
+
+    def __init__(self, channel: RpcChannel) -> None:
+        self._channel = channel
+        self.method = channel.method
+        self.event = channel.event
+        self.stream = channel.stream
+
+    def __call__(
+        self,
+        *,
+        context: object | Mapping[type[Any], object] | None = None,
+        resolver: RpcResolverLike | None = None,
+        error_mapper: RpcErrorMapper | None = None,
+        observer: RpcObserver | None = None,
+    ) -> RpcServer:
+        from pyrpckit.dependencies import ContextResolver, context_values
+
+        resolved = as_resolver(resolver)
+        values = context_values(context)
+        if values:
+            resolved = ContextResolver(resolved, values)
+        return RpcServer._from_channel(
+            self._channel.protocol,
+            resolver=resolved,
+            error_mapper=error_mapper,
+            observer=observer,
+        )
+
+
+class RpcClientSide:
+    """``channel.client``: methods the connected client implements."""
+
+    __slots__ = ("_channel",)
+
+    def __init__(self, channel: RpcChannel) -> None:
+        self._channel = channel
+
+    def method[ParamsT: BaseModel, ResultT](
+        self,
+        name: str,
+        /,
+        *,
+        params: type[ParamsT] | None = None,
+        result: type[ResultT] | None = None,
+        raises: Iterable[type[RpcError]] = (),
+        summary: str | None = None,
+    ) -> RpcClientMethod[ParamsT, ResultT]:
+        """Declare a request the server sends and the connected client answers."""
+        return self._channel._client_method(
+            name, params=params, result=result, raises=raises, summary=summary
+        )
 
 
 def join_rpc_name(*parts: str) -> str:

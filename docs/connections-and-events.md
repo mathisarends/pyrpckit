@@ -75,7 +75,7 @@ The payload type comes from `AsyncIterator[T]`, so events do not need
 and fails at definition time when it differs from the yielded type.
 
 Events expect no answer. When the server needs the client's result, declare a
-[callback](callbacks.md) instead.
+[client method](client-methods.md) instead.
 
 ## Observe requests
 

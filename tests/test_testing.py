@@ -1,6 +1,6 @@
 import pytest
 
-from pyrpckit import Inject, RpcCallbackRemoteError, RpcChannel, RpcPeer, RpcService
+from pyrpckit import Inject, RpcChannel, RpcClientMethodFailedError, RpcPeer, RpcService
 from pyrpckit.testing import RpcTestClient, RpcTestError
 
 from .conftest import (
@@ -31,7 +31,7 @@ async def ping(peer: Inject[RpcPeer]) -> None:
 async def probe(peer: Inject[RpcPeer]) -> int:
     try:
         await peer.call(ROOM_PING)
-    except RpcCallbackRemoteError as error:
+    except RpcClientMethodFailedError as error:
         return error.rpc_code
     return 0
 
@@ -40,7 +40,7 @@ SERVICE = RpcService()
 SERVICE.socket("/rooms", channels=(ROOM_CHANNEL, CONTROL), name="rooms")
 
 
-async def test_registered_handlers_answer_callbacks_with_typed_params() -> None:
+async def test_registered_handlers_answer_client_methods_with_typed_params() -> None:
     received: list[MediaPlayParams] = []
 
     async def media_play(params: MediaPlayParams) -> MediaPlayResult:
@@ -48,7 +48,7 @@ async def test_registered_handlers_answer_callbacks_with_typed_params() -> None:
         return MediaPlayResult(started=True)
 
     async with RpcTestClient(
-        SERVICE, "/rooms", callbacks={MEDIA_PLAY: media_play}
+        SERVICE, "/rooms", client_methods={MEDIA_PLAY: media_play}
     ) as client:
         assert await client.request("control.play") is True
 
@@ -57,7 +57,7 @@ async def test_registered_handlers_answer_callbacks_with_typed_params() -> None:
 
 async def test_handlers_may_be_sync_and_keyed_by_name() -> None:
     async with RpcTestClient(
-        SERVICE, "/rooms", callbacks={"room.ping": lambda: None}
+        SERVICE, "/rooms", client_methods={"room.ping": lambda: None}
     ) as client:
         assert await client.request("control.ping") is None
 
@@ -67,7 +67,7 @@ async def test_declared_errors_raised_by_handlers_reach_the_server() -> None:
         raise MediaUnavailableError(SpeakerDetails(speaker_id="s1"))
 
     async with RpcTestClient(
-        SERVICE, "/rooms", callbacks={MEDIA_PLAY: media_play}
+        SERVICE, "/rooms", client_methods={MEDIA_PLAY: media_play}
     ) as client:
         with pytest.raises(RpcTestError) as error:
             await client.request("control.play")
@@ -76,11 +76,11 @@ async def test_declared_errors_raised_by_handlers_reach_the_server() -> None:
     assert error.value.details == {"speaker_id": "s1"}
 
 
-async def test_unregistered_callbacks_are_answered_with_method_not_found() -> None:
+async def test_unregistered_client_methods_are_answered_with_method_not_found() -> None:
     async with RpcTestClient(SERVICE, "/rooms") as client:
         assert await client.request("control.probe") == -32601
 
 
-def test_handlers_must_name_callbacks_of_the_endpoint() -> None:
+def test_handlers_must_name_client_methods_of_the_endpoint() -> None:
     with pytest.raises(ValueError, match="not declared"):
-        RpcTestClient(SERVICE, "/rooms", callbacks={"room.missing": lambda: None})
+        RpcTestClient(SERVICE, "/rooms", client_methods={"room.missing": lambda: None})

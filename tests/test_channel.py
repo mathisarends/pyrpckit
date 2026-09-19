@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from pyrpckit import ProtocolDefinitionError, RpcChannel, RpcError, RpcModel
+from pyrpckit import ProtocolDefinitionError, RpcChannel, RpcError, RpcModel, RpcServer
 
 
 class SharedError(RpcError):
@@ -111,11 +111,26 @@ class MediaUnavailableError(RpcError):
     rpc_code = -32010
 
 
-def test_callback_declares_a_typed_server_to_client_request() -> None:
+def test_server_side_declares_the_same_operations_as_the_channel() -> None:
+    channel = RpcChannel("room")
+
+    @channel.server.method
+    async def join() -> None: ...
+
+    @channel.server.event("joined")
+    async def joined_events() -> AsyncIterator[Event]:
+        yield Event(value="x")
+
+    assert [route.name for route in channel.routes] == ["room.join"]
+    assert [event.name for event in channel.events] == ["room.joined"]
+    assert isinstance(channel.server(), RpcServer)
+
+
+def test_client_method_declares_a_typed_server_to_client_request() -> None:
     channel = RpcChannel("room")
     media = channel.child("media")
 
-    play = media.callback(
+    play = media.client.method(
         "play",
         params=PlayParams,
         result=PlayResult,
@@ -128,28 +143,28 @@ def test_callback_declares_a_typed_server_to_client_request() -> None:
     assert play.result is PlayResult
     assert play.raises == (MediaUnavailableError,)
     assert play.summary == "Play a media URI."
-    assert channel.protocol.callbacks == (play,)
+    assert channel.protocol.client_methods == (play,)
 
 
-def test_callback_without_params_or_result_answers_null() -> None:
+def test_client_method_without_params_or_result_answers_null() -> None:
     channel = RpcChannel("room")
 
-    ping = channel.callback("ping")
+    ping = channel.client.method("ping")
 
     assert ping.params is None
     assert ping.result is type(None)
 
 
-def test_callback_does_not_inherit_channel_errors() -> None:
+def test_client_method_does_not_inherit_channel_errors() -> None:
     channel = RpcChannel("room", raises=[SharedError])
 
-    ping = channel.callback("ping")
+    ping = channel.client.method("ping")
 
     assert ping.raises == ()
 
 
 @pytest.mark.parametrize("declare", ["method", "event", "stream"])
-def test_callback_names_collide_with_other_operations(declare: str) -> None:
+def test_client_method_names_collide_with_other_operations(declare: str) -> None:
     channel = RpcChannel("room")
 
     async def play() -> None: ...
@@ -161,20 +176,20 @@ def test_callback_names_collide_with_other_operations(declare: str) -> None:
         yield b"x"
 
     if declare == "method":
-        channel.method("play")(play)
+        channel.server.method("play")(play)
     elif declare == "event":
-        channel.event("play")(play_events)
+        channel.server.event("play")(play_events)
     else:
-        channel.stream("play")(play_frames)
+        channel.server.stream("play")(play_frames)
 
     with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC route"):
-        channel.callback("play")
+        channel.client.method("play")
 
 
-def test_callback_rejects_dotted_names_and_non_model_params() -> None:
+def test_client_method_rejects_dotted_names_and_non_model_params() -> None:
     channel = RpcChannel("room")
 
     with pytest.raises(ProtocolDefinitionError, match="contains '.'"):
-        channel.callback("media.play")
+        channel.client.method("media.play")
     with pytest.raises(ProtocolDefinitionError, match="Pydantic model"):
-        channel.callback("play", params=dict)  # type: ignore[arg-type]
+        channel.client.method("play", params=dict)  # type: ignore[arg-type]

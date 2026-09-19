@@ -33,14 +33,14 @@ from .observer import (
     RpcResponseContext,
 )
 from .peer import (
-    RpcCallbackError,
-    RpcCallbackRemoteError,
-    RpcCallbackResultError,
-    RpcCallbackTimeoutError,
+    RpcClientMethodError,
+    RpcClientMethodFailedError,
+    RpcClientMethodResultError,
+    RpcClientMethodTimeoutError,
     RpcPeer,
     RpcPeerClosedError,
 )
-from .protocol import RpcCallback
+from .protocol import RpcClientMethod
 from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from .streams import (
@@ -59,11 +59,11 @@ __all__ = [
     "ProtocolDefinitionError",
     "RpcBinaryInput",
     "RpcBinaryOutput",
-    "RpcCallback",
-    "RpcCallbackError",
-    "RpcCallbackRemoteError",
-    "RpcCallbackResultError",
-    "RpcCallbackTimeoutError",
+    "RpcClientMethod",
+    "RpcClientMethodError",
+    "RpcClientMethodFailedError",
+    "RpcClientMethodResultError",
+    "RpcClientMethodTimeoutError",
     "RpcChannel",
     "RpcCodec",
     "RpcConnection",

@@ -255,8 +255,8 @@ Client hooks can observe or wrap every request through the `hooks` option on
 injectable, which keeps the generated runtime independent of a particular
 WebSocket package and makes connection behavior testable without a network.
 
-Contracts with [callbacks](callbacks.md) also generate abstract handler classes
-that `connect(callbacks=...)` registers.
+Contracts with [client methods](client-methods.md) also generate abstract handler classes
+that `connect(client_methods=...)` registers.
 
 The exact client class, method arguments, endpoint names, and server variables
 come from the document. See

@@ -10,19 +10,19 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from pyrpckit.connection import RpcConnection, RpcLimits
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.errors import RpcError
-from pyrpckit.protocol import RpcCallback
+from pyrpckit.protocol import RpcClientMethod
 
 logger = logging.getLogger(LOGGER_NAME)
 
 REQUEST_ID_PREFIX = "server:"
 
 
-class RpcCallbackError(Exception):
-    """Base error for a callback the server could not complete."""
+class RpcClientMethodError(Exception):
+    """Base error for a client method the server could not complete."""
 
 
-class RpcCallbackRemoteError(RpcCallbackError):
-    """The client answered with an error the callback does not declare."""
+class RpcClientMethodFailedError(RpcClientMethodError):
+    """The client answered with an error the client method does not declare."""
 
     def __init__(
         self,
@@ -33,7 +33,7 @@ class RpcCallbackRemoteError(RpcCallbackError):
         details: Any = None,
     ) -> None:
         super().__init__(
-            f"RPC callback {method!r} failed ({code or rpc_code}): {message}"
+            f"RPC client method {method!r} failed ({code or rpc_code}): {message}"
         )
         self.method = method
         self.rpc_code = rpc_code
@@ -42,29 +42,29 @@ class RpcCallbackRemoteError(RpcCallbackError):
         self.details = details
 
 
-class RpcCallbackTimeoutError(RpcCallbackError, TimeoutError):
+class RpcClientMethodTimeoutError(RpcClientMethodError, TimeoutError):
     def __init__(self, method: str, timeout: float | None) -> None:
-        super().__init__(f"RPC callback {method!r} timed out after {timeout}s")
+        super().__init__(f"RPC client method {method!r} timed out after {timeout}s")
         self.method = method
         self.timeout = timeout
 
 
-class RpcCallbackResultError(RpcCallbackError):
+class RpcClientMethodResultError(RpcClientMethodError):
     def __init__(self, method: str, error: ValidationError) -> None:
-        super().__init__(f"Invalid result for RPC callback {method!r}: {error}")
+        super().__init__(f"Invalid result for RPC client method {method!r}: {error}")
         self.method = method
         self.validation_error = error
 
 
-class RpcPeerClosedError(RpcCallbackError):
+class RpcPeerClosedError(RpcClientMethodError):
     """The connection closed before the client answered."""
 
 
 class RpcPeer:
-    """The connected client, seen from the server: it answers callbacks."""
+    """The connected client, seen from the server: it answers client methods."""
 
     __slots__ = (
-        "_callbacks",
+        "_client_methods",
         "_closed",
         "_connection",
         "_limits",
@@ -81,13 +81,15 @@ class RpcPeer:
     def _create(
         cls,
         connection: RpcConnection,
-        callbacks: Iterable[RpcCallback[Any, Any]],
+        client_methods: Iterable[RpcClientMethod[Any, Any]],
         send: Callable[[str], Awaitable[None]],
         limits: RpcLimits,
     ) -> Self:
         self = cls.__new__(cls)
         self._connection = connection
-        self._callbacks = {callback.name: callback for callback in callbacks}
+        self._client_methods = {
+            client_method.name: client_method for client_method in client_methods
+        }
         self._send = send
         self._limits = limits
         self._semaphore = asyncio.Semaphore(limits.max_concurrency)
@@ -101,16 +103,16 @@ class RpcPeer:
 
     async def call[ParamsT: BaseModel | None, ResultT](
         self,
-        callback: RpcCallback[ParamsT, ResultT],
+        client_method: RpcClientMethod[ParamsT, ResultT],
         params: ParamsT | None = None,
         *,
         timeout: float | None = None,
     ) -> ResultT:
-        """Send a callback to the client and wait for its result."""
-        definition = self._callbacks.get(callback.name)
+        """Send a client method to the client and wait for its result."""
+        definition = self._client_methods.get(client_method.name)
         if definition is None:
             raise ValueError(
-                f"RPC callback {callback.name!r} is not declared on endpoint "
+                f"RPC client method {client_method.name!r} is not declared on endpoint "
                 f"{self._connection.endpoint!r}"
             )
         if self._closed:
@@ -121,7 +123,7 @@ class RpcPeer:
         limit = self._limits.max_message_bytes
         if limit is not None and len(frame.encode()) > limit:
             raise ValueError(
-                f"RPC callback {definition.name!r} request exceeds "
+                f"RPC client method {definition.name!r} request exceeds "
                 f"max_message_bytes ({limit})"
             )
         response = asyncio.get_running_loop().create_future()
@@ -133,7 +135,7 @@ class RpcPeer:
                 await self._send_until_closed(frame, response)
                 message = await response
         except TimeoutError as error:
-            raise RpcCallbackTimeoutError(definition.name, timeout) from error
+            raise RpcClientMethodTimeoutError(definition.name, timeout) from error
         finally:
             self._pending.pop(request_id, None)
         return _result(definition, message)
@@ -153,7 +155,7 @@ class RpcPeer:
             sending.result()
 
     def _resolve(self, message: object) -> bool:
-        """Take a response to a callback; return whether the message was one."""
+        """Take a response to a client method call; return whether it was one."""
         if (
             not isinstance(message, dict)
             or "method" in message
@@ -165,7 +167,9 @@ class RpcPeer:
             self._pending.get(request_id) if isinstance(request_id, str) else None
         )
         if response is None or response.done():
-            logger.debug("Dropped a response to unknown callback id %r", request_id)
+            logger.debug(
+                "Dropped a response to unknown client_method id %r", request_id
+            )
         else:
             response.set_result(message)
         return True
@@ -181,21 +185,21 @@ class RpcPeer:
 
 def _request_frame(
     request_id: str,
-    callback: RpcCallback[Any, Any],
+    client_method: RpcClientMethod[Any, Any],
     params: BaseModel | None,
 ) -> str:
     message: dict[str, Any] = {
         "jsonrpc": "2.0",
         "id": request_id,
-        "method": callback.name,
+        "method": client_method.name,
     }
-    if callback.params is None:
+    if client_method.params is None:
         if params is not None:
-            raise TypeError(f"RPC callback {callback.name!r} takes no params")
+            raise TypeError(f"RPC client method {client_method.name!r} takes no params")
     else:
         if params is None:
-            raise TypeError(f"RPC callback {callback.name!r} needs params")
-        adapter = _adapter(callback.params)
+            raise TypeError(f"RPC client method {client_method.name!r} needs params")
+        adapter = _adapter(client_method.params)
         value = adapter.validate_python(
             params.model_dump() if isinstance(params, BaseModel) else params
         )
@@ -203,18 +207,20 @@ def _request_frame(
     return json.dumps(message, separators=(",", ":"), ensure_ascii=False)
 
 
-def _result(callback: RpcCallback[Any, Any], message: dict[str, Any]) -> Any:
+def _result(client_method: RpcClientMethod[Any, Any], message: dict[str, Any]) -> Any:
     if "error" in message:
-        raise _error(callback, message["error"])
+        raise _error(client_method, message["error"])
     try:
-        return _adapter(callback.result).validate_python(message["result"])
+        return _adapter(client_method.result).validate_python(message["result"])
     except ValidationError as error:
-        raise RpcCallbackResultError(callback.name, error) from error
+        raise RpcClientMethodResultError(client_method.name, error) from error
 
 
-def _error(callback: RpcCallback[Any, Any], error: object) -> Exception:
+def _error(client_method: RpcClientMethod[Any, Any], error: object) -> Exception:
     if not isinstance(error, dict):
-        return RpcCallbackRemoteError(callback.name, 0, "", "Invalid error response")
+        return RpcClientMethodFailedError(
+            client_method.name, 0, "", "Invalid error response"
+        )
     data = error.get("data")
     code = data.get("code") if isinstance(data, dict) else None
     details = data.get("details") if isinstance(data, dict) else None
@@ -222,7 +228,7 @@ def _error(callback: RpcCallback[Any, Any], error: object) -> Exception:
     rpc_code = rpc_code if isinstance(rpc_code, int) else 0
     message = error.get("message")
     message = message if isinstance(message, str) else "Remote RPC error"
-    declared = _declared_error(callback.raises, code, rpc_code)
+    declared = _declared_error(client_method.raises, code, rpc_code)
     if declared is not None:
         try:
             if declared.details_type is None:
@@ -232,8 +238,8 @@ def _error(callback: RpcCallback[Any, Any], error: object) -> Exception:
             )
         except (TypeError, ValidationError):
             pass
-    return RpcCallbackRemoteError(
-        callback.name,
+    return RpcClientMethodFailedError(
+        client_method.name,
         rpc_code,
         code if isinstance(code, str) else "",
         message,

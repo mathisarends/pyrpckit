@@ -10,8 +10,8 @@ import pytest
 
 from pyrpckit import (
     Inject,
-    RpcCallbackRemoteError,
     RpcChannel,
+    RpcClientMethodFailedError,
     RpcDisconnect,
     RpcPeer,
     RpcService,
@@ -27,7 +27,7 @@ from tests.conftest import (
     MediaUnavailableError,
 )
 
-PACKAGE = "callback_client"
+PACKAGE = "client_method_client"
 
 CONTROL = RpcChannel("control")
 
@@ -38,7 +38,7 @@ async def play(peer: Inject[RpcPeer]) -> str:
         result = await peer.call(MEDIA_PLAY, MediaPlayParams(media_uri="spotify:1"))
     except MediaUnavailableError as error:
         return f"unavailable:{error.details.speaker_id}:{error.message}"
-    except RpcCallbackRemoteError as error:
+    except RpcClientMethodFailedError as error:
         return f"remote:{error.rpc_code}"
     return f"started:{result.started}"
 
@@ -47,7 +47,7 @@ async def play(peer: Inject[RpcPeer]) -> str:
 async def ping(peer: Inject[RpcPeer]) -> str:
     try:
         await peer.call(ROOM_PING)
-    except RpcCallbackRemoteError as error:
+    except RpcClientMethodFailedError as error:
         return f"remote:{error.rpc_code}"
     return "pong"
 
@@ -83,7 +83,7 @@ def client_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleTy
     document = SERVICE.contract(
         title="Rooms", base_url="wss://rooms.example.com"
     ).to_openrpc()
-    root = tmp_path_factory.mktemp("callbacks")
+    root = tmp_path_factory.mktemp("client_methods")
     generate_python_client(
         document,
         root / PACKAGE,
@@ -126,7 +126,7 @@ async def connected(module: ModuleType, **options: Any) -> AsyncIterator[Any]:
 
 
 def media_handler(module: ModuleType, answer: Any) -> Any:
-    class Media(module.RoomMediaCallbacks):
+    class Media(module.RoomMediaClientMethods):
         async def play(self, params: Any) -> Any:
             return await answer(params)
 
@@ -143,7 +143,7 @@ async def test_a_registered_handler_answers_the_server(
         return client_module.MediaPlayResult(started=True)
 
     async with connected(
-        client_module, callbacks=media_handler(client_module, answer)
+        client_module, client_methods=media_handler(client_module, answer)
     ) as client:
         assert await client.control.play() == "started:True"
 
@@ -161,24 +161,24 @@ async def test_a_declared_error_reaches_the_server_as_its_typed_exception(
         )
 
     async with connected(
-        client_module, callbacks=media_handler(client_module, answer)
+        client_module, client_methods=media_handler(client_module, answer)
     ) as client:
         assert await client.control.play() == "unavailable:s1:Speaker offline"
 
 
-async def test_a_callback_without_a_handler_is_answered_with_method_not_found(
+async def test_a_client_method_without_a_handler_is_answered_with_method_not_found(
     client_module: ModuleType,
 ) -> None:
     async def answer(params: Any) -> Any:
         return client_module.MediaPlayResult(started=True)
 
     async with connected(
-        client_module, callbacks=[media_handler(client_module, answer)]
+        client_module, client_methods=[media_handler(client_module, answer)]
     ) as client:
         assert await client.control.ping() == "remote:-32601"
 
 
-async def test_a_client_without_callbacks_answers_method_not_found(
+async def test_a_client_without_client_methods_answers_method_not_found(
     client_module: ModuleType,
 ) -> None:
     async with connected(client_module) as client:
@@ -192,7 +192,7 @@ async def test_a_failing_handler_is_answered_with_an_internal_error(
         raise RuntimeError("speaker exploded")
 
     async with connected(
-        client_module, callbacks=media_handler(client_module, answer)
+        client_module, client_methods=media_handler(client_module, answer)
     ) as client:
         assert await client.control.play() == "remote:-32603"
 
@@ -207,7 +207,7 @@ async def test_a_slow_handler_does_not_block_the_clients_own_requests(
         return client_module.MediaPlayResult(started=False)
 
     async with connected(
-        client_module, callbacks=media_handler(client_module, answer)
+        client_module, client_methods=media_handler(client_module, answer)
     ) as client:
         playing = asyncio.create_task(client.control.play())
         assert await client.control.status() == "ready"
@@ -218,19 +218,19 @@ async def test_a_slow_handler_does_not_block_the_clients_own_requests(
 def test_one_handler_may_implement_several_namespaces(
     client_module: ModuleType,
 ) -> None:
-    class Room(client_module.RoomCallbacks, client_module.RoomMediaCallbacks):
+    class Room(client_module.RoomClientMethods, client_module.RoomMediaClientMethods):
         async def ping(self) -> None: ...
 
         async def play(self, params: Any) -> Any: ...
 
-    client_module.callback_dispatcher(Room())
+    client_module.client_method_dispatcher(Room())
 
 
 def test_handlers_must_implement_a_namespace_once(client_module: ModuleType) -> None:
-    class Room(client_module.RoomCallbacks):
+    class Room(client_module.RoomClientMethods):
         async def ping(self) -> None: ...
 
-    with pytest.raises(TypeError, match="implements no callback namespace"):
-        client_module.callback_dispatcher(object())
+    with pytest.raises(TypeError, match="implements no client method namespace"):
+        client_module.client_method_dispatcher(object())
     with pytest.raises(ValueError, match="More than one handler"):
-        client_module.callback_dispatcher([Room(), Room()])
+        client_module.client_method_dispatcher([Room(), Room()])

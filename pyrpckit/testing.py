@@ -24,7 +24,7 @@ from pyrpckit.errors import (
     RpcInvalidParamsError,
     RpcMethodNotFoundError,
 )
-from pyrpckit.protocol import RpcCallback
+from pyrpckit.protocol import RpcClientMethod
 from pyrpckit.server import RpcErrorMapper
 from pyrpckit.service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from pyrpckit.streams import RpcInputEndMessage
@@ -32,7 +32,7 @@ from pyrpckit.streams import RpcInputEndMessage
 _DISCONNECT = object()
 _CLOSED = object()
 
-type RpcCallbackHandler = Callable[..., Any]
+type RpcClientMethodHandler = Callable[..., Any]
 
 
 class InMemorySocket:
@@ -124,7 +124,7 @@ class RpcTestClient:
         context: object | Mapping[type[Any], object] | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
-        callbacks: Mapping[str | RpcCallback[Any, Any], RpcCallbackHandler]
+        client_methods: Mapping[str | RpcClientMethod[Any, Any], RpcClientMethodHandler]
         | None = None,
     ) -> None:
         self.service = service
@@ -144,18 +144,23 @@ class RpcTestClient:
         self._stream = isinstance(endpoint, RpcStreamEndpoint)
         self._input = self._stream and endpoint.stream.has_input
         declared = (
-            {callback.name: callback for callback in endpoint.protocol.callbacks}
+            {
+                client_method.name: client_method
+                for client_method in endpoint.protocol.client_methods
+            }
             if isinstance(endpoint, RpcEndpoint)
             else {}
         )
-        self._callbacks: dict[
-            str, tuple[RpcCallback[Any, Any], RpcCallbackHandler]
+        self._client_methods: dict[
+            str, tuple[RpcClientMethod[Any, Any], RpcClientMethodHandler]
         ] = {}
-        for key, handler in (callbacks or {}).items():
-            name = key.name if isinstance(key, RpcCallback) else key
+        for key, handler in (client_methods or {}).items():
+            name = key.name if isinstance(key, RpcClientMethod) else key
             if name not in declared:
-                raise ValueError(f"RPC callback {name!r} is not declared on {path!r}")
-            self._callbacks[name] = (declared[name], handler)
+                raise ValueError(
+                    f"RPC client method {name!r} is not declared on {path!r}"
+                )
+            self._client_methods[name] = (declared[name], handler)
 
     async def __aenter__(self):
         self._task = asyncio.create_task(
@@ -258,23 +263,23 @@ class RpcTestClient:
             await self._notifications.put(_CLOSED)
 
     async def _answer(self, message: dict[str, Any]) -> None:
-        response = await self._callback_response(message)
+        response = await self._client_method_response(message)
         await self.socket.client_send(RpcCodec().encode(response))
 
-    async def _callback_response(
+    async def _client_method_response(
         self, message: dict[str, Any]
     ) -> RpcSuccess | RpcFailure:
         request_id = message["id"]
-        registered = self._callbacks.get(message["method"])
+        registered = self._client_methods.get(message["method"])
         if registered is None:
             return RpcFailure.from_error(
                 request_id, RpcMethodNotFoundError(message["method"])
             )
-        callback, handler = registered
+        client_method, handler = registered
         arguments: tuple[Any, ...] = ()
-        if callback.params is not None:
+        if client_method.params is not None:
             try:
-                params = TypeAdapter(callback.params).validate_python(
+                params = TypeAdapter(client_method.params).validate_python(
                     message.get("params", {})
                 )
             except ValidationError as error:
@@ -290,7 +295,9 @@ class RpcTestClient:
             return RpcFailure.from_error(request_id, error)
         except Exception:
             return RpcFailure.from_error(request_id, RpcInternalError())
-        return RpcSuccess._with_result_annotation(request_id, result, callback.result)
+        return RpcSuccess._with_result_annotation(
+            request_id, result, client_method.result
+        )
 
     def _connection_closed(self) -> "RpcTestConnectionClosed":
         return RpcTestConnectionClosed(self.socket.rejection or self.socket.closed)

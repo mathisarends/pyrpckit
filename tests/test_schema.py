@@ -165,7 +165,7 @@ def _method(document: dict[str, object], name: str) -> dict[str, object]:
     return next(method for method in methods if method["name"] == name)
 
 
-def test_callbacks_are_described_like_methods_under_an_extension() -> None:
+def test_client_methods_are_described_like_methods_under_an_extension() -> None:
     service = rpc.RpcService()
     service.socket("/rooms", channels=(ROOM_CHANNEL,), name="rooms")
 
@@ -173,7 +173,7 @@ def test_callbacks_are_described_like_methods_under_an_extension() -> None:
         title="Rooms", base_url="wss://example.com"
     ).to_openrpc()
 
-    ping, play = document["x-rpc-callbacks"]
+    ping, play = document["x-rpc-client-methods"]
     assert play["name"] == "room.media.play"
     assert play["summary"] == "Play a media URI on the room's speaker."
     assert [(item["name"], item["required"]) for item in play["params"]] == [
@@ -194,12 +194,12 @@ def test_callbacks_are_described_like_methods_under_an_extension() -> None:
     assert play["servers"][0]["name"] == "rooms"
     assert ping["params"] == []
     assert ping["result"]["schema"] == {"type": "null"}
-    request = document["components"]["schemas"]["RoomMediaPlayCallback"]
+    request = document["components"]["schemas"]["RoomMediaPlayClientMethod"]
     assert request["properties"]["method"]["const"] == "room.media.play"
     assert "room.media.play" not in [method["name"] for method in document["methods"]]
 
 
-def test_documents_without_callbacks_omit_the_extension(
+def test_documents_without_client_methods_omit_the_extension(
     protocol: RpcProtocol,
 ) -> None:
-    assert "x-rpc-callbacks" not in render_openrpc(protocol, title="Greeting")
+    assert "x-rpc-client-methods" not in render_openrpc(protocol, title="Greeting")

@@ -1,16 +1,16 @@
 {% for group in groups %}class {{ group.class_name }}(ABC):
     """Requests the server sends to this client; implement and register them."""
-{% for route in group.callbacks %}
+{% for route in group.client_methods %}
     @abstractmethod
-{% if route.summary or route.description %}{{ route | callback_signature }}
+{% if route.summary or route.description %}{{ route | client_method_signature }}
         """{{ (route.summary or route.description) | docstring }}"""
-{% else %}{{ route | callback_signature }} ...
+{% else %}{{ route | client_method_signature }} ...
 {% endif %}{% endfor %}
 
 {% endfor %}{{ handler_alias }}
 
-CALLBACKS: tuple[RpcCallbackInfo, ...] = (
-{% for group in groups %}{% for route in group.callbacks %}    RpcCallbackInfo(
+CLIENT_METHODS: tuple[RpcClientMethodInfo, ...] = (
+{% for group in groups %}{% for route in group.client_methods %}    RpcClientMethodInfo(
         method={{ route.rpc_name | literal }},
         owner={{ group.class_name }},
         attribute={{ (route.operation_name | identifier) | literal }},
@@ -21,8 +21,8 @@ CALLBACKS: tuple[RpcCallbackInfo, ...] = (
 {% endfor %}{% endfor %})
 
 
-def callback_dispatcher(
-    callbacks: CallbackHandler | Iterable[CallbackHandler] = (),
-) -> RpcCallbackDispatcher:
-    """Answer the server's callbacks with the given handlers."""
-    return RpcCallbackDispatcher(CALLBACKS, callbacks)
+def client_method_dispatcher(
+    client_methods: ClientMethodHandler | Iterable[ClientMethodHandler] = (),
+) -> RpcClientMethodDispatcher:
+    """Answer the server's client method requests with the given handlers."""
+    return RpcClientMethodDispatcher(CLIENT_METHODS, client_methods)

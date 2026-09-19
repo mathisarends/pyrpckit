@@ -4,23 +4,29 @@
 
 ### Added
 
-- Add callbacks, requests the server sends to a connected client.
-  `channel.callback(name, params=..., result=..., raises=...)` declares a typed
-  `RpcCallback`. Callback names share the name space of methods, events, and
-  streams.
-- Make `RpcPeer` injectable on socket endpoints. `peer.call(callback, params,
-  timeout=...)` validates params and results, raises declared errors as their
-  typed exceptions, and raises `RpcCallbackRemoteError`,
-  `RpcCallbackResultError`, `RpcCallbackTimeoutError`, or
+- Group channel declarations by the side that implements them:
+  `channel.server.method`, `channel.server.event`, and `channel.server.stream`
+  for the server, `channel.client.method` for the connected client.
+  `channel.method`, `channel.event`, and `channel.stream` remain shorthands for
+  the server side, and `channel.server(...)` still builds an `RpcServer`.
+- Add client methods, requests the server sends to a connected client.
+  `channel.client.method(name, params=..., result=..., raises=...)` declares a
+  typed `RpcClientMethod`. Client method names share the name space of server
+  methods, events, and streams.
+- Make `RpcPeer` injectable on socket endpoints. `peer.call(client_method,
+  params, timeout=...)` validates params and results, raises declared errors as
+  their typed exceptions, and raises `RpcClientMethodFailedError`,
+  `RpcClientMethodResultError`, `RpcClientMethodTimeoutError`, or
   `RpcPeerClosedError` otherwise. Server-originated requests use `server:<n>`
   string IDs, and outgoing calls respect `RpcLimits`.
-- Describe callbacks under the `x-rpc-callbacks` OpenRPC extension, in the same
-  shape as `methods`.
-- Generate one abstract callback class per namespace in Python clients, plus
-  `CallbackHandler` and `callback_dispatcher()`. `connect(callbacks=...)`
-  registers handlers, which run concurrently. Declared errors of callbacks gain
+- Describe client methods under the `x-rpc-client-methods` OpenRPC extension,
+  in the same shape as `methods`.
+- Generate one abstract client method class per namespace in Python clients,
+  such as `RoomMediaClientMethods`, plus `ClientMethodHandler` and
+  `client_method_dispatcher()`. `connect(client_methods=...)` registers
+  handlers, which run concurrently. Declared errors of client methods gain
   `create()`.
-- Accept `callbacks=` in `RpcTestClient`.
+- Accept `client_methods=` in `RpcTestClient`.
 
 ### Changed
 
