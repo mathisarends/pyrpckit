@@ -20,7 +20,6 @@ from pyrpckit import (
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.ir import build_ir
 from pyrpckit.codegen.python import PythonClientOptions, render_files
-from pyrpckit.testing import InMemorySocket
 from tests.conftest import (
     MediaPlayParams,
     MediaUnavailableError,
@@ -28,6 +27,8 @@ from tests.conftest import (
     room_channel,
     room_ping,
 )
+
+from ..testing import InMemorySocket
 
 PACKAGE = "client_method_client"
 

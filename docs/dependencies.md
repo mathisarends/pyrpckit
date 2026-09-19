@@ -30,19 +30,20 @@ on the wire.
 
 ## Pass known values as context
 
-For small applications and tests, pass an object or a type-to-value mapping:
+For small applications and tests, pass an object or a type-to-value mapping to
+the channel or endpoint server:
 
 ```python
-from pyrpckit.testing import RpcTestClient
-
 store = TaskStore()
-
-async with RpcTestClient(
-    app,
-    "/rpc",
-    context={TaskStore: store},
-) as client:
-    await client.request("tasks.create", {"title": "Write docs"})
+server = tasks.create_server(context={TaskStore: store})
+response = await server.handle(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tasks.create",
+        "params": {"title": "Write docs"},
+    }
+)
 ```
 
 A single object is registered under its concrete type. A mapping is useful
@@ -59,8 +60,8 @@ class Resolver:
 ```
 
 Pass it as `resolver=` to `RpcService.serve()`, an endpoint, `create_router()`,
-or `RpcTestClient`. A synchronous or asynchronous callable taking the requested
-type is accepted as a lightweight alternative.
+or `create_server()`. A synchronous or asynchronous callable taking the
+requested type is accepted as a lightweight alternative.
 
 Context values take precedence over the resolver. `RpcConnection` and, on
 socket endpoints, `RpcPeer` are also made available by type for the lifetime of

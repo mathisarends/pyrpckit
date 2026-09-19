@@ -175,26 +175,4 @@ generated transport:
 `WebSocketTransport(socket, client_methods=client_method_dispatcher(Media()))`.
 Generated TypeScript clients do not implement client methods yet.
 
-## Test both directions
-
-`RpcTestClient` registers handlers with `client_methods=`, keyed by the
-`RpcClientMethod` or its wire name. Handlers receive the validated params model, may
-be sync or async, and can raise declared `RpcError`s:
-
-```python
-from pyrpckit.testing import RpcTestClient
-
-
-async def test_play_reaches_the_room() -> None:
-    async def play(params: MediaPlayParams) -> MediaPlayResult:
-        return MediaPlayResult(started=True)
-
-    async with RpcTestClient(app, "/rpc", client_methods={media_play: play}) as client:
-        await client.request("room.hello", {"roomId": "kitchen"})
-        ...
-```
-
-The test client reads the socket in the background, so the server can call it
-at any time. Unregistered client methods are answered with `-32601`.
-
 [Back to documentation](README.md)

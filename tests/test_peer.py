@@ -16,7 +16,6 @@ from pyrpckit import (
     RpcPeerClosedError,
     RpcService,
 )
-from pyrpckit.testing import InMemorySocket
 
 from .conftest import (
     HelloParams,
@@ -28,6 +27,7 @@ from .conftest import (
     room_channel,
     room_ping,
 )
+from .testing import InMemorySocket
 
 
 class Rooms:

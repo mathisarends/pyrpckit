@@ -24,7 +24,6 @@
   `client_method_dispatcher()`. `connect(client_methods=...)` registers
   handlers, which run concurrently. Declared errors of client methods gain
   `create()`.
-- Accept `client_methods=` in `RpcTestClient`.
 
 ### Changed
 
@@ -36,8 +35,9 @@
 - Generated Python WebSocket transports answer incoming requests. Requests
   without a registered handler get `-32601 Method not found`, where they used to
   fail the transport.
-- `RpcTestClient` reads the socket in the background.
-  `next_notification()` now raises `RpcTestConnectionClosed` after a disconnect.
+- **Breaking:** Remove the internal in-memory test client from the distributed
+  `pyrpckit.testing` module. Repository integration tests keep their transport
+  helpers under `tests/`.
 - Raise the generated client layout version to 10.
 
 ## 0.6.0 - Unreleased

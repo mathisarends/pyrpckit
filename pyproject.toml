@@ -51,6 +51,7 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = ["-p", "no:asyncio", "-p", "pytest_asyncio.plugin"]
 
 [tool.coverage.run]
 source = ["pyrpckit"]

@@ -20,8 +20,9 @@ from pyrpckit import (
 )
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
-from pyrpckit.testing import InMemorySocket
 from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES
+
+from ..testing import InMemorySocket
 
 PACKAGE = "media_client"
 

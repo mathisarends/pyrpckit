@@ -1,7 +1,6 @@
 import pytest
 
 from pyrpckit import Inject, RpcChannel, RpcClientMethodFailedError, RpcPeer, RpcService
-from pyrpckit.testing import RpcTestClient, RpcTestError
 
 from .conftest import (
     MediaPlayParams,
@@ -12,6 +11,7 @@ from .conftest import (
     room_channel,
     room_ping,
 )
+from .testing import RpcTestClient, RpcTestError
 
 control_channel = RpcChannel("control")
 

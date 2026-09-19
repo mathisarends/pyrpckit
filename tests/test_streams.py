@@ -19,7 +19,8 @@ from pyrpckit import (
     RpcService,
     RpcStreamDirection,
 )
-from pyrpckit.testing import RpcTestClient, RpcTestConnectionClosed
+
+from .testing import RpcTestClient, RpcTestConnectionClosed
 
 
 class Recording:

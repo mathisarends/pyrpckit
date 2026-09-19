@@ -126,8 +126,8 @@ app.socket(
 )
 ```
 
-`serve()`, `create_router()`, and `RpcTestClient` use these defaults unless an
-explicit call-site override is supplied.
+`serve()` and `create_router()` use these defaults unless an explicit call-site
+override is supplied.
 
 ## Use Pydantic directly
 
