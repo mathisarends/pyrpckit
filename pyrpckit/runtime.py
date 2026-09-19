@@ -24,7 +24,9 @@ from pyrpckit.dependencies import (
     context_values,
 )
 from pyrpckit.envelopes import RpcNotification
+from pyrpckit.errors import RpcParseError
 from pyrpckit.observer import RpcConnectionContext, notify_observer
+from pyrpckit.peer import RpcPeer
 from pyrpckit.server import RpcErrorMapper, RpcServer
 from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
 from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcInputEndMessage
@@ -78,6 +80,12 @@ async def serve_endpoint(
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     peer_closed = False
+    outgoing: asyncio.Queue[str] = asyncio.Queue(limits.max_queue_size)
+    peer = RpcPeer._create(
+        connection, endpoint.protocol.callbacks, outgoing.put, limits
+    )
+    values = {**values, RpcPeer: peer}
+    codec = RpcCodec()
 
     def request_close(code, reason):
         if not close_event.is_set():
@@ -85,9 +93,9 @@ async def serve_endpoint(
             connection._close_code = code
             connection._close_reason = reason
             close_event.set()
+            peer._close()
 
     connection._on_close = request_close
-    outgoing: asyncio.Queue[str] = asyncio.Queue(limits.max_queue_size)
     tasks: set[asyncio.Task] = set()
     try:
         async with connection_scope(resolved, values) as scoped:
@@ -102,11 +110,11 @@ async def serve_endpoint(
                 while True:
                     await socket.send(await outgoing.get())
 
-            async def invoke(frame):
+            async def invoke(message):
                 try:
-                    response = await server.handle_json(frame)
+                    response = await server.handle(message)
                     if response is not None:
-                        await outgoing.put(response)
+                        await outgoing.put(codec.encode(response))
                 finally:
                     semaphore.release()
 
@@ -133,8 +141,17 @@ async def serve_endpoint(
                                     "Invalid RPC frame",
                                 )
                                 return
+                        try:
+                            message = codec.decode(frame)
+                        except RpcParseError as error:
+                            await outgoing.put(
+                                codec.encode(server.failure(None, error))
+                            )
+                            continue
+                        if peer._resolve(message):
+                            continue
                         await semaphore.acquire()
-                        task = asyncio.create_task(invoke(frame))
+                        task = asyncio.create_task(invoke(message))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
                 except RpcDisconnect as error:
@@ -182,6 +199,7 @@ async def serve_endpoint(
         connection._closed = True
         raise
     finally:
+        peer._close()
         if not peer_closed and not connection.closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
