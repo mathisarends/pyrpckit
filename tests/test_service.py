@@ -67,7 +67,7 @@ def test_mounting_a_root_channel_includes_its_children() -> None:
     root = RpcChannel("voice")
     turn = root.child("turn")
 
-    @turn.method()
+    @turn.server.method()
     async def start() -> None: ...
 
     service = RpcService()
@@ -95,7 +95,7 @@ def test_client_method_names_collide_across_channels() -> None:
     first = RpcChannel("first", namespace="room")
     second = RpcChannel("second", namespace="room")
 
-    @first.method("play")
+    @first.server.method("play")
     async def play() -> None: ...
 
     second.client.method("play")

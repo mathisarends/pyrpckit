@@ -19,7 +19,7 @@ from .conftest import (
 
 
 def _server(handler: GreetingState) -> RpcServer:
-    return greeting_app.server(resolver=TestResolver(handler))
+    return greeting_app.create_server(resolver=TestResolver(handler))
 
 
 async def test_a_request_is_answered_with_its_result(
@@ -58,7 +58,7 @@ async def test_observer_receives_request_outcome_and_duration(
 
     observer = Observer()
 
-    server = greeting_app.server(
+    server = greeting_app.create_server(
         resolver=TestResolver(handler),
         observer=observer,
     )
@@ -137,7 +137,7 @@ async def test_a_declared_error_goes_on_the_wire_as_declared(
 
 
 async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
-    server = broken_app.server(error_mapper=_broken_error)
+    server = broken_app.create_server(error_mapper=_broken_error)
 
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
@@ -149,7 +149,7 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
 
 
 async def test_unmapped_handler_failures_stay_internal() -> None:
-    server = broken_app.server()
+    server = broken_app.create_server()
 
     response = await server.handle(
         {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
@@ -198,11 +198,11 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
 
     router = RpcChannel("greeting")
 
-    @router.method("broken")
+    @router.server.method("broken")
     async def broken(params: SayParams) -> None:
         NestedParams.model_validate({"params": 1})
 
-    response = await router.server().handle(
+    response = await router.create_server().handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -226,7 +226,7 @@ class BrokenParams(BaseModel):
 broken_channel = RpcChannel("greeting")
 
 
-@broken_channel.method("break")
+@broken_channel.server.method("break")
 async def fail(params: BrokenParams) -> None:
     raise BreakageError("boom")
 

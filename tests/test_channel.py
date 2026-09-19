@@ -20,10 +20,10 @@ class Event(RpcModel):
 def test_channel_defaults_and_bare_decorators() -> None:
     channel = RpcChannel("control", raises=[SharedError])
 
-    @channel.method
+    @channel.server.method
     async def ping() -> None: ...
 
-    @channel.method(raises=[LocalError])
+    @channel.server.method(raises=[LocalError])
     async def other() -> None: ...
 
     assert channel.namespace == "control"
@@ -34,11 +34,11 @@ def test_channel_defaults_and_bare_decorators() -> None:
 def test_event_and_stream_inference() -> None:
     channel = RpcChannel("events")
 
-    @channel.event
+    @channel.server.event
     async def changed() -> AsyncIterator[Event]:
         yield Event(value="x")
 
-    @channel.stream(content_type="image/png")
+    @channel.server.stream(content_type="image/png")
     async def frames() -> AsyncIterator[bytes]:
         """Published frames."""
         yield b"x"
@@ -52,14 +52,14 @@ def test_freeze_prevents_registration() -> None:
     channel = RpcChannel("control", namespace="")
     channel.freeze()
     with pytest.raises(ProtocolDefinitionError, match="frozen"):
-        channel.method()
+        channel.server.method()
 
 
 def test_invalid_stream_type_is_rejected() -> None:
     channel = RpcChannel("files")
     with pytest.raises(ProtocolDefinitionError, match="must yield bytes"):
 
-        @channel.stream()
+        @channel.server.stream()
         async def text() -> AsyncIterator[str]:
             yield "x"
 
@@ -68,11 +68,11 @@ def test_child_channels_inherit_namespace_errors_and_scope() -> None:
     root = RpcChannel("voice", raises=(SharedError,))
     turn = root.child("turn", raises=(LocalError,))
 
-    @root.event()
+    @root.server.event()
     async def event() -> AsyncIterator[Event]:
         yield Event(value="root")
 
-    @turn.method()
+    @turn.server.method()
     async def start() -> None: ...
 
     protocol = root.freeze()
@@ -96,7 +96,7 @@ def test_dotted_operation_name_suggests_a_child_channel() -> None:
     channel = RpcChannel("voice")
 
     with pytest.raises(ProtocolDefinitionError, match=r"contains '\.'.*child"):
-        channel.method("turn.start")
+        channel.server.method("turn.start")
 
 
 class PlayParams(RpcModel):
@@ -111,7 +111,7 @@ class MediaUnavailableError(RpcError):
     rpc_code = -32010
 
 
-def test_server_side_declares_the_same_operations_as_the_channel() -> None:
+def test_channel_groups_declarations_by_the_implementing_side() -> None:
     channel = RpcChannel("room")
 
     @channel.server.method
@@ -123,7 +123,8 @@ def test_server_side_declares_the_same_operations_as_the_channel() -> None:
 
     assert [route.name for route in channel.routes] == ["room.join"]
     assert [event.name for event in channel.events] == ["room.joined"]
-    assert isinstance(channel.server(), RpcServer)
+    assert isinstance(channel.create_server(), RpcServer)
+    assert not hasattr(channel, "method")
 
 
 def test_client_method_declares_a_typed_server_to_client_request() -> None:

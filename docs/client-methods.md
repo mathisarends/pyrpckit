@@ -13,9 +13,7 @@ room_channel.server.event(...)  # server sends, no response
 room_channel.client.method(...)  # server calls client, client responds
 ```
 
-`channel.method`, `channel.event`, and `channel.stream` remain shorthands for
-`channel.server.method`, `channel.server.event`, and `channel.server.stream`.
-Calling `channel.server(...)` still builds an `RpcServer`.
+Server streams are declared the same way, with `channel.server.stream(...)`.
 
 JSON-RPC 2.0 assigns the client and server roles per message rather than per
 connection, so both sides can send requests on the same socket. The Language
@@ -191,9 +189,7 @@ async def test_play_reaches_the_room() -> None:
     async def play(params: MediaPlayParams) -> MediaPlayResult:
         return MediaPlayResult(started=True)
 
-    async with RpcTestClient(
-        app, "/rpc", client_methods={media_play: play}
-    ) as client:
+    async with RpcTestClient(app, "/rpc", client_methods={media_play: play}) as client:
         await client.request("room.hello", {"roomId": "kitchen"})
         ...
 ```

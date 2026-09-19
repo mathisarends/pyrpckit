@@ -18,11 +18,11 @@ class MissingError(RpcError):
 channel = RpcChannel("control")
 
 
-@channel.method(raises=[MissingError])
+@channel.server.method(raises=[MissingError])
 async def ping() -> None: ...
 
 
-@channel.stream(content_type="image/jpeg")
+@channel.server.stream(content_type="image/jpeg")
 async def frames() -> AsyncIterator[bytes]:
     yield b"frame"
 

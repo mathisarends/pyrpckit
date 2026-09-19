@@ -103,7 +103,7 @@ def test_dishka_router_reads_the_app_container_at_connection_time() -> None:
 
     channel = RpcChannel("demo")
 
-    @channel.method()
+    @channel.server.method()
     async def resolve(service: Inject[Service]) -> bool:
         return service is expected
 

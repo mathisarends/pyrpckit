@@ -13,12 +13,12 @@ system = RpcChannel("system")
 account = RpcChannel("account")
 
 
-@system.method()
+@system.server.method()
 async def status() -> StatusResult:
     return StatusResult(status="ready")
 
 
-@account.method(summary="Return the current profile.")
+@account.server.method(summary="Return the current profile.")
 async def profile() -> ProfileResult:
     return ProfileResult(name="Mathis")
 

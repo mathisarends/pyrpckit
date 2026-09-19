@@ -35,7 +35,7 @@ class Observer:
 observer = Observer()
 
 
-@channel.method()
+@channel.server.method()
 async def echo(params: Params, connection: Inject[RpcConnection]) -> Params:
     connections.append(connection)
     return params
@@ -74,7 +74,7 @@ async def test_peer_close_information_is_exposed_on_the_connection() -> None:
 async def test_binary_stream() -> None:
     streams = RpcChannel("streams")
 
-    @streams.stream()
+    @streams.server.stream()
     async def frames() -> AsyncIterator[bytes]:
         yield b"one"
 

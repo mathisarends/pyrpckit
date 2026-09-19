@@ -74,7 +74,7 @@ def transport(
 ) -> LoopbackTransport:
     from tests.conftest import TestResolver
 
-    server = greeting_app.server(resolver=TestResolver(handler))
+    server = greeting_app.create_server(resolver=TestResolver(handler))
     errors = __import__("greeting_client.errors", fromlist=["error_from_response"])
     return LoopbackTransport(server, errors.error_from_response)
 

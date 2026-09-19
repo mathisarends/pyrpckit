@@ -16,18 +16,18 @@ from .conftest import (
 control_channel = RpcChannel("control")
 
 
-@control_channel.method("play")
+@control_channel.server.method("play")
 async def play(peer: Inject[RpcPeer]) -> bool:
     result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
     return result.started
 
 
-@control_channel.method("ping")
+@control_channel.server.method("ping")
 async def ping(peer: Inject[RpcPeer]) -> None:
     await peer.call(room_ping)
 
 
-@control_channel.method("probe")
+@control_channel.server.method("probe")
 async def probe(peer: Inject[RpcPeer]) -> int:
     try:
         await peer.call(room_ping)

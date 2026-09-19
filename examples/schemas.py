@@ -18,7 +18,7 @@ class SearchResult(RpcModel):
 router = RpcChannel("search")
 
 
-@router.method()
+@router.server.method()
 async def run(params: SearchParams) -> SearchResult:
     return SearchResult(items=[])
 

@@ -62,7 +62,7 @@ class GreetingState:
         self.greeted: list[str] = []
 
 
-@greeting_channel.method("say", summary="Greet someone by name.")
+@greeting_channel.server.method("say", summary="Greet someone by name.")
 async def say(
     params: SayParams,
     state: Inject[GreetingState],
@@ -71,7 +71,7 @@ async def say(
     return SayResult(text=f"Hello, {params.name}!")
 
 
-@greeting_channel.method("forget", raises=(UnknownGreetingError,))
+@greeting_channel.server.method("forget", raises=(UnknownGreetingError,))
 async def forget(
     params: ForgetParams,
     state: Inject[GreetingState],
@@ -82,7 +82,7 @@ async def forget(
     state.greeted.remove(params.name)
 
 
-@greeting_channel.method("greeted")
+@greeting_channel.server.method("greeted")
 async def greeted_names(
     state: Inject[GreetingState],
 ) -> GreetedResult:
@@ -90,13 +90,13 @@ async def greeted_names(
     return GreetedResult(names=list(state.greeted))
 
 
-@greeting_channel.method("clear")
+@greeting_channel.server.method("clear")
 async def clear(state: Inject[GreetingState]) -> None:
     """Forget everyone."""
     state.greeted.clear()
 
 
-@greeting_channel.event(
+@greeting_channel.server.event(
     "changed",
     payload=GreetingUpdate,
     summary="Publish a greeting change.",

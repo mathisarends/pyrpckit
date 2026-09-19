@@ -17,10 +17,10 @@ def test_rendering_rejects_two_distinct_types_sharing_a_schema_name() -> None:
 
     router = RpcChannel("greeting")
 
-    @router.method("a")
+    @router.server.method("a")
     async def a(params: ParamsA) -> None: ...
 
-    @router.method("b")
+    @router.server.method("b")
     async def b(params: ParamsB) -> None: ...
 
     with pytest.raises(ProtocolDefinitionError, match="Duplicate protocol schema name"):

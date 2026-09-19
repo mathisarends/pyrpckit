@@ -22,7 +22,7 @@ class Navigation:
         self.params: NavigateParams | None = None
 
 
-@navigation_channel.method("navigate")
+@navigation_channel.server.method("navigate")
 async def navigate(
     params: NavigateParams,
     navigation: Inject[Navigation],
@@ -73,7 +73,7 @@ async def test_server_accepts_camel_case_and_serializes_results_with_aliases() -
         async def resolve(self, dependency: type[Navigation]) -> Navigation:
             return handler
 
-    response = await navigation_app.server(resolver=Resolver()).handle(
+    response = await navigation_app.create_server(resolver=Resolver()).handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -94,7 +94,7 @@ def test_contract_rejects_colliding_wire_field_names() -> None:
 
     router = RpcChannel("collision")
 
-    @router.method("test")
+    @router.server.method("test")
     async def test(params: CollidingParams) -> None: ...
 
     with pytest.raises(ProtocolDefinitionError, match="wire field 'fooBar'"):

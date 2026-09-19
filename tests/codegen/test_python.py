@@ -467,7 +467,7 @@ def test_generated_python_is_ruff_formatted(
 def _methods_only() -> RpcChannel:
     channel = RpcChannel("demo")
 
-    @channel.method
+    @channel.server.method
     async def echo(params: _Params) -> _Result: ...
 
     return channel
@@ -476,7 +476,7 @@ def _methods_only() -> RpcChannel:
 def _events_only() -> RpcChannel:
     channel = RpcChannel("demo")
 
-    @channel.event
+    @channel.server.event
     async def ticks() -> AsyncIterator[_Tick]:
         yield _Tick(n=1)
 
@@ -486,10 +486,10 @@ def _events_only() -> RpcChannel:
 def _methods_and_events() -> RpcChannel:
     channel = RpcChannel("demo", raises=(_MissingError,))
 
-    @channel.method
+    @channel.server.method
     async def echo(params: _Params) -> _Result: ...
 
-    @channel.event
+    @channel.server.event
     async def ticks() -> AsyncIterator[_Tick]:
         yield _Tick(n=1)
 
@@ -499,18 +499,18 @@ def _methods_and_events() -> RpcChannel:
 def _all_stream_directions() -> RpcChannel:
     channel = RpcChannel("media")
 
-    @channel.method
+    @channel.server.method
     async def echo(params: _Params) -> _Result: ...
 
-    @channel.stream
+    @channel.server.stream
     async def preview() -> AsyncIterator[bytes]:
         yield b""
 
-    @channel.stream(input_content_type="audio/pcm")
+    @channel.server.stream(input_content_type="audio/pcm")
     async def upload(session_id: str, frames: Inject[RpcBinaryInput]) -> None:
         pass
 
-    @channel.stream(content_type="audio/opus")
+    @channel.server.stream(content_type="audio/opus")
     async def talk(
         session_id: str,
         frames: Inject[RpcBinaryInput],

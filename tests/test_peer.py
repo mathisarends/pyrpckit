@@ -39,7 +39,7 @@ class Rooms:
 hello_channel = RpcChannel("hello")
 
 
-@hello_channel.method("attach")
+@hello_channel.server.method("attach")
 async def attach(
     params: HelloParams,
     peer: Inject[RpcPeer],
@@ -49,7 +49,7 @@ async def attach(
     rooms.attached.set()
 
 
-@hello_channel.method("relay")
+@hello_channel.server.method("relay")
 async def relay(peer: Inject[RpcPeer]) -> bool:
     result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:relay"))
     return result.started

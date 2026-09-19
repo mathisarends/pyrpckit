@@ -74,7 +74,7 @@ class RpcEndpoint:
             limits=limits or self.limits,
         )
 
-    def server(
+    def create_server(
         self,
         *,
         context: object | Mapping[type[Any], object] | None = None,
@@ -212,7 +212,7 @@ class RpcService:
         marker = getattr(stream, "__pyrpckit_stream__", None)
         if not isinstance(stream, FunctionType) or marker is None:
             raise ProtocolDefinitionError(
-                "rpc.stream() expects a function decorated with @channel.stream()"
+                "rpc.stream() expects a function decorated by @channel.server.stream"
             )
         if stream in self._mounted_streams:
             raise ProtocolDefinitionError("An RPC stream can only be mounted once")

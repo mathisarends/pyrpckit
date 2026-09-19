@@ -27,12 +27,12 @@ and any transport you already have can serve a pyrpckit service.
 You define each operation once, on the server:
 
 ```python
-@tasks.method()
+@tasks.server.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     return await store.create(params.title)
 
 
-@tasks.event()
+@tasks.server.event()
 async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
     async for task in store.watch():
         yield TaskUpdated(task=task)
@@ -100,7 +100,7 @@ class TaskStore:
 tasks = RpcChannel("tasks")
 
 
-@tasks.method()
+@tasks.server.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     """Create a task."""
     return await store.create(params.title)

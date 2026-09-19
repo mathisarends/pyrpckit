@@ -112,7 +112,7 @@ its in-memory `socket`, which makes acceptance, rejection, subprotocol, and
 close behavior directly assertable.
 
 For low-level dispatch tests that do not need connection behavior, obtain an
-`RpcServer` from `endpoint.server(...)` or `channel.server(...)` and call
+`RpcServer` from `endpoint.create_server(...)` or `channel.create_server(...)` and call
 `handle()` or `handle_json()` directly.
 
 [Back to documentation](README.md)

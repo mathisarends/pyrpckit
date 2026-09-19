@@ -7,8 +7,6 @@
 - Group channel declarations by the side that implements them:
   `channel.server.method`, `channel.server.event`, and `channel.server.stream`
   for the server, `channel.client.method` for the connected client.
-  `channel.method`, `channel.event`, and `channel.stream` remain shorthands for
-  the server side, and `channel.server(...)` still builds an `RpcServer`.
 - Add client methods, requests the server sends to a connected client.
   `channel.client.method(name, params=..., result=..., raises=...)` declares a
   typed `RpcClientMethod`. Client method names share the name space of server
@@ -30,6 +28,11 @@
 
 ### Changed
 
+- **Breaking:** Remove `channel.method`, `channel.event`, and `channel.stream`.
+  Declare server operations with `@channel.server.method`,
+  `@channel.server.event`, and `@channel.server.stream` instead.
+- **Breaking:** Rename `RpcChannel.server(...)` and `RpcEndpoint.server(...)` to
+  `create_server(...)`, since `channel.server` now names the server side.
 - Generated Python WebSocket transports answer incoming requests. Requests
   without a registered handler get `-32601 Method not found`, where they used to
   fail the transport.

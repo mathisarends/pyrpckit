@@ -27,7 +27,7 @@ def create_service(
 ) -> RpcService:
     channel = RpcChannel("demo")
 
-    @channel.method()
+    @channel.server.method()
     async def echo(params: EchoParams, connection: Inject[RpcConnection]) -> EchoParams:
         if connections is not None:
             connections.append(connection)
@@ -106,7 +106,7 @@ def test_repeated_test_client_disconnects_do_not_leak_cancellation() -> None:
 def test_router_serves_binary_stream() -> None:
     channel = RpcChannel("media")
 
-    @channel.stream()
+    @channel.server.stream()
     async def frames() -> AsyncIterator[bytes]:
         yield b"frame"
 
@@ -157,7 +157,7 @@ async def test_send_preserves_unexpected_runtime_errors() -> None:
 def test_router_serves_bidirectional_streams_without_cancellation_leaks() -> None:
     channel = RpcChannel("voice")
 
-    @channel.stream()
+    @channel.server.stream()
     async def media(
         session_id: int,
         frames: Inject[RpcBinaryInput],
@@ -183,7 +183,7 @@ def test_router_serves_bidirectional_streams_without_cancellation_leaks() -> Non
 def test_router_rejects_invalid_stream_path_variables_as_not_found() -> None:
     channel = RpcChannel("voice")
 
-    @channel.stream()
+    @channel.server.stream()
     async def media(session_id: int, output: Inject[RpcBinaryOutput]) -> None: ...
 
     service = RpcService()

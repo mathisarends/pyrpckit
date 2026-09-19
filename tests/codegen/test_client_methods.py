@@ -32,7 +32,7 @@ PACKAGE = "client_method_client"
 control_channel = RpcChannel("control")
 
 
-@control_channel.method("play")
+@control_channel.server.method("play")
 async def play(peer: Inject[RpcPeer]) -> str:
     try:
         result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
@@ -43,7 +43,7 @@ async def play(peer: Inject[RpcPeer]) -> str:
     return f"started:{result.started}"
 
 
-@control_channel.method("ping")
+@control_channel.server.method("ping")
 async def ping(peer: Inject[RpcPeer]) -> str:
     try:
         await peer.call(room_ping)
@@ -52,7 +52,7 @@ async def ping(peer: Inject[RpcPeer]) -> str:
     return "pong"
 
 
-@control_channel.method("status")
+@control_channel.server.method("status")
 async def status() -> str:
     return "ready"
 
