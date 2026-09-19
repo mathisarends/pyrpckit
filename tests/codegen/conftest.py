@@ -10,20 +10,20 @@ from pyrpckit import RpcService
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.schema import render_openrpc
-from tests.conftest import GREETING_APP, ROOM_CHANNEL
+from tests.conftest import greeting_app, room_channel
 
 PACKAGE = "greeting_client"
 
 
 @pytest.fixture(scope="session")
 def document() -> dict[str, Any]:
-    return render_openrpc(GREETING_APP.protocol, title="Greeting")
+    return render_openrpc(greeting_app.protocol, title="Greeting")
 
 
 @pytest.fixture(scope="session")
 def room_document() -> dict[str, Any]:
     service = RpcService()
-    service.socket("/rooms", channels=(ROOM_CHANNEL, GREETING_APP), name="rooms")
+    service.socket("/rooms", channels=(room_channel, greeting_app), name="rooms")
     return service.contract(
         title="Rooms", base_url="wss://rooms.example.com"
     ).to_openrpc()

@@ -7,7 +7,15 @@ from typing import Any
 
 import pytest
 
-import pyrpckit as rpc
+from pyrpckit import (
+    Inject,
+    RpcBinaryInput,
+    RpcBinaryOutput,
+    RpcChannel,
+    RpcError,
+    RpcModel,
+    RpcService,
+)
 from pyrpckit.codegen import generate_python_client, render_python_client
 from pyrpckit.codegen.ir import UnsupportedSchemaError
 from pyrpckit.codegen.python import PythonClientOptions
@@ -16,19 +24,19 @@ from pyrpckit.codegen.writer import MANIFEST
 from .conftest import PACKAGE
 
 
-class _Params(rpc.RpcModel):
+class _Params(RpcModel):
     x: int
 
 
-class _Result(rpc.RpcModel):
+class _Result(RpcModel):
     x: int
 
 
-class _Tick(rpc.RpcModel):
+class _Tick(RpcModel):
     n: int
 
 
-class _MissingError(rpc.RpcError):
+class _MissingError(RpcError):
     pass
 
 
@@ -456,8 +464,8 @@ def test_generated_python_is_ruff_formatted(
     _assert_ruff_clean(deployed, options, tmp_path)
 
 
-def _methods_only() -> rpc.RpcChannel:
-    channel = rpc.RpcChannel("demo")
+def _methods_only() -> RpcChannel:
+    channel = RpcChannel("demo")
 
     @channel.method
     async def echo(params: _Params) -> _Result: ...
@@ -465,8 +473,8 @@ def _methods_only() -> rpc.RpcChannel:
     return channel
 
 
-def _events_only() -> rpc.RpcChannel:
-    channel = rpc.RpcChannel("demo")
+def _events_only() -> RpcChannel:
+    channel = RpcChannel("demo")
 
     @channel.event
     async def ticks() -> AsyncIterator[_Tick]:
@@ -475,8 +483,8 @@ def _events_only() -> rpc.RpcChannel:
     return channel
 
 
-def _methods_and_events() -> rpc.RpcChannel:
-    channel = rpc.RpcChannel("demo", raises=(_MissingError,))
+def _methods_and_events() -> RpcChannel:
+    channel = RpcChannel("demo", raises=(_MissingError,))
 
     @channel.method
     async def echo(params: _Params) -> _Result: ...
@@ -488,8 +496,8 @@ def _methods_and_events() -> rpc.RpcChannel:
     return channel
 
 
-def _all_stream_directions() -> rpc.RpcChannel:
-    channel = rpc.RpcChannel("media")
+def _all_stream_directions() -> RpcChannel:
+    channel = RpcChannel("media")
 
     @channel.method
     async def echo(params: _Params) -> _Result: ...
@@ -499,14 +507,14 @@ def _all_stream_directions() -> rpc.RpcChannel:
         yield b""
 
     @channel.stream(input_content_type="audio/pcm")
-    async def upload(session_id: str, frames: rpc.Inject[rpc.RpcBinaryInput]) -> None:
+    async def upload(session_id: str, frames: Inject[RpcBinaryInput]) -> None:
         pass
 
     @channel.stream(content_type="audio/opus")
     async def talk(
         session_id: str,
-        frames: rpc.Inject[rpc.RpcBinaryInput],
-        output: rpc.Inject[rpc.RpcBinaryOutput],
+        frames: Inject[RpcBinaryInput],
+        output: Inject[RpcBinaryOutput],
     ) -> None:
         pass
 
@@ -519,11 +527,11 @@ def _all_stream_directions() -> rpc.RpcChannel:
 )
 @pytest.mark.parametrize("transport", [None, "websocket"])
 def test_generated_python_from_services_is_ruff_clean(
-    channel: Callable[[], rpc.RpcChannel],
+    channel: Callable[[], RpcChannel],
     transport: str | None,
     tmp_path: Path,
 ) -> None:
-    service = rpc.RpcService()
+    service = RpcService()
     mounted = channel()
     service.socket("/v1/gateway", channels=[mounted])
     for stream in mounted.streams:
@@ -571,15 +579,15 @@ def _assert_ruff_clean(
     assert formatting.returncode == 0, formatting.stdout + formatting.stderr
 
 
-class ExtraordinarilyLongMediaPlaybackRequestParams(rpc.RpcModel):
+class ExtraordinarilyLongMediaPlaybackRequestParams(RpcModel):
     uri: str
 
 
-class ExtraordinarilyLongMediaPlaybackResultPayload(rpc.RpcModel):
+class ExtraordinarilyLongMediaPlaybackResultPayload(RpcModel):
     started: bool
 
 
-class SpeakerOfflineError(rpc.RpcError):
+class SpeakerOfflineError(RpcError):
     rpc_code = -32010
 
 
@@ -588,7 +596,7 @@ def test_generated_python_with_client_methods_is_ruff_clean(
     transport: str | None,
     tmp_path: Path,
 ) -> None:
-    channel = rpc.RpcChannel("room")
+    channel = RpcChannel("room")
     channel.client.method("ping")
     for segment in ("kitchen_speaker_group", "living_room_speaker_group"):
         nested = channel.child(segment).child("media_playback_controls")
@@ -599,7 +607,7 @@ def test_generated_python_with_client_methods_is_ruff_clean(
             raises=(SpeakerOfflineError,),
             summary="Play a media URI.",
         )
-    service = rpc.RpcService()
+    service = RpcService()
     service.socket("/v1/rooms", channels=[channel])
     contract = service.contract(title="Rooms", base_url="http://localhost")
 

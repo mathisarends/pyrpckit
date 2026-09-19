@@ -1,8 +1,7 @@
 import pytest
 from pydantic import create_model
 
-import pyrpckit as rpc
-from pyrpckit import ProtocolDefinitionError
+from pyrpckit import ProtocolDefinitionError, RpcChannel
 from pyrpckit.schema import render_openrpc
 from pyrpckit.schema.components import type_name
 
@@ -16,7 +15,7 @@ def test_rendering_rejects_two_distinct_types_sharing_a_schema_name() -> None:
     ParamsA = create_model("Dup", value=(int, ...))
     ParamsB = create_model("Dup", value=(str, ...))
 
-    router = rpc.RpcChannel("greeting")
+    router = RpcChannel("greeting")
 
     @router.method("a")
     async def a(params: ParamsA) -> None: ...

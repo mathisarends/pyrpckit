@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from pyrpckit import RpcServer
-from tests.conftest import GREETING_APP, GreetingState
+from tests.conftest import GreetingState, greeting_app
 
 
 class LoopbackTransport:
@@ -74,7 +74,7 @@ def transport(
 ) -> LoopbackTransport:
     from tests.conftest import TestResolver
 
-    server = GREETING_APP.server(resolver=TestResolver(handler))
+    server = greeting_app.server(resolver=TestResolver(handler))
     errors = __import__("greeting_client.errors", fromlist=["error_from_response"])
     return LoopbackTransport(server, errors.error_from_response)
 

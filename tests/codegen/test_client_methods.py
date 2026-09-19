@@ -20,22 +20,22 @@ from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
 from pyrpckit.testing import InMemorySocket
 from tests.conftest import (
-    MEDIA_PLAY,
-    ROOM_CHANNEL,
-    ROOM_PING,
     MediaPlayParams,
     MediaUnavailableError,
+    media_play,
+    room_channel,
+    room_ping,
 )
 
 PACKAGE = "client_method_client"
 
-CONTROL = RpcChannel("control")
+control_channel = RpcChannel("control")
 
 
-@CONTROL.method("play")
+@control_channel.method("play")
 async def play(peer: Inject[RpcPeer]) -> str:
     try:
-        result = await peer.call(MEDIA_PLAY, MediaPlayParams(media_uri="spotify:1"))
+        result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
     except MediaUnavailableError as error:
         return f"unavailable:{error.details.speaker_id}:{error.message}"
     except RpcClientMethodFailedError as error:
@@ -43,22 +43,22 @@ async def play(peer: Inject[RpcPeer]) -> str:
     return f"started:{result.started}"
 
 
-@CONTROL.method("ping")
+@control_channel.method("ping")
 async def ping(peer: Inject[RpcPeer]) -> str:
     try:
-        await peer.call(ROOM_PING)
+        await peer.call(room_ping)
     except RpcClientMethodFailedError as error:
         return f"remote:{error.rpc_code}"
     return "pong"
 
 
-@CONTROL.method("status")
+@control_channel.method("status")
 async def status() -> str:
     return "ready"
 
 
-SERVICE = RpcService()
-SERVICE.socket("/rooms", channels=(ROOM_CHANNEL, CONTROL), name="rooms")
+service = RpcService()
+service.socket("/rooms", channels=(room_channel, control_channel), name="rooms")
 
 
 class SocketAdapter:
@@ -80,7 +80,7 @@ class SocketAdapter:
 
 @pytest.fixture(scope="module")
 def client_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType]:
-    document = SERVICE.contract(
+    document = service.contract(
         title="Rooms", base_url="wss://rooms.example.com"
     ).to_openrpc()
     root = tmp_path_factory.mktemp("client_methods")
@@ -110,7 +110,7 @@ def client_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleTy
 @asynccontextmanager
 async def connected(module: ModuleType, **options: Any) -> AsyncIterator[Any]:
     socket = InMemorySocket("/rooms")
-    server = asyncio.create_task(SERVICE.serve(socket))
+    server = asyncio.create_task(service.serve(socket))
 
     async def socket_factory(url: str, **_: Any) -> SocketAdapter:
         return SocketAdapter(socket)

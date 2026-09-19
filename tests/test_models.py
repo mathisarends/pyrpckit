@@ -1,20 +1,20 @@
 import pytest
 from pydantic import ValidationError
 
-import pyrpckit as rpc
+from pyrpckit import Inject, ProtocolDefinitionError, RpcChannel, RpcModel
 from pyrpckit.schema import render_openrpc
 
 
-class NavigateParams(rpc.RpcModel):
+class NavigateParams(RpcModel):
     project_id: str
     ignore_cache: bool
 
 
-class NavigateResult(rpc.RpcModel):
+class NavigateResult(RpcModel):
     active_project_id: str
 
 
-NAVIGATION_ROUTER = rpc.RpcChannel("navigation", namespace="browser.nav")
+navigation_channel = RpcChannel("navigation", namespace="browser.nav")
 
 
 class Navigation:
@@ -22,16 +22,16 @@ class Navigation:
         self.params: NavigateParams | None = None
 
 
-@NAVIGATION_ROUTER.method("navigate")
+@navigation_channel.method("navigate")
 async def navigate(
     params: NavigateParams,
-    navigation: rpc.Inject[Navigation],
+    navigation: Inject[Navigation],
 ) -> NavigateResult:
     navigation.params = params
     return NavigateResult(active_project_id=params.project_id)
 
 
-NAVIGATION_APP = NAVIGATION_ROUTER
+navigation_app = navigation_channel
 
 
 def test_rpc_models_use_snake_case_in_python_and_camel_case_on_the_wire() -> None:
@@ -46,7 +46,7 @@ def test_rpc_models_use_snake_case_in_python_and_camel_case_on_the_wire() -> Non
 
 
 def test_openrpc_uses_the_canonical_wire_field_names() -> None:
-    document = render_openrpc(NAVIGATION_APP.protocol, title="Navigation")
+    document = render_openrpc(navigation_app.protocol, title="Navigation")
     method = document["methods"][0]
 
     assert method["params"] == [
@@ -73,7 +73,7 @@ async def test_server_accepts_camel_case_and_serializes_results_with_aliases() -
         async def resolve(self, dependency: type[Navigation]) -> Navigation:
             return handler
 
-    response = await NAVIGATION_APP.server(resolver=Resolver()).handle(
+    response = await navigation_app.server(resolver=Resolver()).handle(
         {
             "jsonrpc": "2.0",
             "id": 1,
@@ -88,14 +88,14 @@ async def test_server_accepts_camel_case_and_serializes_results_with_aliases() -
 
 
 def test_contract_rejects_colliding_wire_field_names() -> None:
-    class CollidingParams(rpc.RpcModel):
+    class CollidingParams(RpcModel):
         foo_bar: str
         fooBar: str
 
-    router = rpc.RpcChannel("collision")
+    router = RpcChannel("collision")
 
     @router.method("test")
     async def test(params: CollidingParams) -> None: ...
 
-    with pytest.raises(rpc.ProtocolDefinitionError, match="wire field 'fooBar'"):
+    with pytest.raises(ProtocolDefinitionError, match="wire field 'fooBar'"):
         render_openrpc(router.protocol, title="Collision")

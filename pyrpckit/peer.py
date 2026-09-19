@@ -63,17 +63,6 @@ class RpcPeerClosedError(RpcClientMethodError):
 class RpcPeer:
     """The connected client, seen from the server: it answers client methods."""
 
-    __slots__ = (
-        "_client_methods",
-        "_closed",
-        "_connection",
-        "_limits",
-        "_next_id",
-        "_pending",
-        "_semaphore",
-        "_send",
-    )
-
     def __init__(self) -> None:
         raise TypeError("RpcPeer instances are created by pyrpckit")
 

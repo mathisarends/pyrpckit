@@ -186,7 +186,7 @@ def test_generate_config_renders_contract_and_clients_together(tmp_path: Path) -
     config.write_text(
         "version = 1\n\n"
         "[contract]\n"
-        'source = "tests.test_contract:CONTRACT"\n'
+        'source = "tests.test_contract:contract"\n'
         'output = "schemas/health.openrpc.json"\n\n'
         "[[clients]]\n"
         'language = "typescript"\n'

@@ -35,7 +35,6 @@ contract = service.contract(
     base_url="wss://api.example.com",
     variables={"project_id": ServerVariable(default="demo")},
 )
-CONTRACT = contract
 
 
 def test_contract_derives_servers_and_streams() -> None:

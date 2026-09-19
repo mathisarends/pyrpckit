@@ -1,10 +1,10 @@
 import json
 
-import pyrpckit as rpc
+from pyrpckit import RpcService
 from pyrpckit.protocol import RpcProtocol
 from pyrpckit.schema import render_openrpc
 
-from .conftest import ROOM_CHANNEL, GreetingNotificationMethod, GreetingRpcMethod
+from .conftest import GreetingNotificationMethod, GreetingRpcMethod, room_channel
 
 
 def test_openrpc_request_components_pin_the_method_name(
@@ -166,8 +166,8 @@ def _method(document: dict[str, object], name: str) -> dict[str, object]:
 
 
 def test_client_methods_are_described_like_methods_under_an_extension() -> None:
-    service = rpc.RpcService()
-    service.socket("/rooms", channels=(ROOM_CHANNEL,), name="rooms")
+    service = RpcService()
+    service.socket("/rooms", channels=(room_channel,), name="rooms")
 
     document = service.contract(
         title="Rooms", base_url="wss://example.com"

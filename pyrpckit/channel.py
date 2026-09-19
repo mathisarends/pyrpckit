@@ -348,8 +348,6 @@ class RpcChannel:
 class RpcServerSide:
     """``channel.server``: methods, events and streams the server implements."""
 
-    __slots__ = ("_channel", "event", "method", "stream")
-
     def __init__(self, channel: RpcChannel) -> None:
         self._channel = channel
         self.method = channel.method
@@ -380,8 +378,6 @@ class RpcServerSide:
 
 class RpcClientSide:
     """``channel.client``: methods the connected client implements."""
-
-    __slots__ = ("_channel",)
 
     def __init__(self, channel: RpcChannel) -> None:
         self._channel = channel

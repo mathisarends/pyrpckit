@@ -19,14 +19,14 @@ from pyrpckit import (
 from pyrpckit.testing import InMemorySocket
 
 from .conftest import (
-    MEDIA_PLAY,
-    ROOM_CHANNEL,
-    ROOM_PING,
     HelloParams,
     MediaPlayParams,
     MediaPlayResult,
     MediaUnavailableError,
     TestResolver,
+    media_play,
+    room_channel,
+    room_ping,
 )
 
 
@@ -36,10 +36,10 @@ class Rooms:
         self.attached = asyncio.Event()
 
 
-HELLO_CHANNEL = RpcChannel("hello")
+hello_channel = RpcChannel("hello")
 
 
-@HELLO_CHANNEL.method("attach")
+@hello_channel.method("attach")
 async def attach(
     params: HelloParams,
     peer: Inject[RpcPeer],
@@ -49,17 +49,17 @@ async def attach(
     rooms.attached.set()
 
 
-@HELLO_CHANNEL.method("relay")
+@hello_channel.method("relay")
 async def relay(peer: Inject[RpcPeer]) -> bool:
-    result = await peer.call(MEDIA_PLAY, MediaPlayParams(media_uri="spotify:relay"))
+    result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:relay"))
     return result.started
 
 
-SERVICE = RpcService()
-SERVICE.socket("/rooms", channels=(ROOM_CHANNEL, HELLO_CHANNEL), name="rooms")
-OTHER = RpcChannel("other")
-OTHER_PLAY = OTHER.client.method("play")
-SERVICE.socket("/other", channels=(OTHER,), name="other")
+service = RpcService()
+service.socket("/rooms", channels=(room_channel, hello_channel), name="rooms")
+other_channel = RpcChannel("other")
+other_play = other_channel.client.method("play")
+service.socket("/other", channels=(other_channel,), name="other")
 
 
 class Session:
@@ -71,7 +71,7 @@ class Session:
 
     async def __aenter__(self) -> "Session":
         self.task = asyncio.create_task(
-            SERVICE.serve(
+            service.serve(
                 self.socket, resolver=TestResolver(self.rooms), limits=self.limits
             )
         )
@@ -108,7 +108,7 @@ async def test_a_client_method_is_sent_as_a_request_and_returns_the_typed_result
 ):
     async with Session() as session:
         call = asyncio.create_task(
-            session.peer.call(MEDIA_PLAY, MediaPlayParams(media_uri="spotify:1"))
+            session.peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
         )
         request = await session.receive()
         await session.send(
@@ -129,7 +129,7 @@ async def test_a_client_method_is_sent_as_a_request_and_returns_the_typed_result
 
 async def test_a_client_method_without_params_omits_them_and_returns_none() -> None:
     async with Session() as session:
-        call = asyncio.create_task(session.peer.call(ROOM_PING))
+        call = asyncio.create_task(session.peer.call(room_ping))
         request = await session.receive()
         await session.send({"jsonrpc": "2.0", "id": request["id"], "result": None})
 
@@ -141,7 +141,7 @@ async def test_a_client_method_without_params_omits_them_and_returns_none() -> N
 async def test_a_declared_error_is_raised_as_its_typed_exception() -> None:
     async with Session() as session:
         call = asyncio.create_task(
-            session.peer.call(MEDIA_PLAY, MediaPlayParams(media_uri="spotify:1"))
+            session.peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
         )
         request = await session.receive()
         await session.send(
@@ -168,7 +168,7 @@ async def test_a_declared_error_is_raised_as_its_typed_exception() -> None:
 
 async def test_an_undeclared_error_is_raised_as_a_remote_error() -> None:
     async with Session() as session:
-        call = asyncio.create_task(session.peer.call(ROOM_PING))
+        call = asyncio.create_task(session.peer.call(room_ping))
         request = await session.receive()
         await session.send(
             {
@@ -192,7 +192,7 @@ async def test_an_undeclared_error_is_raised_as_a_remote_error() -> None:
 async def test_an_invalid_result_raises_a_result_error() -> None:
     async with Session() as session:
         call = asyncio.create_task(
-            session.peer.call(MEDIA_PLAY, MediaPlayParams(media_uri="spotify:1"))
+            session.peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
         )
         request = await session.receive()
         await session.send({"jsonrpc": "2.0", "id": request["id"], "result": {}})
@@ -204,7 +204,7 @@ async def test_an_invalid_result_raises_a_result_error() -> None:
 async def test_a_timeout_raises_and_drops_the_late_response() -> None:
     async with Session() as session:
         with pytest.raises(RpcClientMethodTimeoutError):
-            await session.peer.call(ROOM_PING, timeout=0.01)
+            await session.peer.call(room_ping, timeout=0.01)
         request = await session.receive()
         await session.send({"jsonrpc": "2.0", "id": request["id"], "result": None})
         await session.send({"jsonrpc": "2.0", "id": 2, "method": "hello.relay"})
@@ -221,7 +221,7 @@ async def test_pending_calls_fail_when_the_connection_closes() -> None:
     session = Session()
     await session.__aenter__()
     peer = session.peer
-    call = asyncio.create_task(peer.call(ROOM_PING))
+    call = asyncio.create_task(peer.call(room_ping))
     await session.receive()
 
     await session.__aexit__()
@@ -230,7 +230,7 @@ async def test_pending_calls_fail_when_the_connection_closes() -> None:
         await call
     assert peer.closed
     with pytest.raises(RpcPeerClosedError):
-        await peer.call(ROOM_PING)
+        await peer.call(room_ping)
 
 
 async def test_a_method_handler_can_await_a_client_method() -> None:
@@ -249,29 +249,29 @@ async def test_a_method_handler_can_await_a_client_method() -> None:
 async def test_client_methods_of_other_endpoints_are_rejected() -> None:
     async with Session() as session:
         with pytest.raises(ValueError, match="not declared on endpoint"):
-            await session.peer.call(OTHER_PLAY)
+            await session.peer.call(other_play)
 
 
 async def test_params_must_match_the_declaration() -> None:
     async with Session() as session:
         with pytest.raises(TypeError, match="takes no params"):
-            await session.peer.call(ROOM_PING, MediaPlayParams(media_uri="x"))
+            await session.peer.call(room_ping, MediaPlayParams(media_uri="x"))
         with pytest.raises(TypeError, match="needs params"):
-            await session.peer.call(MEDIA_PLAY)
+            await session.peer.call(media_play)
 
 
 async def test_outgoing_requests_respect_the_message_size_limit() -> None:
     async with Session(RpcLimits(max_message_bytes=256)) as session:
         with pytest.raises(ValueError, match="max_message_bytes"):
             await session.peer.call(
-                MEDIA_PLAY, MediaPlayParams(media_uri="spotify:" + "x" * 256)
+                media_play, MediaPlayParams(media_uri="spotify:" + "x" * 256)
             )
 
 
 async def test_outgoing_requests_respect_the_concurrency_limit() -> None:
     async with Session(RpcLimits(max_concurrency=1)) as session:
-        first = asyncio.create_task(session.peer.call(ROOM_PING))
-        second = asyncio.create_task(session.peer.call(ROOM_PING))
+        first = asyncio.create_task(session.peer.call(room_ping))
+        second = asyncio.create_task(session.peer.call(room_ping))
         request = await session.receive()
         await asyncio.sleep(0.01)
 
