@@ -20,8 +20,9 @@ from pyrpckit import (
 )
 from pyrpckit.codegen import generate_python_client
 from pyrpckit.codegen.python import PythonClientOptions
-from pyrpckit.testing import InMemorySocket
 from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES
+
+from ..testing import InMemorySocket
 
 PACKAGE = "media_client"
 
@@ -37,7 +38,7 @@ uploads = RpcChannel("uploads")
 voice = RpcChannel("voice")
 
 
-@uploads.stream("audio", input_content_type="audio/pcm")
+@uploads.server.stream("audio", input_content_type="audio/pcm")
 async def upload_audio(
     frames: Inject[RpcBinaryInput], recording: Inject[Recording]
 ) -> None:
@@ -51,7 +52,7 @@ async def upload_audio(
         recording.finished.set()
 
 
-@voice.stream("media", content_type="audio/opus", input_content_type="audio/pcm")
+@voice.server.stream("media", content_type="audio/opus", input_content_type="audio/pcm")
 async def media(
     voice_session_id: UUID,
     frames: Inject[RpcBinaryInput],

@@ -2,6 +2,16 @@
     code: ClassVar[str] = {{ error.code | literal }}
 {% if error.details is not none %}    details: {{ error.details | annotation }}
     details_adapter = TypeAdapter({{ error.details | annotation }})
+{% endif %}{% if error.code in client_method_codes %}
+    @classmethod
+    def create(
+        cls,
+{% if error.details is not none %}        details: {{ error.details | annotation }},
+{% endif %}        *,
+        message: str = {{ error.message | literal }},
+    ) -> Self:
+        """Build the error a client method handler raises to answer the server."""
+        return cls({{ error.rpc_code }}, cls.code, message, {{ "details" if error.details is not none else "None" }})
 {% endif %}{% if not loop.last %}
 
 

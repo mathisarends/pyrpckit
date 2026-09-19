@@ -5,13 +5,14 @@ from pydantic import TypeAdapter
 from automation_client.internal import RpcNotificationInfo, RpcRouteInfo
 from automation_client.models import (
     CreateTaskParams,
+    DeleteTaskParams,
     OpenTabParams,
     StartScreencastParams,
     Tab,
     Task,
     TaskList,
+    TasksUpdatedNotification,
     TaskUpdated,
-    TaskUpdatedNotification,
 )
 
 TASKS_LIST: RpcRouteInfo[None, TaskList] = RpcRouteInfo(
@@ -23,6 +24,12 @@ TASKS_LIST: RpcRouteInfo[None, TaskList] = RpcRouteInfo(
 TASKS_CREATE: RpcRouteInfo[CreateTaskParams, Task] = RpcRouteInfo(
     method="tasks.create",
     result_adapter=TypeAdapter(Task),
+    server="production",
+)
+
+TASKS_DELETE: RpcRouteInfo[DeleteTaskParams, bool] = RpcRouteInfo(
+    method="tasks.delete",
+    result_adapter=TypeAdapter(bool),
     server="production",
 )
 
@@ -40,6 +47,6 @@ BROWSER_SCREENCAST_START: RpcRouteInfo[StartScreencastParams, None] = RpcRouteIn
 
 TASKS_UPDATED: RpcNotificationInfo[TaskUpdated] = RpcNotificationInfo(
     method="tasks.updated",
-    message_adapter=TypeAdapter(TaskUpdatedNotification),
+    message_adapter=TypeAdapter(TasksUpdatedNotification),
     server="production",
 )

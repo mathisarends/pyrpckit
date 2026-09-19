@@ -346,10 +346,9 @@ BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamInfo] = {
         name=BinaryStreamName.BROWSER_SCREENCAST_FRAMES,
         url="wss://{host}/browser/screencast",
         content_type="image/jpeg",
-        subprotocols=("pyrpckit.binary",),
         variables={
             "host": RpcServerVariable(
-                default="stream.example.com",
+                default="api.example.com",
             ),
         },
     ),
@@ -358,10 +357,9 @@ BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamInfo] = {
         url="wss://{host}/browser/screencast/upload",
         direction="client-to-server",
         input_content_type="video/webm",
-        subprotocols=("pyrpckit.binary",),
         variables={
             "host": RpcServerVariable(
-                default="stream.example.com",
+                default="api.example.com",
             ),
         },
     ),
@@ -371,10 +369,9 @@ BINARY_STREAMS: Mapping[BinaryStreamName, BinaryStreamInfo] = {
         content_type="image/jpeg",
         direction="bidirectional",
         input_content_type="application/x-input-event",
-        subprotocols=("pyrpckit.binary",),
         variables={
             "host": RpcServerVariable(
-                default="stream.example.com",
+                default="api.example.com",
             ),
         },
     ),

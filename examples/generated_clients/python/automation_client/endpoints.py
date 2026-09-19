@@ -36,6 +36,7 @@ _SERVERS = {
         transport=RpcTransportDescriptor(
             type="websocket",
             message_encoding="json",
+            options={"frameType": "text"},
         ),
     ),
     ServerName.BROWSER: RpcServerInfo(
@@ -43,12 +44,13 @@ _SERVERS = {
         url="wss://{host}/browser/rpc",
         variables={
             "host": RpcServerVariable(
-                default="browser.example.com",
+                default="api.example.com",
             ),
         },
         transport=RpcTransportDescriptor(
             type="websocket",
             message_encoding="json",
+            options={"frameType": "text"},
         ),
     ),
     ServerName.STREAMING: RpcServerInfo(
@@ -56,13 +58,14 @@ _SERVERS = {
         url="wss://{host}/browser/stream",
         variables={
             "host": RpcServerVariable(
-                default="stream.example.com",
+                default="api.example.com",
             ),
         },
         transport=RpcTransportDescriptor(
             type="websocket",
             message_encoding="json",
             subprotocols=("pyrpckit.jsonrpc",),
+            options={"frameType": "text"},
         ),
     ),
 }
@@ -99,7 +102,7 @@ def production(
 
 def browser(
     *,
-    host: str = "browser.example.com",
+    host: str = "api.example.com",
 ) -> Endpoint:
     return endpoint(
         ServerName.BROWSER,
@@ -111,7 +114,7 @@ def browser(
 
 def streaming(
     *,
-    host: str = "stream.example.com",
+    host: str = "api.example.com",
 ) -> Endpoint:
     return endpoint(
         ServerName.STREAMING,

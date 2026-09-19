@@ -40,10 +40,14 @@ class RpcEndpoint:
         notifications = tuple(
             n for n in self.service.protocol.notifications if n.server == self.name
         )
+        client_methods = tuple(
+            c for c in self.service.protocol.client_methods if c.server == self.name
+        )
         return RpcProtocol(
             methods=methods,
             notifications=notifications,
             notification_types=self.service.protocol.notification_types,
+            client_methods=client_methods,
             version=self.service.version,
         )
 
@@ -70,7 +74,7 @@ class RpcEndpoint:
             limits=limits or self.limits,
         )
 
-    def server(
+    def create_server(
         self,
         *,
         context: object | Mapping[type[Any], object] | None = None,
@@ -208,7 +212,7 @@ class RpcService:
         marker = getattr(stream, "__pyrpckit_stream__", None)
         if not isinstance(stream, FunctionType) or marker is None:
             raise ProtocolDefinitionError(
-                "rpc.stream() expects a function decorated with @channel.stream()"
+                "rpc.stream() expects a function decorated by @channel.server.stream"
             )
         if stream in self._mounted_streams:
             raise ProtocolDefinitionError("An RPC stream can only be mounted once")
@@ -263,6 +267,7 @@ class RpcService:
         notifications = []
         types = []
         streams = []
+        client_methods = []
         owners: dict[str, str] = {}
         errors: dict[str, type] = {}
         for endpoint in self.endpoints:
@@ -277,9 +282,17 @@ class RpcService:
                         for item in protocol.notifications
                     )
                     types.extend(protocol.notification_types)
-                    for item in (*protocol.methods, *protocol.notifications):
+                    client_methods.extend(
+                        replace(item, server=endpoint.name)
+                        for item in protocol.client_methods
+                    )
+                    for item in (
+                        *protocol.methods,
+                        *protocol.notifications,
+                        *protocol.client_methods,
+                    ):
                         _unique_name(owners, item.name, channel.name)
-                    for method in protocol.methods:
+                    for method in (*protocol.methods, *protocol.client_methods):
                         for error in method.raises:
                             previous = errors.get(error.code)
                             if previous is not None and previous is not error:
@@ -321,6 +334,7 @@ class RpcService:
             notifications=notifications,
             notification_types=types,
             streams=streams,
+            client_methods=client_methods,
             version=self.version,
         )
         return self._protocol

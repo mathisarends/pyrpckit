@@ -1,9 +1,9 @@
 {
   "generator": "pyrpckit",
   "generatorVersion": "0.6.0",
-  "layoutVersion": 9,
+  "layoutVersion": 10,
   "language": "typescript",
-  "contractSha256": "e341031c54de9f362c596172a84fed967011730d66b151220da501b0aaa37b7c",
+  "contractSha256": "975313026baa49bb112cdc0d066f3f18db5069a1b80f128829bea0f9bb34a0bf",
   "files": [
     ".rpcgen/manifest.json",
     "client.ts",

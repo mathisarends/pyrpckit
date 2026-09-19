@@ -20,7 +20,7 @@ class TaskStore:
 tasks = RpcChannel("tasks")
 
 
-@tasks.method()
+@tasks.server.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> int:
     return await store.create(params.title)
 ```
@@ -30,19 +30,20 @@ on the wire.
 
 ## Pass known values as context
 
-For small applications and tests, pass an object or a type-to-value mapping:
+For small applications and tests, pass an object or a type-to-value mapping to
+the channel or endpoint server:
 
 ```python
-from pyrpckit.testing import RpcTestClient
-
 store = TaskStore()
-
-async with RpcTestClient(
-    app,
-    "/rpc",
-    context={TaskStore: store},
-) as client:
-    await client.request("tasks.create", {"title": "Write docs"})
+server = tasks.create_server(context={TaskStore: store})
+response = await server.handle(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tasks.create",
+        "params": {"title": "Write docs"},
+    }
+)
 ```
 
 A single object is registered under its concrete type. A mapping is useful
@@ -59,11 +60,12 @@ class Resolver:
 ```
 
 Pass it as `resolver=` to `RpcService.serve()`, an endpoint, `create_router()`,
-or `RpcTestClient`. A synchronous or asynchronous callable taking the requested
-type is accepted as a lightweight alternative.
+or `create_server()`. A synchronous or asynchronous callable taking the
+requested type is accepted as a lightweight alternative.
 
-Context values take precedence over the resolver. `RpcConnection` is also made
-available by type for the lifetime of that connection.
+Context values take precedence over the resolver. `RpcConnection` and, on
+socket endpoints, `RpcPeer` are also made available by type for the lifetime of
+that connection.
 
 ## Resource scopes
 
@@ -108,7 +110,7 @@ web.include_router(dishka_router(app))
 The integration reads `web.state.dishka_container`; pass the APP container to
 `DishkaResolver` when constructing one manually. A SESSION container from
 `websocket.state` is rejected because pyrpckit opens that scope itself and adds
-`RpcConnection` to its context.
+`RpcConnection` and `RpcPeer` to its context.
 
 Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
 container for every WebSocket, including RPC sockets. pyrpckit does not use

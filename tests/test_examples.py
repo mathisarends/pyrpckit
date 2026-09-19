@@ -15,3 +15,21 @@ def test_example_runs(example: Path) -> None:
         capture_output=True,
         text=True,
     )
+
+
+def test_generated_client_examples_match_their_source() -> None:
+    config = Path(__file__).parents[1] / "examples/generated_clients/rpcgen.toml"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyrpckit.codegen.cli",
+            "generate",
+            "--config",
+            str(config),
+            "--check",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

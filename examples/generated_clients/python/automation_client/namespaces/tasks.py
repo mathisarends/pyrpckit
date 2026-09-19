@@ -3,8 +3,19 @@
 from collections.abc import AsyncIterator
 
 from automation_client.internal import RpcClientCore
-from automation_client.models import CreateTaskParams, Task, TaskList, TaskUpdated
-from automation_client.routes import TASKS_CREATE, TASKS_LIST, TASKS_UPDATED
+from automation_client.models import (
+    CreateTaskParams,
+    DeleteTaskParams,
+    Task,
+    TaskList,
+    TaskUpdated,
+)
+from automation_client.routes import (
+    TASKS_CREATE,
+    TASKS_DELETE,
+    TASKS_LIST,
+    TASKS_UPDATED,
+)
 
 
 class Tasks:
@@ -28,6 +39,20 @@ class Tasks:
         )
         return await self._rpc.request(
             TASKS_CREATE,
+            params=params,
+        )
+
+    async def delete(
+        self,
+        *,
+        task_id: str,
+    ) -> bool:
+        """Delete a task once the operator approves it."""
+        params = DeleteTaskParams(
+            task_id=task_id,
+        )
+        return await self._rpc.request(
+            TASKS_DELETE,
             params=params,
         )
 

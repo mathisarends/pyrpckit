@@ -19,7 +19,8 @@ from pyrpckit import (
     RpcService,
     RpcStreamDirection,
 )
-from pyrpckit.testing import RpcTestClient, RpcTestConnectionClosed
+
+from .testing import RpcTestClient, RpcTestConnectionClosed
 
 
 class Recording:
@@ -57,17 +58,17 @@ def _service(*streams, path: str = "/stream") -> RpcService:
 def test_direction_is_derived_from_the_handler_signature() -> None:
     channel = RpcChannel("media")
 
-    @channel.stream()
+    @channel.server.stream()
     async def generated() -> AsyncIterator[bytes]:
         yield b""
 
-    @channel.stream()
+    @channel.server.stream()
     async def pushed(output: Inject[RpcBinaryOutput]) -> None: ...
 
-    @channel.stream(input_content_type="audio/pcm")
+    @channel.server.stream(input_content_type="audio/pcm")
     async def uploaded(frames: Inject[RpcBinaryInput]) -> None: ...
 
-    @channel.stream(content_type="audio/pcm")
+    @channel.server.stream(content_type="audio/pcm")
     async def duplex(
         frames: Inject[RpcBinaryInput], output: Inject[RpcBinaryOutput]
     ) -> None: ...
@@ -87,7 +88,7 @@ def test_generator_with_input_points_to_the_coroutine_form() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match="await output.send"):
 
-        @channel.stream()
+        @channel.server.stream()
         async def invalid(frames: Inject[RpcBinaryInput]) -> AsyncIterator[bytes]:
             yield b""
 
@@ -97,7 +98,7 @@ def test_input_content_type_requires_input() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match="input_content_type"):
 
-        @channel.stream(input_content_type="audio/pcm")
+        @channel.server.stream(input_content_type="audio/pcm")
         async def invalid() -> AsyncIterator[bytes]:
             yield b""
 
@@ -107,14 +108,14 @@ def test_coroutine_streams_need_binary_input_or_output() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match="RpcBinaryInput and/or"):
 
-        @channel.stream()
+        @channel.server.stream()
         async def invalid() -> None: ...
 
 
 def test_stream_path_parameters_must_be_path_variables() -> None:
     channel = RpcChannel("media")
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(session_id: UUID, frames: Inject[RpcBinaryInput]) -> None: ...
 
     with pytest.raises(ProtocolDefinitionError, match="session_id"):
@@ -126,7 +127,7 @@ def test_stream_path_parameters_reject_models() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match="path variable"):
 
-        @channel.stream()
+        @channel.server.stream()
         async def upload(session: Recording, frames: Inject[RpcBinaryInput]) -> None:
             pass
 
@@ -134,10 +135,10 @@ def test_stream_path_parameters_reject_models() -> None:
 def test_contract_describes_direction_and_input_content_type() -> None:
     channel = RpcChannel("media")
 
-    @channel.stream(input_content_type="audio/pcm")
+    @channel.server.stream(input_content_type="audio/pcm")
     async def upload(frames: Inject[RpcBinaryInput]) -> None: ...
 
-    @channel.stream(content_type="audio/opus", input_content_type="audio/pcm")
+    @channel.server.stream(content_type="audio/opus", input_content_type="audio/pcm")
     async def talk(
         frames: Inject[RpcBinaryInput], output: Inject[RpcBinaryOutput]
     ) -> None: ...
@@ -168,7 +169,7 @@ async def test_client_to_server_frames_arrive_in_order_until_end() -> None:
     channel = RpcChannel("uploads")
     recording = Recording()
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(frames: Inject[RpcBinaryInput], target: Inject[Recording]) -> None:
         async for frame in frames:
             target.frames.append(frame)
@@ -190,7 +191,7 @@ async def test_client_to_server_frames_arrive_in_order_until_end() -> None:
 async def test_bidirectional_output_continues_after_input_end() -> None:
     channel = RpcChannel("voice")
 
-    @channel.stream()
+    @channel.server.stream()
     async def echo(
         frames: Inject[RpcBinaryInput], output: Inject[RpcBinaryOutput]
     ) -> None:
@@ -210,7 +211,7 @@ async def test_bidirectional_output_continues_after_input_end() -> None:
 async def test_bidirectional_input_and_output_run_concurrently() -> None:
     channel = RpcChannel("voice")
 
-    @channel.stream()
+    @channel.server.stream()
     async def echo(
         frames: Inject[RpcBinaryInput], output: Inject[RpcBinaryOutput]
     ) -> None:
@@ -229,7 +230,7 @@ async def test_bidirectional_input_and_output_run_concurrently() -> None:
 async def test_push_based_output_without_input() -> None:
     channel = RpcChannel("media")
 
-    @channel.stream()
+    @channel.server.stream()
     async def ticks(output: Inject[RpcBinaryOutput]) -> None:
         for value in (b"1", b"2"):
             await output.send(value)
@@ -256,7 +257,7 @@ async def test_push_based_output_without_input() -> None:
 async def test_invalid_input_is_a_protocol_error(frames, expected) -> None:
     channel = RpcChannel("uploads")
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(frames: Inject[RpcBinaryInput]) -> None:
         async for _ in frames:
             pass
@@ -274,7 +275,7 @@ async def test_invalid_input_is_a_protocol_error(frames, expected) -> None:
 async def test_input_on_a_server_to_client_stream_is_a_protocol_error() -> None:
     channel = RpcChannel("media")
 
-    @channel.stream()
+    @channel.server.stream()
     async def frames() -> AsyncIterator[bytes]:
         await asyncio.Event().wait()
         yield b""
@@ -290,7 +291,7 @@ async def test_input_on_a_server_to_client_stream_is_a_protocol_error() -> None:
 async def test_oversized_input_frames_close_the_stream() -> None:
     channel = RpcChannel("uploads")
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(frames: Inject[RpcBinaryInput]) -> None:
         async for _ in frames:
             pass
@@ -307,7 +308,7 @@ async def test_disconnect_before_end_aborts_the_handler(code) -> None:
     channel = RpcChannel("uploads")
     recording = Recording()
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(frames: Inject[RpcBinaryInput], target: Inject[Recording]) -> None:
         try:
             async for frame in frames:
@@ -331,7 +332,7 @@ async def test_reader_applies_backpressure_with_a_bounded_queue() -> None:
     gate = asyncio.Event()
     received: list[bytes] = []
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(frames: Inject[RpcBinaryInput]) -> None:
         await gate.wait()
         received.extend([frame async for frame in frames])
@@ -357,7 +358,7 @@ async def test_path_variables_are_validated_and_typed() -> None:
     channel = RpcChannel("voice")
     seen: list[UUID] = []
 
-    @channel.stream()
+    @channel.server.stream()
     async def media(voice_session_id: UUID, output: Inject[RpcBinaryOutput]) -> None:
         seen.append(voice_session_id)
         await output.send(voice_session_id.bytes)
@@ -382,7 +383,7 @@ async def test_path_variables_are_validated_and_typed() -> None:
 async def test_ownership_recipe_refuses_a_second_connection() -> None:
     channel = RpcChannel("voice")
 
-    @channel.stream()
+    @channel.server.stream()
     async def media(
         voice_session_id: UUID,
         frames: Inject[RpcBinaryInput],
@@ -424,7 +425,7 @@ async def test_ownership_recipe_refuses_a_second_connection() -> None:
 async def test_handler_failures_close_with_internal_error() -> None:
     channel = RpcChannel("uploads")
 
-    @channel.stream()
+    @channel.server.stream()
     async def upload(frames: Inject[RpcBinaryInput]) -> None:
         await frames.receive()
         raise RuntimeError("boom")
@@ -441,7 +442,7 @@ async def test_output_after_close_raises_instead_of_hanging() -> None:
     channel = RpcChannel("media")
     errors: list[Exception] = []
 
-    @channel.stream()
+    @channel.server.stream()
     async def push(
         output: Inject[RpcBinaryOutput], connection: Inject[RpcConnection]
     ) -> None:

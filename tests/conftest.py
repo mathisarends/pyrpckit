@@ -5,7 +5,7 @@ from typing import Literal
 import pytest
 from pydantic import BaseModel
 
-import pyrpckit as rpc
+from pyrpckit import Inject, RpcChannel, RpcError
 from pyrpckit.protocol import RpcProtocol
 
 
@@ -49,12 +49,12 @@ class GreetingForgotten(BaseModel):
 type GreetingUpdate = GreetingSaid | GreetingForgotten
 
 
-class UnknownGreetingError(rpc.RpcError):
+class UnknownGreetingError(RpcError):
     rpc_code = -32001
     message = "Unknown greeting"
 
 
-GREETING_ROUTER = rpc.RpcChannel("greeting")
+greeting_channel = RpcChannel("greeting")
 
 
 class GreetingState:
@@ -62,19 +62,19 @@ class GreetingState:
         self.greeted: list[str] = []
 
 
-@GREETING_ROUTER.method("say", summary="Greet someone by name.")
+@greeting_channel.server.method("say", summary="Greet someone by name.")
 async def say(
     params: SayParams,
-    state: rpc.Inject[GreetingState],
+    state: Inject[GreetingState],
 ) -> SayResult:
     state.greeted.append(params.name)
     return SayResult(text=f"Hello, {params.name}!")
 
 
-@GREETING_ROUTER.method("forget", raises=(UnknownGreetingError,))
+@greeting_channel.server.method("forget", raises=(UnknownGreetingError,))
 async def forget(
     params: ForgetParams,
-    state: rpc.Inject[GreetingState],
+    state: Inject[GreetingState],
 ) -> None:
     """Forget a greeted name."""
     if params.name not in state.greeted:
@@ -82,21 +82,21 @@ async def forget(
     state.greeted.remove(params.name)
 
 
-@GREETING_ROUTER.method("greeted")
+@greeting_channel.server.method("greeted")
 async def greeted_names(
-    state: rpc.Inject[GreetingState],
+    state: Inject[GreetingState],
 ) -> GreetedResult:
     """List everyone greeted so far."""
     return GreetedResult(names=list(state.greeted))
 
 
-@GREETING_ROUTER.method("clear")
-async def clear(state: rpc.Inject[GreetingState]) -> None:
+@greeting_channel.server.method("clear")
+async def clear(state: Inject[GreetingState]) -> None:
     """Forget everyone."""
     state.greeted.clear()
 
 
-@GREETING_ROUTER.event(
+@greeting_channel.server.event(
     "changed",
     payload=GreetingUpdate,
     summary="Publish a greeting change.",
@@ -106,13 +106,47 @@ async def greeting_changed() -> AsyncIterator[GreetingUpdate]:
         yield GreetingSaid(text="")
 
 
-GREETING_PROTOCOL = GREETING_ROUTER.protocol
-GREETING_APP = GREETING_ROUTER
+class MediaPlayParams(BaseModel):
+    media_uri: str
+
+
+class MediaPlayResult(BaseModel):
+    started: bool
+
+
+class SpeakerDetails(BaseModel):
+    speaker_id: str
+
+
+class MediaUnavailableError(RpcError):
+    rpc_code = -32010
+    details: SpeakerDetails
+
+
+class HelloParams(BaseModel):
+    room_id: str
+
+
+room_channel = RpcChannel("room")
+media_channel = room_channel.child("media")
+
+media_play = media_channel.client.method(
+    "play",
+    params=MediaPlayParams,
+    result=MediaPlayResult,
+    raises=(MediaUnavailableError,),
+    summary="Play a media URI on the room's speaker.",
+)
+room_ping = room_channel.client.method("ping")
+
+
+greeting_protocol = greeting_channel.protocol
+greeting_app = greeting_channel
 
 
 @pytest.fixture
 def protocol() -> RpcProtocol:
-    return GREETING_PROTOCOL
+    return greeting_protocol
 
 
 @pytest.fixture

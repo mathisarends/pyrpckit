@@ -23,7 +23,7 @@ Declare expected errors on a method and raise them with a details model or its
 fields:
 
 ```python
-@tasks.method(raises=(MissingTaskError,))
+@tasks.server.method(raises=(MissingTaskError,))
 async def get(params: GetTask) -> Task:
     task = await find_task(params.task_id)
     if task is None:

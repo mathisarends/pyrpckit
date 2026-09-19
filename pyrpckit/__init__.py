@@ -32,6 +32,15 @@ from .observer import (
     RpcRequestContext,
     RpcResponseContext,
 )
+from .peer import (
+    RpcClientMethodError,
+    RpcClientMethodFailedError,
+    RpcClientMethodResultError,
+    RpcClientMethodTimeoutError,
+    RpcPeer,
+    RpcPeerClosedError,
+)
+from .protocol import RpcClientMethod
 from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from .streams import (
@@ -50,6 +59,11 @@ __all__ = [
     "ProtocolDefinitionError",
     "RpcBinaryInput",
     "RpcBinaryOutput",
+    "RpcClientMethod",
+    "RpcClientMethodError",
+    "RpcClientMethodFailedError",
+    "RpcClientMethodResultError",
+    "RpcClientMethodTimeoutError",
     "RpcChannel",
     "RpcCodec",
     "RpcConnection",
@@ -74,6 +88,8 @@ __all__ = [
     "RpcNotification",
     "RpcObserver",
     "RpcParseError",
+    "RpcPeer",
+    "RpcPeerClosedError",
     "RpcRejection",
     "RpcRequestId",
     "RpcRequestContext",

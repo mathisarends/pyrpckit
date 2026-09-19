@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.0 - Unreleased
+
+### Added
+
+- Group channel declarations by the side that implements them:
+  `channel.server.method`, `channel.server.event`, and `channel.server.stream`
+  for the server, `channel.client.method` for the connected client.
+- Add client methods, requests the server sends to a connected client.
+  `channel.client.method(name, params=..., result=..., raises=...)` declares a
+  typed `RpcClientMethod`. Client method names share the name space of server
+  methods, events, and streams.
+- Make `RpcPeer` injectable on socket endpoints. `peer.call(client_method,
+  params, timeout=...)` validates params and results, raises declared errors as
+  their typed exceptions, and raises `RpcClientMethodFailedError`,
+  `RpcClientMethodResultError`, `RpcClientMethodTimeoutError`, or
+  `RpcPeerClosedError` otherwise. Server-originated requests use `server:<n>`
+  string IDs, and outgoing calls respect `RpcLimits`.
+- Describe client methods under the `x-rpc-client-methods` OpenRPC extension,
+  in the same shape as `methods`.
+- Generate one abstract client method class per namespace in Python clients,
+  such as `RoomMediaClientMethods`, plus `ClientMethodHandler` and
+  `client_method_dispatcher()`. `connect(client_methods=...)` registers
+  handlers, which run concurrently. Declared errors of client methods gain
+  `create()`.
+
+### Changed
+
+- **Breaking:** Remove `channel.method`, `channel.event`, and `channel.stream`.
+  Declare server operations with `@channel.server.method`,
+  `@channel.server.event`, and `@channel.server.stream` instead.
+- **Breaking:** Rename `RpcChannel.server(...)` and `RpcEndpoint.server(...)` to
+  `create_server(...)`, since `channel.server` now names the server side.
+- Generated Python WebSocket transports answer incoming requests. Requests
+  without a registered handler get `-32601 Method not found`, where they used to
+  fail the transport.
+- **Breaking:** Remove the internal in-memory test client from the distributed
+  `pyrpckit.testing` module. Repository integration tests keep their transport
+  helpers under `tests/`.
+- Raise the generated client layout version to 10.
+
 ## 0.6.0 - Unreleased
 
 ### Added

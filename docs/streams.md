@@ -29,7 +29,7 @@ class FrameSource:
 media = RpcChannel("media")
 
 
-@media.stream(content_type="image/jpeg", summary="Live preview frames.")
+@media.server.stream(content_type="image/jpeg", summary="Live preview frames.")
 async def preview(source: Inject[FrameSource]) -> AsyncIterator[bytes]:
     async for frame in source.frames():
         yield frame
@@ -60,7 +60,7 @@ from pyrpckit import RpcBinaryInput, RpcBinaryOutput
 uploads = RpcChannel("uploads")
 
 
-@uploads.stream("audio", input_content_type="audio/pcm")
+@uploads.server.stream("audio", input_content_type="audio/pcm")
 async def upload_audio(
     frames: Inject[RpcBinaryInput],
     store: Inject[RecordingStore],
@@ -70,7 +70,7 @@ async def upload_audio(
             await recording.write(frame)
 
 
-@media.stream("talk", content_type="audio/opus", input_content_type="audio/pcm")
+@media.server.stream("talk", content_type="audio/opus", input_content_type="audio/pcm")
 async def talk(
     frames: Inject[RpcBinaryInput],
     output: Inject[RpcBinaryOutput],
@@ -105,7 +105,7 @@ Handler parameters without `Inject[...]` are variables of the mounted path.
 Pydantic validates them before the WebSocket is accepted:
 
 ```python
-@voice.stream("media", content_type="audio/pcm")
+@voice.server.stream("media", content_type="audio/pcm")
 async def media(
     voice_session_id: UUID,
     frames: Inject[RpcBinaryInput],
@@ -164,7 +164,7 @@ class MediaOwners:
                 self._owners.discard(key)
 
 
-@voice.stream("media", content_type="audio/pcm")
+@voice.server.stream("media", content_type="audio/pcm")
 async def media(
     voice_session_id: UUID,
     frames: Inject[RpcBinaryInput],
@@ -280,34 +280,5 @@ implement `send()` and `end_input()` / `endInput()`.
 Starting an operation and opening its byte stream remain two explicit actions.
 For example, call a regular `start()` RPC method first and then open its sibling
 stream. The contract does not currently link a stream to a start method.
-
-## Test a stream
-
-```python
-from pyrpckit.testing import RpcTestClient
-
-
-async with RpcTestClient(
-    app,
-    "/projects/demo/preview",
-    context={FrameSource: FrameSource()},
-) as client:
-    assert await client.next_frame() == b"frame"
-```
-
-On a stream with input, the test client can send frames. `closed()` waits for
-the server to close and returns the close code and reason:
-
-```python
-async with RpcTestClient(app, f"/v1/voice-sessions/{session_id}/media") as media:
-    await media.send_frame(b"pcm")
-    await media.end_input()
-    assert await media.next_frame() == b"audio"
-    assert await media.closed() == (RpcConnectionClose.NORMAL, "")
-```
-
-`request()` is unavailable on stream endpoints, and `next_frame()` is
-unavailable on JSON-RPC endpoints. `send_frame()` and `end_input()` work only
-on streams with input.
 
 [Back to documentation](README.md)

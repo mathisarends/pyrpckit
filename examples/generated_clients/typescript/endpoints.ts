@@ -56,6 +56,7 @@ export const servers = {
     transport: {
       type: "websocket",
       messageEncoding: "json",
+      frameType: "text",
     },
     variables: {
       host: {
@@ -69,10 +70,11 @@ export const servers = {
     transport: {
       type: "websocket",
       messageEncoding: "json",
+      frameType: "text",
     },
     variables: {
       host: {
-        default: "browser.example.com",
+        default: "api.example.com",
       },
     },
   },
@@ -83,10 +85,11 @@ export const servers = {
       type: "websocket",
       messageEncoding: "json",
       subprotocols: ["pyrpckit.jsonrpc"],
+      frameType: "text",
     },
     variables: {
       host: {
-        default: "stream.example.com",
+        default: "api.example.com",
       },
     },
   },

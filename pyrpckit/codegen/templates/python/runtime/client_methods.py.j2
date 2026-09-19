@@ -1,0 +1,135 @@
+import logging
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel, TypeAdapter, ValidationError
+
+from .errors import RpcRemoteError
+
+logger = logging.getLogger(__name__)
+
+type JsonObject = dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class RpcClientMethodInfo:
+    method: str
+    owner: type[Any]
+    attribute: str
+    params_adapter: TypeAdapter[Any] | None
+    result_adapter: TypeAdapter[Any]
+    server: str | None = None
+
+
+class RpcClientMethodDispatcher:
+    """Answers the requests the server sends with the registered handlers.
+
+    Each handler implements one or more generated handler classes. Requests whose
+    namespace has no handler are answered with ``-32601 Method not found``.
+    """
+
+    def __init__(
+        self,
+        routes: Iterable[RpcClientMethodInfo],
+        handlers: object | Iterable[object] = (),
+    ) -> None:
+        self._routes = {route.method: route for route in routes}
+        owners = tuple(dict.fromkeys(route.owner for route in self._routes.values()))
+        if isinstance(handlers, owners):
+            handlers = (handlers,)
+        if not isinstance(handlers, Iterable):
+            raise TypeError(
+                f"{type(handlers).__name__} implements no handler namespace"
+            )
+        self._handlers: dict[type[Any], object] = {}
+        for handler in handlers:
+            implemented = [owner for owner in owners if isinstance(handler, owner)]
+            if not implemented:
+                raise TypeError(
+                    f"{type(handler).__name__} implements no handler namespace"
+                )
+            for owner in implemented:
+                if owner in self._handlers:
+                    raise ValueError(
+                        f"More than one handler implements {owner.__name__}"
+                    )
+                self._handlers[owner] = handler
+
+    async def respond(self, message: JsonObject) -> JsonObject:
+        request_id = message.get("id")
+        method = message.get("method")
+        route = self._routes.get(method) if isinstance(method, str) else None
+        handler = None if route is None else self._handlers.get(route.owner)
+        if route is None or handler is None:
+            return _failure(
+                request_id,
+                -32601,
+                "method_not_found",
+                "Method not found",
+                {"method": method},
+            )
+        arguments: tuple[Any, ...] = ()
+        if route.params_adapter is not None:
+            try:
+                params = route.params_adapter.validate_python(message.get("params", {}))
+            except ValidationError as error:
+                return _failure(
+                    request_id,
+                    -32602,
+                    "invalid_params",
+                    "Invalid params",
+                    {"issues": _issues(error)},
+                )
+            arguments = (params,)
+        try:
+            result = await getattr(handler, route.attribute)(*arguments)
+            value = route.result_adapter.validate_python(result)
+            payload = route.result_adapter.dump_python(
+                value, mode="json", by_alias=True
+            )
+        except RpcRemoteError as error:
+            return _failure(
+                request_id,
+                error.rpc_code,
+                error.code,
+                error.message,
+                _json(error.details),
+            )
+        except Exception:
+            logger.exception("RPC client method %s failed", route.method)
+            return _failure(
+                request_id, -32603, "internal_error", "Internal error", None
+            )
+        return {"jsonrpc": "2.0", "id": request_id, "result": payload}
+
+
+def _failure(
+    request_id: Any,
+    rpc_code: int,
+    code: str,
+    message: str,
+    details: Any,
+) -> JsonObject:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "code": rpc_code,
+            "message": message,
+            "data": {"code": code, "details": details},
+        },
+    }
+
+
+def _issues(error: ValidationError) -> list[JsonObject]:
+    return [
+        {"loc": list(issue["loc"]), "message": issue["msg"], "type": issue["type"]}
+        for issue in error.errors(include_url=False)
+    ]
+
+
+def _json(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", by_alias=True)
+    return value

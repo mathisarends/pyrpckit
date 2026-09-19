@@ -231,3 +231,28 @@ def test_inline_enums_become_literal_unions() -> None:
     assert type_expression({"type": "string", "enum": ["left", "right"]}) == (
         UnionType((LiteralType("left"), LiteralType("right")))
     )
+
+
+def test_client_methods_are_lowered_like_routes(room_document: dict[str, Any]) -> None:
+    ir = build_ir(room_document)
+
+    ping, play = ir.client_methods
+    assert play.rpc_name == "room.media.play"
+    assert play.path == ("room", "media")
+    assert play.operation_name == "play"
+    assert play.params_model == "MediaPlayParams"
+    assert play.result == NamedType("MediaPlayResult")
+    assert [error.code for error in play.errors] == ["media_unavailable"]
+    assert play.server == "rooms"
+    assert ping.params_model is None
+    assert ping.result == PrimitiveType(Primitive.NULL)
+    assert {"MediaPlayParams", "MediaPlayResult", "SpeakerDetails"} <= {
+        declaration.name for declaration in ir.declarations
+    }
+    assert "room.media.play" not in [route.rpc_name for route in ir.operations]
+
+
+def test_documents_without_client_methods_lower_to_none(
+    document: dict[str, Any],
+) -> None:
+    assert build_ir(document).client_methods == ()

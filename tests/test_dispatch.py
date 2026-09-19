@@ -1,6 +1,6 @@
 import pytest
 
-import pyrpckit as rpc
+from pyrpckit import RpcInvalidParamsError, RpcMethodNotFoundError
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.protocol import RpcProtocol
 
@@ -74,7 +74,7 @@ def test_unknown_methods_are_rejected(
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
-    with pytest.raises(rpc.RpcMethodNotFoundError):
+    with pytest.raises(RpcMethodNotFoundError):
         dispatcher.parse_request(_request("greeting.unknown", {}))
 
 
@@ -84,7 +84,7 @@ def test_invalid_params_name_the_offending_field(
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
-    with pytest.raises(rpc.RpcInvalidParamsError) as error:
+    with pytest.raises(RpcInvalidParamsError) as error:
         dispatcher.parse_request(_request(GreetingRpcMethod.SAY, {}))
 
     assert "params.name" in error.value.message
@@ -97,7 +97,7 @@ def test_params_sent_to_a_method_without_params_are_rejected(
 ) -> None:
     dispatcher = _dispatcher(protocol, handler)
 
-    with pytest.raises(rpc.RpcInvalidParamsError) as error:
+    with pytest.raises(RpcInvalidParamsError) as error:
         dispatcher.parse_request(_request(GreetingRpcMethod.CLEAR, {"name": "Mathis"}))
 
     assert "params.name" in error.value.message

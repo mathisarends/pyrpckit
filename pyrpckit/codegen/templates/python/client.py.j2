@@ -49,6 +49,7 @@
         headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
 {% if binary_streams %}        stream_socket_factory: BinaryWebSocketFactory | None = None,
+{% endif %}{% if client_methods %}        handlers: Handler | Iterable[Handler] = (),
 {% endif %}        hooks: Iterable[RpcClientHook] = (),
         eager: bool = {{ "True" if servers | length == 1 else "False" }},
     ) -> ClientConnection[Self, ServerName]:
@@ -60,6 +61,7 @@
 {% endif %}{% if servers | length == 1 %}        overrides = dict(servers or {})
         if url is not None:
             overrides.setdefault(ServerName.{{ servers[0].name | constant }}, url)
+{% endif %}{% if client_methods %}        dispatcher = handler_dispatcher(handlers)
 {% endif %}
         async def open_transport(
             endpoint_url: str,
@@ -75,7 +77,8 @@
                 notification_queue_size=notification_queue_size,
                 headers=headers,
                 socket_factory=socket_factory,
-            )
+{% if client_methods %}                request_handler=dispatcher,
+{% endif %}            )
 {% if binary_streams %}
         async def open_stream(endpoint: BinaryStreamEndpoint) -> BinaryStreamTransport:
             return await BinaryWebSocketStream.open(

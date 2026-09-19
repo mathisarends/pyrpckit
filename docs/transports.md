@@ -1,8 +1,7 @@
 # Transports
 
 pyrpckit's core deals in an `RpcSocket` protocol, not a web framework. Use the
-FastAPI adapter, implement that small protocol for another server, or test the
-service entirely in memory.
+FastAPI adapter or implement that small protocol for another server.
 
 ## FastAPI
 
@@ -92,27 +91,8 @@ disconnects by raising `RpcDisconnect` from `receive()` or a send operation.
 `app.serve()` matches the handshake path to the declared endpoint. Pass
 `root_path=` when an upstream server has already consumed a URL prefix.
 
-## Test without a network server
-
-`RpcTestClient` runs the same service runtime over an in-memory socket:
-
-```python
-from pyrpckit.testing import RpcTestClient, RpcTestError
-
-
-async with RpcTestClient(app, "/rpc", context={TaskStore: store}) as client:
-    result = await client.request("tasks.create", {"title": "Test it"})
-    await client.notify("tasks.refresh")
-    method, payload = await client.next_notification()
-```
-
-Expected RPC failures are raised as `RpcTestError`, carrying `rpc_code`, the
-stable application `code`, `message`, and `details`. The client also exposes
-its in-memory `socket`, which makes acceptance, rejection, subprotocol, and
-close behavior directly assertable.
-
 For low-level dispatch tests that do not need connection behavior, obtain an
-`RpcServer` from `endpoint.server(...)` or `channel.server(...)` and call
+`RpcServer` from `endpoint.create_server(...)` or `channel.create_server(...)` and call
 `handle()` or `handle_json()` directly.
 
 [Back to documentation](README.md)

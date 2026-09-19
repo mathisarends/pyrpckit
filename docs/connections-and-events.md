@@ -28,7 +28,7 @@ log why a socket ended.
 Inject it like any other server-side dependency:
 
 ```python
-@tasks.method()
+@tasks.server.method()
 async def connection_path(connection: Inject[RpcConnection]) -> str:
     return connection.path
 ```
@@ -39,7 +39,7 @@ After acceptance, injected code can close the live connection:
 from pyrpckit import RpcConnection, RpcConnectionClose
 
 
-@tasks.method()
+@tasks.server.method()
 async def sign_out(connection: Inject[RpcConnection]) -> None:
     await connection.close(RpcConnectionClose.NORMAL, reason="Signed out")
 ```
@@ -59,7 +59,7 @@ class TaskEvents:
     async def subscribe(self) -> AsyncIterator[TaskUpdated]: ...
 
 
-@tasks.event(summary="Publish task changes.")
+@tasks.server.event(summary="Publish task changes.")
 async def updated(events: Inject[TaskEvents]) -> AsyncIterator[TaskUpdated]:
     async for update in events.subscribe():
         yield update
@@ -71,8 +71,11 @@ Pydantic models is supported for event families, and a literal `type` field can
 serve as their discriminator in generated clients.
 
 The payload type comes from `AsyncIterator[T]`, so events do not need
-`payload=`. The optional `@channel.event(payload=...)` only asserts that type
+`payload=`. The optional `@channel.server.event(payload=...)` only asserts that type
 and fails at definition time when it differs from the yielded type.
+
+Events expect no answer. When the server needs the client's result, declare a
+[client method](client-methods.md) instead.
 
 ## Observe requests
 

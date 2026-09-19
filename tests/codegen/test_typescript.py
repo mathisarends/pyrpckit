@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-import pyrpckit as rpc
+from pyrpckit import RpcChannel, RpcService
 from pyrpckit.codegen import generate_typescript_client, render_typescript_client
 from pyrpckit.codegen.typescript import TypeScriptClientOptions
 from pyrpckit.codegen.writer import MANIFEST
@@ -471,13 +471,13 @@ def test_generated_typescript_passes_strict_type_checking(
 
 
 def test_contracts_without_models_do_not_export_a_models_module() -> None:
-    channel = rpc.RpcChannel("control")
+    channel = RpcChannel("control")
 
-    @channel.method
+    @channel.server.method
     async def ping() -> str:
         return "pong"
 
-    service = rpc.RpcService()
+    service = RpcService()
     service.socket("/rpc", channels=[channel])
     document = service.contract(title="Control", base_url="ws://localhost")
 

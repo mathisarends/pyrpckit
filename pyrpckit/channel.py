@@ -6,6 +6,8 @@ from dataclasses import dataclass, replace
 from types import FunctionType
 from typing import Any, overload
 
+from pydantic import BaseModel
+
 from pyrpckit.dependencies import (
     RpcResolverLike,
     RpcResolverScope,
@@ -15,9 +17,11 @@ from pyrpckit.dependencies import (
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import (
+    RpcClientMethod,
     RpcNotificationDefinition,
     RpcProtocol,
     RpcStreamDefinition,
+    client_method_definition,
     method_definition,
     notification_definition,
     notification_type_definitions,
@@ -68,9 +72,12 @@ class RpcChannel:
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
         self._streams: list[RpcStreamDefinition] = []
+        self._client_methods: list[RpcClientMethod[Any, Any]] = []
         self._children: list[RpcChannel] = []
         self._names: set[str] = set()
         self._protocol: RpcProtocol | None = None
+        self._server = RpcServerSide(self)
+        self._client = RpcClientSide(self)
 
     name = property(lambda self: self._name)
     namespace = property(lambda self: self._namespace)
@@ -79,8 +86,19 @@ class RpcChannel:
     routes = property(lambda self: tuple(self._routes))
     events = property(lambda self: tuple(self._events))
     streams = property(lambda self: tuple(self._streams))
+    client_methods = property(lambda self: tuple(self._client_methods))
     children = property(lambda self: tuple(self._children))
     protocol = property(lambda self: self.freeze())
+
+    @property
+    def server(self) -> "RpcServerSide":
+        """What the server implements."""
+        return self._server
+
+    @property
+    def client(self) -> "RpcClientSide":
+        """What the connected client implements."""
+        return self._client
 
     def child(
         self,
@@ -100,134 +118,6 @@ class RpcChannel:
         )
         self._children.append(child)
         return child
-
-    @overload
-    def method(self, function: FunctionType, /) -> FunctionType: ...
-
-    @overload
-    def method(
-        self,
-        name: str | None = None,
-        /,
-        *,
-        summary: str | None = None,
-        raises: Iterable[type[RpcError]] = (),
-    ) -> Callable[[FunctionType], FunctionType]: ...
-
-    def method(
-        self,
-        name: str | FunctionType | None = None,
-        /,
-        *,
-        summary: str | None = None,
-        raises: Iterable[type[RpcError]] = (),
-    ) -> Any:
-        self._ensure_mutable()
-        if isinstance(name, FunctionType):
-            return self.method()(name)
-        if name is not None and not isinstance(name, str):
-            raise ProtocolDefinitionError(
-                "RPC method decorator expects a function or name"
-            )
-        local_name = None if name is None else _segment(name, "method name")
-        merged_raises = tuple(
-            dict.fromkeys((*self.raises, *(declared_error(e) for e in raises)))
-        )
-
-        def decorate(function: FunctionType) -> FunctionType:
-            self._validate_function(function, "method", coroutine=True)
-            wire_name = join_rpc_name(self.namespace, local_name or function.__name__)
-            self._reserve(wire_name)
-            self._routes.append(
-                RpcRoute(
-                    wire_name,
-                    function,
-                    summary or _docstring_summary(function),
-                    merged_raises,
-                    self.resolver_scope,
-                )
-            )
-            return function
-
-        return decorate
-
-    def event(
-        self,
-        name: str | FunctionType | None = None,
-        /,
-        *,
-        payload: Any = None,
-        summary: str | None = None,
-    ) -> Any:
-        self._ensure_mutable()
-        if isinstance(name, FunctionType):
-            return self.event()(name)
-        if name is not None and not isinstance(name, str):
-            raise ProtocolDefinitionError(
-                "RPC event decorator expects a function or name"
-            )
-
-        def decorate(function: FunctionType) -> FunctionType:
-            self._validate_function(function, "event", coroutine=False)
-            wire_name = join_rpc_name(
-                self.namespace, _segment(name or function.__name__, "event name")
-            )
-            definition = notification_definition(
-                name=wire_name,
-                payload=payload,
-                function=function,
-                summary=summary or _docstring_summary(function),
-                server=None,
-            )
-            self._reserve(wire_name)
-            self._events.append(definition)
-            return function
-
-        return decorate
-
-    def stream(
-        self,
-        name: str | FunctionType | None = None,
-        /,
-        *,
-        content_type: str = "application/octet-stream",
-        input_content_type: str | None = None,
-        summary: str | None = None,
-    ) -> Any:
-        self._ensure_mutable()
-        if isinstance(name, FunctionType):
-            return self.stream()(name)
-        if name is not None and not isinstance(name, str):
-            raise ProtocolDefinitionError(
-                "RPC stream decorator expects a function or name"
-            )
-        if not isinstance(content_type, str) or not content_type:
-            raise ProtocolDefinitionError("RPC stream content_type cannot be empty")
-        if input_content_type is not None and (
-            not isinstance(input_content_type, str) or not input_content_type
-        ):
-            raise ProtocolDefinitionError(
-                "RPC stream input_content_type cannot be empty"
-            )
-
-        def decorate(function: FunctionType) -> FunctionType:
-            self._validate_function(function, "stream", coroutine=False)
-            local = _segment(name or function.__name__, "stream name")
-            wire_name = join_rpc_name(self.namespace, local)
-            definition = stream_definition(
-                name=wire_name,
-                function=function,
-                content_type=content_type,
-                input_content_type=input_content_type,
-                summary=summary or _docstring_summary(function),
-                resolver_scope=self.resolver_scope,
-            )
-            self._reserve(wire_name)
-            self._streams.append(definition)
-            function.__pyrpckit_stream__ = self, local
-            return function
-
-        return decorate
 
     def freeze(self) -> RpcProtocol:
         if self._protocol is None:
@@ -250,12 +140,14 @@ class RpcChannel:
                 for item in notification_type_definitions(event.payload)
             ]
             streams = list(self.streams)
+            client_methods = list(self.client_methods)
             for child in self.children:
                 protocol = child.freeze()
                 definitions.extend(protocol.methods)
                 notifications.extend(protocol.notifications)
                 notification_types.extend(protocol.notification_types)
                 streams.extend(protocol.streams)
+                client_methods.extend(protocol.client_methods)
             duplicate_requests = {
                 name
                 for name, count in Counter(d.request_name for d in definitions).items()
@@ -275,10 +167,11 @@ class RpcChannel:
                 notifications=notifications,
                 notification_types=notification_types,
                 streams=streams,
+                client_methods=client_methods,
             )
         return self._protocol
 
-    def server(
+    def create_server(
         self,
         *,
         context: object | Mapping[type[Any], object] | None = None,
@@ -320,6 +213,180 @@ class RpcChannel:
                 f"RpcChannel {self.name!r} is frozen because its protocol was "
                 "already materialized (directly or by RpcService)"
             )
+
+
+class RpcServerSide:
+    """``channel.server``: methods, events and streams the server implements."""
+
+    def __init__(self, channel: RpcChannel) -> None:
+        self._channel = channel
+
+    @overload
+    def method(self, function: FunctionType, /) -> FunctionType: ...
+
+    @overload
+    def method(
+        self,
+        name: str | None = None,
+        /,
+        *,
+        summary: str | None = None,
+        raises: Iterable[type[RpcError]] = (),
+    ) -> Callable[[FunctionType], FunctionType]: ...
+
+    def method(
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        summary: str | None = None,
+        raises: Iterable[type[RpcError]] = (),
+    ) -> Any:
+        channel = self._channel
+        channel._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.method()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC method decorator expects a function or name"
+            )
+        local_name = None if name is None else _segment(name, "method name")
+        merged_raises = tuple(
+            dict.fromkeys((*channel.raises, *(declared_error(e) for e in raises)))
+        )
+
+        def decorate(function: FunctionType) -> FunctionType:
+            channel._validate_function(function, "method", coroutine=True)
+            wire_name = join_rpc_name(
+                channel.namespace, local_name or function.__name__
+            )
+            channel._reserve(wire_name)
+            channel._routes.append(
+                RpcRoute(
+                    wire_name,
+                    function,
+                    summary or _docstring_summary(function),
+                    merged_raises,
+                    channel.resolver_scope,
+                )
+            )
+            return function
+
+        return decorate
+
+    def event(
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        payload: Any = None,
+        summary: str | None = None,
+    ) -> Any:
+        channel = self._channel
+        channel._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.event()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC event decorator expects a function or name"
+            )
+
+        def decorate(function: FunctionType) -> FunctionType:
+            channel._validate_function(function, "event", coroutine=False)
+            wire_name = join_rpc_name(
+                channel.namespace, _segment(name or function.__name__, "event name")
+            )
+            definition = notification_definition(
+                name=wire_name,
+                payload=payload,
+                function=function,
+                summary=summary or _docstring_summary(function),
+                server=None,
+            )
+            channel._reserve(wire_name)
+            channel._events.append(definition)
+            return function
+
+        return decorate
+
+    def stream(
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        content_type: str = "application/octet-stream",
+        input_content_type: str | None = None,
+        summary: str | None = None,
+    ) -> Any:
+        channel = self._channel
+        channel._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.stream()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC stream decorator expects a function or name"
+            )
+        if not isinstance(content_type, str) or not content_type:
+            raise ProtocolDefinitionError("RPC stream content_type cannot be empty")
+        if input_content_type is not None and (
+            not isinstance(input_content_type, str) or not input_content_type
+        ):
+            raise ProtocolDefinitionError(
+                "RPC stream input_content_type cannot be empty"
+            )
+
+        def decorate(function: FunctionType) -> FunctionType:
+            channel._validate_function(function, "stream", coroutine=False)
+            local = _segment(name or function.__name__, "stream name")
+            wire_name = join_rpc_name(channel.namespace, local)
+            definition = stream_definition(
+                name=wire_name,
+                function=function,
+                content_type=content_type,
+                input_content_type=input_content_type,
+                summary=summary or _docstring_summary(function),
+                resolver_scope=channel.resolver_scope,
+            )
+            channel._reserve(wire_name)
+            channel._streams.append(definition)
+            function.__pyrpckit_stream__ = channel, local
+            return function
+
+        return decorate
+
+
+class RpcClientSide:
+    """``channel.client``: methods the connected client implements."""
+
+    def __init__(self, channel: RpcChannel) -> None:
+        self._channel = channel
+
+    def method[ParamsT: BaseModel, ResultT](
+        self,
+        name: str,
+        /,
+        *,
+        params: type[ParamsT] | None = None,
+        result: type[ResultT] | None = None,
+        raises: Iterable[type[RpcError]] = (),
+        summary: str | None = None,
+    ) -> RpcClientMethod[ParamsT, ResultT]:
+        """Declare a request the server sends and the connected client answers."""
+        channel = self._channel
+        channel._ensure_mutable()
+        wire_name = join_rpc_name(
+            channel.namespace, _segment(name, "client method name")
+        )
+        definition = client_method_definition(
+            name=wire_name,
+            params=params,
+            result=result,
+            summary=summary,
+            raises=tuple(dict.fromkeys(declared_error(e) for e in raises)),
+        )
+        channel._reserve(wire_name)
+        channel._client_methods.append(definition)
+        return definition
 
 
 def join_rpc_name(*parts: str) -> str:

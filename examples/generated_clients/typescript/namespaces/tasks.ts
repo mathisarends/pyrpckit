@@ -4,7 +4,13 @@
 
 import type { RpcClientCore } from "../core";
 import { routes, notifications } from "../routes";
-import type { CreateTaskParams, Task, TaskList, TaskUpdated } from "../models";
+import type {
+  CreateTaskParams,
+  DeleteTaskParams,
+  Task,
+  TaskList,
+  TaskUpdated,
+} from "../models";
 
 export class Tasks {
   constructor(private readonly rpc: RpcClientCore) {}
@@ -17,6 +23,11 @@ export class Tasks {
   /** Create a task. */
   create(params: CreateTaskParams): Promise<Task> {
     return this.rpc.request(routes.tasksCreate, params);
+  }
+
+  /** Delete a task once the operator approves it. */
+  delete_(params: DeleteTaskParams): Promise<boolean> {
+    return this.rpc.request(routes.tasksDelete, params);
   }
 
   /** Stream task updates. */

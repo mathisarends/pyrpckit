@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from pyrpckit import ProtocolDefinitionError, RpcChannel, RpcError, RpcModel
+from pyrpckit import ProtocolDefinitionError, RpcChannel, RpcError, RpcModel, RpcServer
 
 
 class SharedError(RpcError):
@@ -20,10 +20,10 @@ class Event(RpcModel):
 def test_channel_defaults_and_bare_decorators() -> None:
     channel = RpcChannel("control", raises=[SharedError])
 
-    @channel.method
+    @channel.server.method
     async def ping() -> None: ...
 
-    @channel.method(raises=[LocalError])
+    @channel.server.method(raises=[LocalError])
     async def other() -> None: ...
 
     assert channel.namespace == "control"
@@ -34,11 +34,11 @@ def test_channel_defaults_and_bare_decorators() -> None:
 def test_event_and_stream_inference() -> None:
     channel = RpcChannel("events")
 
-    @channel.event
+    @channel.server.event
     async def changed() -> AsyncIterator[Event]:
         yield Event(value="x")
 
-    @channel.stream(content_type="image/png")
+    @channel.server.stream(content_type="image/png")
     async def frames() -> AsyncIterator[bytes]:
         """Published frames."""
         yield b"x"
@@ -52,14 +52,14 @@ def test_freeze_prevents_registration() -> None:
     channel = RpcChannel("control", namespace="")
     channel.freeze()
     with pytest.raises(ProtocolDefinitionError, match="frozen"):
-        channel.method()
+        channel.server.method()
 
 
 def test_invalid_stream_type_is_rejected() -> None:
     channel = RpcChannel("files")
     with pytest.raises(ProtocolDefinitionError, match="must yield bytes"):
 
-        @channel.stream()
+        @channel.server.stream()
         async def text() -> AsyncIterator[str]:
             yield "x"
 
@@ -68,11 +68,11 @@ def test_child_channels_inherit_namespace_errors_and_scope() -> None:
     root = RpcChannel("voice", raises=(SharedError,))
     turn = root.child("turn", raises=(LocalError,))
 
-    @root.event()
+    @root.server.event()
     async def event() -> AsyncIterator[Event]:
         yield Event(value="root")
 
-    @turn.method()
+    @turn.server.method()
     async def start() -> None: ...
 
     protocol = root.freeze()
@@ -96,4 +96,101 @@ def test_dotted_operation_name_suggests_a_child_channel() -> None:
     channel = RpcChannel("voice")
 
     with pytest.raises(ProtocolDefinitionError, match=r"contains '\.'.*child"):
-        channel.method("turn.start")
+        channel.server.method("turn.start")
+
+
+class PlayParams(RpcModel):
+    uri: str
+
+
+class PlayResult(RpcModel):
+    started: bool
+
+
+class MediaUnavailableError(RpcError):
+    rpc_code = -32010
+
+
+def test_channel_groups_declarations_by_the_implementing_side() -> None:
+    channel = RpcChannel("room")
+
+    @channel.server.method
+    async def join() -> None: ...
+
+    @channel.server.event("joined")
+    async def joined_events() -> AsyncIterator[Event]:
+        yield Event(value="x")
+
+    assert [route.name for route in channel.routes] == ["room.join"]
+    assert [event.name for event in channel.events] == ["room.joined"]
+    assert isinstance(channel.create_server(), RpcServer)
+    assert not hasattr(channel, "method")
+
+
+def test_client_method_declares_a_typed_server_to_client_request() -> None:
+    channel = RpcChannel("room")
+    media = channel.child("media")
+
+    play = media.client.method(
+        "play",
+        params=PlayParams,
+        result=PlayResult,
+        raises=(MediaUnavailableError,),
+        summary="Play a media URI.",
+    )
+
+    assert play.name == "room.media.play"
+    assert play.params is PlayParams
+    assert play.result is PlayResult
+    assert play.raises == (MediaUnavailableError,)
+    assert play.summary == "Play a media URI."
+    assert channel.protocol.client_methods == (play,)
+
+
+def test_client_method_without_params_or_result_answers_null() -> None:
+    channel = RpcChannel("room")
+
+    ping = channel.client.method("ping")
+
+    assert ping.params is None
+    assert ping.result is type(None)
+
+
+def test_client_method_does_not_inherit_channel_errors() -> None:
+    channel = RpcChannel("room", raises=[SharedError])
+
+    ping = channel.client.method("ping")
+
+    assert ping.raises == ()
+
+
+@pytest.mark.parametrize("declare", ["method", "event", "stream"])
+def test_client_method_names_collide_with_other_operations(declare: str) -> None:
+    channel = RpcChannel("room")
+
+    async def play() -> None: ...
+
+    async def play_events() -> AsyncIterator[Event]:
+        yield Event(value="x")
+
+    async def play_frames() -> AsyncIterator[bytes]:
+        yield b"x"
+
+    if declare == "method":
+        channel.server.method("play")(play)
+    elif declare == "event":
+        channel.server.event("play")(play_events)
+    else:
+        channel.server.stream("play")(play_frames)
+
+    with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC route"):
+        channel.client.method("play")
+
+
+def test_client_method_rejects_dotted_names_and_non_model_params() -> None:
+    channel = RpcChannel("room")
+
+    with pytest.raises(ProtocolDefinitionError, match="contains '.'"):
+        channel.client.method("media.play")
+    with pytest.raises(ProtocolDefinitionError, match="Pydantic model"):
+        channel.client.method("play", params=dict)  # type: ignore[arg-type]

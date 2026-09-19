@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 import pytest
 
-import pyrpckit as rpc
+from pyrpckit import Inject
 from pyrpckit.dependencies import (
     _INJECT,
     ContextResolver,
@@ -132,7 +132,7 @@ async def test_connection_scope_supports_context_and_connection_hooks() -> None:
 def test_injected_parameter_recognizes_only_concrete_injected_types() -> None:
     assert injected_parameter("value", Value) is None
     assert injected_parameter("value", Annotated[Value, "metadata"]) is None
-    assert injected_parameter("value", rpc.Inject[Value]) == RpcInjectedParameter(
+    assert injected_parameter("value", Inject[Value]) == RpcInjectedParameter(
         name="value",
         dependency=Value,
     )
@@ -144,6 +144,6 @@ def test_injected_parameter_recognizes_only_concrete_injected_types() -> None:
     )
 
     with pytest.raises(TypeError, match="concrete dependency type"):
-        injected_parameter("values", rpc.Inject[list[str]])
+        injected_parameter("values", Inject[list[str]])
     with pytest.raises(TypeError, match="concrete dependency type"):
         injected_parameter("values", Annotated[list[str], _INJECT])

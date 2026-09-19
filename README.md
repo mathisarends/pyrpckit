@@ -27,12 +27,12 @@ and any transport you already have can serve a pyrpckit service.
 You define each operation once, on the server:
 
 ```python
-@tasks.method()
+@tasks.server.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     return await store.create(params.title)
 
 
-@tasks.event()
+@tasks.server.event()
 async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
     async for task in store.watch():
         yield TaskUpdated(task=task)
@@ -71,11 +71,10 @@ Python 3.12 or newer. Pydantic is the only required dependency.
 ## Quickstart
 
 Channels group related operations and provide their namespace; a service mounts
-them on a socket. Nothing here needs a running server to test:
+them on a socket. Their dispatch logic can also be called directly:
 
 ```python
-from pyrpckit import Inject, RpcChannel, RpcModel, RpcService
-from pyrpckit.testing import RpcTestClient
+from pyrpckit import Inject, RpcChannel, RpcModel, RpcService, RpcSuccess
 
 
 class CreateTask(RpcModel):
@@ -100,7 +99,7 @@ class TaskStore:
 tasks = RpcChannel("tasks")
 
 
-@tasks.method()
+@tasks.server.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     """Create a task."""
     return await store.create(params.title)
@@ -111,11 +110,17 @@ app.socket("/rpc", channels=(tasks,))
 
 
 async def test_create() -> None:
-    async with RpcTestClient(app, "/rpc", context={TaskStore: TaskStore()}) as client:
-        assert await client.request("tasks.create", {"title": "Ship 0.6"}) == {
+    server = tasks.create_server(context=TaskStore())
+    response = await server.handle(
+        {
+            "jsonrpc": "2.0",
             "id": 1,
-            "title": "Ship 0.6",
+            "method": "tasks.create",
+            "params": {"title": "Ship 0.6"},
         }
+    )
+    assert isinstance(response, RpcSuccess)
+    assert response.result == Task(id=1, title="Ship 0.6")
 ```
 
 `tasks.create` is the wire name, the docstring becomes the contract summary,
