@@ -4,18 +4,23 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RpcModel(BaseModel):
     model_config = ConfigDict(validate_by_name=True)
 
 
-class Task(RpcModel):
+class ApprovalDecision(RpcModel):
     model_config = ConfigDict(extra="forbid")
-    id: str
-    title: str
-    status: Literal["open"] | Literal["done"]
+    approved: bool
+    comment: str | None = None
+
+
+class ApprovalRequest(RpcModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str = Field(alias="taskId")
+    action: str
 
 
 class CreateTaskParams(RpcModel):
@@ -23,10 +28,20 @@ class CreateTaskParams(RpcModel):
     title: str
 
 
-class Tab(RpcModel):
+class DeleteTaskParams(RpcModel):
     model_config = ConfigDict(extra="forbid")
-    id: str
-    url: str
+    task_id: str = Field(alias="taskId")
+
+
+class DialogAnswer(RpcModel):
+    model_config = ConfigDict(extra="forbid")
+    accepted: bool
+
+
+class DialogRequest(RpcModel):
+    model_config = ConfigDict(extra="forbid")
+    tab_id: str = Field(alias="tabId")
+    message: str
 
 
 class OpenTabParams(RpcModel):
@@ -39,25 +54,46 @@ class StartScreencastParams(RpcModel):
     quality: int = 80
 
 
+class Tab(RpcModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    url: str
+
+
+class Task(RpcModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    title: str
+    done: bool = False
+
+
+class TaskList(RpcModel):
+    model_config = ConfigDict(extra="forbid")
+    tasks: list[Task]
+
+
 class TaskUpdated(RpcModel):
     model_config = ConfigDict(extra="forbid")
     task: Task
 
 
-class TaskUpdatedNotification(RpcModel):
+class TasksUpdatedNotification(RpcModel):
     model_config = ConfigDict(extra="forbid")
     jsonrpc: Literal["2.0"]
     method: Literal["tasks.updated"]
     params: TaskUpdated
 
 
-type TaskList = list[Task]
-
-
-Task.model_rebuild()
+ApprovalDecision.model_rebuild()
+ApprovalRequest.model_rebuild()
 CreateTaskParams.model_rebuild()
-Tab.model_rebuild()
+DeleteTaskParams.model_rebuild()
+DialogAnswer.model_rebuild()
+DialogRequest.model_rebuild()
 OpenTabParams.model_rebuild()
 StartScreencastParams.model_rebuild()
+Tab.model_rebuild()
+Task.model_rebuild()
+TaskList.model_rebuild()
 TaskUpdated.model_rebuild()
-TaskUpdatedNotification.model_rebuild()
+TasksUpdatedNotification.model_rebuild()

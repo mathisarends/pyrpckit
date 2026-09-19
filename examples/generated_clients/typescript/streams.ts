@@ -218,10 +218,9 @@ export const binaryStreams = {
     url: "wss://{host}/browser/screencast",
     direction: "server-to-client",
     contentType: "image/jpeg",
-    subprotocols: ["pyrpckit.binary"],
     variables: {
       host: {
-        default: "stream.example.com",
+        default: "api.example.com",
       },
     },
   },
@@ -230,10 +229,9 @@ export const binaryStreams = {
     url: "wss://{host}/browser/screencast/upload",
     direction: "client-to-server",
     inputContentType: "video/webm",
-    subprotocols: ["pyrpckit.binary"],
     variables: {
       host: {
-        default: "stream.example.com",
+        default: "api.example.com",
       },
     },
   },
@@ -243,10 +241,9 @@ export const binaryStreams = {
     direction: "bidirectional",
     contentType: "image/jpeg",
     inputContentType: "application/x-input-event",
-    subprotocols: ["pyrpckit.binary"],
     variables: {
       host: {
-        default: "stream.example.com",
+        default: "api.example.com",
       },
     },
   },

@@ -12,13 +12,19 @@ client, or application structure. Each file is standalone and executable.
 - [`schemas.py`](schemas.py) renders JSON Schema and OpenRPC documents from the
   same protocol definition.
 - [`generated_clients`](generated_clients) contains inspectable Python and
-  TypeScript clients generated from the same OpenRPC document. Its
-  `x-rpckit-binary-streams` entry (`browser.screencast.frames`) generates a
-  stream at `client.browser.screencast.frames()`, plus
+  TypeScript clients generated from
+  [`automation.py`](generated_clients/automation.py). That module declares
+  server methods, an event, binary streams, and client methods, and exports the
+  contract that becomes
+  [`automation.openrpc.json`](generated_clients/automation.openrpc.json). The
+  client methods `tasks.approve` and `browser.dialogs.confirm` generate the
+  handler classes in
+  [`client_methods.py`](generated_clients/python/automation_client/client_methods.py).
+  The binary streams generate
   [`streams.py`](generated_clients/python/automation_client/streams.py) and
-  [`streams.ts`](generated_clients/typescript/streams.ts), the binary
-  WebSocket helpers alongside the regular JSON-RPC client. Regenerate both
-  examples from this directory's [`rpcgen.toml`](generated_clients/rpcgen.toml):
+  [`streams.ts`](generated_clients/typescript/streams.ts). Regenerate the
+  contract and both clients from this directory's
+  [`rpcgen.toml`](generated_clients/rpcgen.toml):
 
   ```bash
   uv run python -m pyrpckit.codegen.cli generate \

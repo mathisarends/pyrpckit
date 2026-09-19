@@ -5,6 +5,7 @@
 import { defineNotification, defineRoute } from "./core";
 import type {
   CreateTaskParams,
+  DeleteTaskParams,
   OpenTabParams,
   StartScreencastParams,
   Tab,
@@ -20,6 +21,10 @@ export const routes = {
   }),
   tasksCreate: defineRoute<CreateTaskParams, Task>({
     method: "tasks.create",
+    server: "production",
+  }),
+  tasksDelete: defineRoute<DeleteTaskParams, boolean>({
+    method: "tasks.delete",
     server: "production",
   }),
   browserTabsOpen: defineRoute<OpenTabParams, Tab>({
