@@ -7,7 +7,6 @@ from pydantic import BaseModel, TypeAdapter
 
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.protocol import (
-    RpcMethodDefinition,
     RpcNotificationDefinition,
     RpcProtocol,
 )
@@ -32,7 +31,16 @@ def components(protocol: RpcProtocol) -> dict[str, Any]:
     )
     definitions = root.get("$defs", {})
     for method in protocol.methods:
-        definitions[method.request_name] = _request_schema(method)
+        definitions[method.request_name] = _request_schema(
+            method.name, method.request_name, method.params, method.summary
+        )
+    for callback in protocol.callbacks:
+        name = callback_schema_name(callback.name)
+        if name in definitions:
+            raise ProtocolDefinitionError(f"Duplicate protocol schema name: {name}")
+        definitions[name] = _request_schema(
+            callback.name, name, callback.params, callback.summary
+        )
     for notification in protocol.notifications:
         name = notification_schema_name(notification.name)
         definitions[name] = _notification_schema(notification, name)
@@ -60,6 +68,11 @@ def notification_schema_name(name: str) -> str:
     return "".join(part.capitalize() for part in parts) + "Notification"
 
 
+def callback_schema_name(name: str) -> str:
+    parts = (part for part in re.split(r"[^a-zA-Z0-9]+", name) if part)
+    return "".join(part.capitalize() for part in parts) + "Callback"
+
+
 def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
     annotations: dict[str, Any] = {}
     for method in protocol.methods:
@@ -70,7 +83,11 @@ def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
         _add(annotations, notification.payload)
     for notification_type in protocol.notification_types:
         _add(annotations, notification_type.payload)
-    for method in protocol.methods:
+    for callback in protocol.callbacks:
+        if callback.params is not None:
+            _add(annotations, callback.params)
+        _add_result_types(annotations, callback.result)
+    for method in (*protocol.methods, *protocol.callbacks):
         for error in method.raises:
             if error.details_type is not None:
                 _add(annotations, error.details_type)
@@ -95,20 +112,25 @@ def _add(annotations: dict[str, Any], annotation: Any) -> None:
     annotations[name] = annotation
 
 
-def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
+def _request_schema(
+    name: str,
+    title: str,
+    params_model: type[BaseModel] | None,
+    summary: str | None,
+) -> dict[str, Any]:
     required = ["jsonrpc", "method"]
-    if method.params is None:
+    if params_model is None:
         params = EMPTY_PARAMS_SCHEMA
     else:
-        params = _ref(type_name(method.params))
-        if method.params.model_json_schema(by_alias=True, mode="serialization").get(
+        params = _ref(type_name(params_model))
+        if params_model.model_json_schema(by_alias=True, mode="serialization").get(
             "required"
         ):
             required.append("params")
     schema: dict[str, Any] = {
         "additionalProperties": False,
         "type": "object",
-        "title": method.request_name,
+        "title": title,
         "properties": {
             "jsonrpc": {"const": "2.0", "type": "string"},
             "id": {
@@ -119,13 +141,13 @@ def _request_schema(method: RpcMethodDefinition) -> dict[str, Any]:
                 ],
                 "default": None,
             },
-            "method": {"const": method.name, "type": "string"},
+            "method": {"const": name, "type": "string"},
             "params": params,
         },
         "required": required,
     }
-    if method.summary is not None:
-        schema["description"] = method.summary
+    if summary is not None:
+        schema["description"] = summary
     return schema
 
 

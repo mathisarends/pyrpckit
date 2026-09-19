@@ -106,6 +106,40 @@ async def greeting_changed() -> AsyncIterator[GreetingUpdate]:
         yield GreetingSaid(text="")
 
 
+class MediaPlayParams(BaseModel):
+    media_uri: str
+
+
+class MediaPlayResult(BaseModel):
+    started: bool
+
+
+class SpeakerDetails(BaseModel):
+    speaker_id: str
+
+
+class MediaUnavailableError(rpc.RpcError):
+    rpc_code = -32010
+    details: SpeakerDetails
+
+
+class HelloParams(BaseModel):
+    room_id: str
+
+
+ROOM_CHANNEL = rpc.RpcChannel("room")
+MEDIA_CHANNEL = ROOM_CHANNEL.child("media")
+
+MEDIA_PLAY = MEDIA_CHANNEL.callback(
+    "play",
+    params=MediaPlayParams,
+    result=MediaPlayResult,
+    raises=(MediaUnavailableError,),
+    summary="Play a media URI on the room's speaker.",
+)
+ROOM_PING = ROOM_CHANNEL.callback("ping")
+
+
 GREETING_PROTOCOL = GREETING_ROUTER.protocol
 GREETING_APP = GREETING_ROUTER
 
