@@ -1,0 +1,28 @@
+{% for group in groups %}class {{ group.class_name }}(ABC):
+    """Requests the server sends to this client; implement and register them."""
+{% for route in group.callbacks %}
+    @abstractmethod
+{% if route.summary or route.description %}{{ route | callback_signature }}
+        """{{ (route.summary or route.description) | docstring }}"""
+{% else %}{{ route | callback_signature }} ...
+{% endif %}{% endfor %}
+
+{% endfor %}{{ handler_alias }}
+
+CALLBACKS: tuple[RpcCallbackInfo, ...] = (
+{% for group in groups %}{% for route in group.callbacks %}    RpcCallbackInfo(
+        method={{ route.rpc_name | literal }},
+        owner={{ group.class_name }},
+        attribute={{ (route.operation_name | identifier) | literal }},
+        params_adapter={% if route.params_model is not none %}TypeAdapter({{ route.params_model | schema_name }}){% else %}None{% endif %},
+        result_adapter=TypeAdapter({{ route.result | annotation }}),
+{% if route.server is not none %}        server={{ route.server | literal }},
+{% endif %}    ),
+{% endfor %}{% endfor %})
+
+
+def callback_dispatcher(
+    callbacks: CallbackHandler | Iterable[CallbackHandler] = (),
+) -> RpcCallbackDispatcher:
+    """Answer the server's callbacks with the given handlers."""
+    return RpcCallbackDispatcher(CALLBACKS, callbacks)

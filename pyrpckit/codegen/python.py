@@ -1,7 +1,7 @@
 import json
 import keyword
 from collections.abc import Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pyrpckit.codegen.ir import (
@@ -93,7 +93,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     )
     files = {
         "__init__.py": _render_package_init(ir, options, client_name, view.nodes),
-        **_render_runtime(options),
+        **_render_runtime(ir, options),
         "client.py": _render_client(
             ir,
             view.root_operations,
@@ -113,6 +113,8 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
         files["endpoints.py"] = _render_endpoints(ir, options)
     if ir.binary_streams:
         files["streams.py"] = _render_streams(ir, options)
+    if ir.callbacks:
+        files["callbacks.py"] = _render_callbacks(ir, options)
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
@@ -122,9 +124,9 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     return files
 
 
-def _render_runtime(options: PythonClientOptions) -> dict[str, str]:
+def _render_runtime(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     files = {
-        "internal/__init__.py": _render_runtime_init(options),
+        "internal/__init__.py": _render_runtime_init(ir, options),
         "internal/core.py": _render_runtime_module(options, "core"),
         "internal/errors.py": _render_runtime_module(options, "errors"),
         "internal/metadata.py": _render_runtime_module(options, "metadata"),
@@ -136,10 +138,12 @@ def _render_runtime(options: PythonClientOptions) -> dict[str, str]:
             options,
             "connection",
         )
+    if ir.callbacks:
+        files["internal/callbacks.py"] = _render_runtime_module(options, "callbacks")
     return files
 
 
-def _render_runtime_init(options: PythonClientOptions) -> str:
+def _render_runtime_init(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     exported = [
         "UNSET",
@@ -148,6 +152,9 @@ def _render_runtime_init(options: PythonClientOptions) -> str:
         "RpcTransportSource",
         "UnsetType",
     ]
+    if ir.callbacks:
+        imports.add(".callbacks", "RpcCallbackDispatcher", "RpcCallbackInfo")
+        exported.extend(["RpcCallbackDispatcher", "RpcCallbackInfo"])
     if options.with_transport == "websocket":
         imports.add(".connection", "ClientConnection", "RpcTransportPool")
         exported.extend(["ClientConnection", "RpcTransportPool"])
@@ -322,6 +329,71 @@ def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     return _module(options, imports, body)
 
 
+@dataclass(frozen=True, slots=True)
+class _CallbackGroup:
+    class_name: str
+    namespace: str
+    callbacks: tuple[RouteDecl, ...]
+
+
+def _callback_groups(ir: ClientIr) -> tuple[_CallbackGroup, ...]:
+    grouped: dict[tuple[str, ...], list[RouteDecl]] = {}
+    for route in ir.callbacks:
+        grouped.setdefault(route.path, []).append(route)
+    return tuple(
+        _CallbackGroup(_callback_class(path), ".".join(path), tuple(routes))
+        for path, routes in grouped.items()
+    )
+
+
+def _callback_class(path: tuple[str, ...]) -> str:
+    return f"{_api_class(path)}Callbacks"
+
+
+def _render_callbacks(ir: ClientIr, options: PythonClientOptions) -> str:
+    imports = _Imports()
+    imports.add("abc", "ABC", "abstractmethod")
+    imports.add("collections.abc", "Iterable")
+    imports.add("pydantic", "TypeAdapter")
+    imports.add(_runtime_module(options), "RpcCallbackDispatcher", "RpcCallbackInfo")
+    for route in ir.callbacks:
+        if route.params_model is not None:
+            imports.add(f"{options.package}.models", _schema_name(route.params_model))
+        imports.add(f"{options.package}.models", *_model_names(route.result))
+    filters = _template_filters(imports, options)
+    filters["callback_signature"] = lambda route: _callback_signature(route, imports)
+    body = render_template(
+        "python/callbacks.py.j2",
+        filters=filters,
+        groups=_callback_groups(ir),
+        handler_alias=_callback_handler_alias(ir),
+    )
+    body = _collapse_blank_lines(body)
+    return _module(options, imports, body)
+
+
+def _callback_handler_alias(ir: ClientIr) -> str:
+    names = [group.class_name for group in _callback_groups(ir)]
+    inline = f"type CallbackHandler = {' | '.join(names)}"
+    if len(inline) <= 88:
+        return inline
+    members = "\n    | ".join(names)
+    return f"type CallbackHandler = (\n    {members}\n)"
+
+
+def _callback_signature(route: RouteDecl, imports: _Imports) -> str:
+    name = _identifier(route.operation_name)
+    result = _annotation(route.result, imports)
+    parameters = ["self"]
+    if route.params_model is not None:
+        parameters.append(f"params: {_schema_name(route.params_model)}")
+    inline = f"    async def {name}({', '.join(parameters)}) -> {result}:"
+    if len(inline) <= 88:
+        return inline
+    lines = "".join(f"        {parameter},\n" for parameter in parameters)
+    return f"    async def {name}(\n{lines}    ) -> {result}:"
+
+
 def _server_subprotocols(server: ServerDecl) -> str:
     if server.transport is None:
         return "()"
@@ -335,7 +407,10 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
     imports.add(_runtime_module(options), "RpcRemoteError")
     errors = []
     seen: set[str] = set()
-    for route in ir.operations:
+    callback_codes = {error.code for route in ir.callbacks for error in route.errors}
+    if callback_codes:
+        imports.add("typing", "Self")
+    for route in (*ir.operations, *ir.callbacks):
         for error in route.errors:
             if error.name is None or error.name in seen:
                 continue
@@ -349,6 +424,7 @@ def _render_errors(ir: ClientIr, options: PythonClientOptions) -> str:
         "python/errors.py.j2",
         filters=_template_filters(imports, options),
         errors=errors,
+        callback_codes=callback_codes,
     )
     body = _collapse_blank_lines(body.lstrip("\n"))
     return _module(options, imports, body)
@@ -452,6 +528,10 @@ def _render_client(
             )
     if ir.servers:
         imports.add(f"{options.package}.endpoints", "ServerName")
+    if options.with_transport == "websocket" and ir.callbacks:
+        imports.add(
+            f"{options.package}.callbacks", "CallbackHandler", "callback_dispatcher"
+        )
     if options.with_transport == "websocket":
         imports.add(_runtime_module(options), "ClientConnection", "RpcTransportPool")
         imports.add(
@@ -481,6 +561,7 @@ def _render_client(
         notifications=root_events,
         streams=root_streams,
         binary_streams=ir.binary_streams,
+        callbacks=ir.callbacks,
         with_websocket=options.with_transport == "websocket",
     )
     return _module(options, imports, body)
@@ -548,6 +629,15 @@ def _render_package_init(
     if options.with_transport == "websocket":
         imports.add(f"{options.package}.transport", "WebSocketTransport")
         exported.append("WebSocketTransport")
+    if ir.callbacks:
+        callback_exports = [
+            *(group.class_name for group in _callback_groups(ir)),
+            "CallbackHandler",
+            "callback_dispatcher",
+        ]
+        imports.add(options.package, "callbacks")
+        imports.add(f"{options.package}.callbacks", *callback_exports)
+        exported.extend([*callback_exports, "callbacks"])
     if ir.binary_streams:
         imports.add(options.package, "streams")
         imports.add(
@@ -866,10 +956,20 @@ def _validate(
             connect_options.append(
                 ("<connect.stream_socket_factory>", "stream_socket_factory")
             )
+        if ir.callbacks:
+            connect_options.append(("<connect.callbacks>", "callbacks"))
         assert_unique_names("connect options", connect_options)
     assert_unique_names("root client", client_members)
     _assert_unique_package_exports(ir, options, nodes, client_name)
     _validate_nodes(nodes)
+    for group in _callback_groups(ir):
+        assert_unique_names(
+            f"callbacks {group.namespace or '<root>'}",
+            (
+                (route.rpc_name, _identifier(route.operation_name))
+                for route in group.callbacks
+            ),
+        )
     for node in nodes:
         assert_unique_names(
             f"Python namespace module {_identifier(node.segment)!r}",
@@ -909,6 +1009,15 @@ def _assert_unique_package_exports(
         exports.append(("<endpoints>", "endpoints"))
     if options.with_transport == "websocket":
         exports.append(("<transport>", "WebSocketTransport"))
+    if ir.callbacks:
+        exports.extend(
+            (group.namespace or "<root callbacks>", group.class_name)
+            for group in _callback_groups(ir)
+        )
+        exports.extend(
+            ("<callbacks>", name)
+            for name in ("CallbackHandler", "callback_dispatcher", "callbacks")
+        )
     if ir.binary_streams:
         exports.extend(("<streams>", name) for name in _STREAM_EXPORTS)
         exports.append(("<streams>", "streams"))
@@ -1027,7 +1136,7 @@ def _named_errors(ir: ClientIr) -> bool:
 
 def _named_error_codes(ir: ClientIr) -> tuple[str, ...]:
     codes: dict[str, None] = {}
-    for route in ir.operations:
+    for route in (*ir.operations, *ir.callbacks):
         for error in route.errors:
             if error.name is not None:
                 codes.setdefault(error.code, None)
@@ -1150,6 +1259,7 @@ def _import_group(module: str) -> int:
     root = module.split(".", 1)[0]
     if root in {
         "__future__",
+        "abc",
         "asyncio",
         "collections",
         "contextlib",

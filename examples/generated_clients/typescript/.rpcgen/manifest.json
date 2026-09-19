@@ -1,7 +1,7 @@
 {
   "generator": "pyrpckit",
   "generatorVersion": "0.6.0",
-  "layoutVersion": 9,
+  "layoutVersion": 10,
   "language": "typescript",
   "contractSha256": "e341031c54de9f362c596172a84fed967011730d66b151220da501b0aaa37b7c",
   "files": [

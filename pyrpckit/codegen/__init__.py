@@ -9,7 +9,7 @@ from pyrpckit.codegen.ir import ClientIr, UnsupportedSchemaError, build_ir
 from pyrpckit.codegen.options import PythonClientOptions, TypeScriptClientOptions
 from pyrpckit.codegen.writer import MANIFEST, write_files
 
-LAYOUT_VERSION = 9
+LAYOUT_VERSION = 10
 
 __all__ = [
     "ClientIr",

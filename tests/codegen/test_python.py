@@ -569,3 +569,42 @@ def _assert_ruff_clean(
 
     assert lint.returncode == 0, lint.stdout + lint.stderr
     assert formatting.returncode == 0, formatting.stdout + formatting.stderr
+
+
+class ExtraordinarilyLongMediaPlaybackRequestParams(rpc.RpcModel):
+    uri: str
+
+
+class ExtraordinarilyLongMediaPlaybackResultPayload(rpc.RpcModel):
+    started: bool
+
+
+class SpeakerOfflineError(rpc.RpcError):
+    rpc_code = -32010
+
+
+@pytest.mark.parametrize("transport", [None, "websocket"])
+def test_generated_python_with_callbacks_is_ruff_clean(
+    transport: str | None,
+    tmp_path: Path,
+) -> None:
+    channel = rpc.RpcChannel("room")
+    channel.callback("ping")
+    for segment in ("kitchen_speaker_group", "living_room_speaker_group"):
+        nested = channel.child(segment).child("media_playback_controls")
+        nested.callback(
+            "play_extraordinarily_long_media",
+            params=ExtraordinarilyLongMediaPlaybackRequestParams,
+            result=ExtraordinarilyLongMediaPlaybackResultPayload,
+            raises=(SpeakerOfflineError,),
+            summary="Play a media URI.",
+        )
+    service = rpc.RpcService()
+    service.socket("/v1/rooms", channels=[channel])
+    contract = service.contract(title="Rooms", base_url="http://localhost")
+
+    _assert_ruff_clean(
+        contract.to_openrpc(),
+        PythonClientOptions(package=PACKAGE, with_transport=transport),
+        tmp_path,
+    )

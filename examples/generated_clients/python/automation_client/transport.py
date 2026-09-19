@@ -21,6 +21,10 @@ class WebSocket(Protocol):
     async def close(self) -> None: ...
 
 
+class CallbackResponder(Protocol):
+    async def respond(self, message: JsonObject) -> JsonObject: ...
+
+
 class WebSocketFactory(Protocol):
     def __call__(
         self,
@@ -38,6 +42,7 @@ class WebSocketTransport:
         *,
         request_timeout: float | None = None,
         notification_queue_size: int = 100,
+        callbacks: CallbackResponder | None = None,
     ) -> None:
         if notification_queue_size <= 0:
             raise ValueError("notification_queue_size must be positive")
@@ -49,6 +54,8 @@ class WebSocketTransport:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._next_request_id = 1
         self._closed = False
+        self._callbacks = callbacks
+        self._answers: set[asyncio.Task[None]] = set()
         self._reader = asyncio.create_task(self._receive())
 
     @classmethod
@@ -61,6 +68,7 @@ class WebSocketTransport:
         notification_queue_size: int = 100,
         headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
+        callbacks: CallbackResponder | None = None,
     ) -> Self:
         if socket_factory is None:
             try:
@@ -79,6 +87,7 @@ class WebSocketTransport:
             socket,
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
+            callbacks=callbacks,
         )
 
     async def request(
@@ -125,8 +134,9 @@ class WebSocketTransport:
             return
         self._closed = True
         await self._socket.close()
-        self._reader.cancel()
-        await asyncio.gather(self._reader, return_exceptions=True)
+        for task in (self._reader, *self._answers):
+            task.cancel()
+        await asyncio.gather(self._reader, *self._answers, return_exceptions=True)
         self._fail_pending(RpcTransportError("The WebSocket transport was closed"))
 
     async def _receive(self) -> None:
@@ -134,7 +144,11 @@ class WebSocketTransport:
         try:
             while True:
                 message = self._decode(await self._socket.recv())
-                if "id" in message:
+                if "id" in message and isinstance(message.get("method"), str):
+                    answer = asyncio.create_task(self._answer(message))
+                    self._answers.add(answer)
+                    answer.add_done_callback(self._answers.discard)
+                elif "id" in message:
                     self._resolve_response(message)
                 elif isinstance(message.get("method"), str):
                     try:
@@ -153,6 +167,25 @@ class WebSocketTransport:
             self._fail_pending(error)
         finally:
             self._finish_notifications(failure)
+
+    async def _answer(self, message: JsonObject) -> None:
+        if self._callbacks is None:
+            response: JsonObject = {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found",
+                    "data": {
+                        "code": "method_not_found",
+                        "details": {"method": message["method"]},
+                    },
+                },
+            }
+        else:
+            response = await self._callbacks.respond(message)
+        if not self._closed:
+            await self._socket.send(json.dumps(response, separators=(",", ":")))
 
     @staticmethod
     def _decode(raw: str | bytes) -> JsonObject:
