@@ -6,6 +6,8 @@ from dataclasses import dataclass, replace
 from types import FunctionType
 from typing import Any, overload
 
+from pydantic import BaseModel
+
 from pyrpckit.dependencies import (
     RpcResolverLike,
     RpcResolverScope,
@@ -15,9 +17,11 @@ from pyrpckit.dependencies import (
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import (
+    RpcCallback,
     RpcNotificationDefinition,
     RpcProtocol,
     RpcStreamDefinition,
+    callback_definition,
     method_definition,
     notification_definition,
     notification_type_definitions,
@@ -68,6 +72,7 @@ class RpcChannel:
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
         self._streams: list[RpcStreamDefinition] = []
+        self._callbacks: list[RpcCallback[Any, Any]] = []
         self._children: list[RpcChannel] = []
         self._names: set[str] = set()
         self._protocol: RpcProtocol | None = None
@@ -79,6 +84,7 @@ class RpcChannel:
     routes = property(lambda self: tuple(self._routes))
     events = property(lambda self: tuple(self._events))
     streams = property(lambda self: tuple(self._streams))
+    callbacks = property(lambda self: tuple(self._callbacks))
     children = property(lambda self: tuple(self._children))
     protocol = property(lambda self: self.freeze())
 
@@ -229,6 +235,30 @@ class RpcChannel:
 
         return decorate
 
+    def callback[ParamsT: BaseModel, ResultT](
+        self,
+        name: str,
+        /,
+        *,
+        params: type[ParamsT] | None = None,
+        result: type[ResultT] | None = None,
+        raises: Iterable[type[RpcError]] = (),
+        summary: str | None = None,
+    ) -> RpcCallback[ParamsT, ResultT]:
+        """Declare a request the server sends and the connected client answers."""
+        self._ensure_mutable()
+        wire_name = join_rpc_name(self.namespace, _segment(name, "callback name"))
+        definition = callback_definition(
+            name=wire_name,
+            params=params,
+            result=result,
+            summary=summary,
+            raises=tuple(dict.fromkeys(declared_error(e) for e in raises)),
+        )
+        self._reserve(wire_name)
+        self._callbacks.append(definition)
+        return definition
+
     def freeze(self) -> RpcProtocol:
         if self._protocol is None:
             definitions = [
@@ -250,12 +280,14 @@ class RpcChannel:
                 for item in notification_type_definitions(event.payload)
             ]
             streams = list(self.streams)
+            callbacks = list(self.callbacks)
             for child in self.children:
                 protocol = child.freeze()
                 definitions.extend(protocol.methods)
                 notifications.extend(protocol.notifications)
                 notification_types.extend(protocol.notification_types)
                 streams.extend(protocol.streams)
+                callbacks.extend(protocol.callbacks)
             duplicate_requests = {
                 name
                 for name, count in Counter(d.request_name for d in definitions).items()
@@ -275,6 +307,7 @@ class RpcChannel:
                 notifications=notifications,
                 notification_types=notification_types,
                 streams=streams,
+                callbacks=callbacks,
             )
         return self._protocol
 

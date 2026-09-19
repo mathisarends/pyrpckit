@@ -40,10 +40,14 @@ class RpcEndpoint:
         notifications = tuple(
             n for n in self.service.protocol.notifications if n.server == self.name
         )
+        callbacks = tuple(
+            c for c in self.service.protocol.callbacks if c.server == self.name
+        )
         return RpcProtocol(
             methods=methods,
             notifications=notifications,
             notification_types=self.service.protocol.notification_types,
+            callbacks=callbacks,
             version=self.service.version,
         )
 
@@ -263,6 +267,7 @@ class RpcService:
         notifications = []
         types = []
         streams = []
+        callbacks = []
         owners: dict[str, str] = {}
         errors: dict[str, type] = {}
         for endpoint in self.endpoints:
@@ -277,9 +282,17 @@ class RpcService:
                         for item in protocol.notifications
                     )
                     types.extend(protocol.notification_types)
-                    for item in (*protocol.methods, *protocol.notifications):
+                    callbacks.extend(
+                        replace(item, server=endpoint.name)
+                        for item in protocol.callbacks
+                    )
+                    for item in (
+                        *protocol.methods,
+                        *protocol.notifications,
+                        *protocol.callbacks,
+                    ):
                         _unique_name(owners, item.name, channel.name)
-                    for method in protocol.methods:
+                    for method in (*protocol.methods, *protocol.callbacks):
                         for error in method.raises:
                             previous = errors.get(error.code)
                             if previous is not None and previous is not error:
@@ -321,6 +334,7 @@ class RpcService:
             notifications=notifications,
             notification_types=types,
             streams=streams,
+            callbacks=callbacks,
             version=self.version,
         )
         return self._protocol

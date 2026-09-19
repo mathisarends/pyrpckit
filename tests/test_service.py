@@ -74,3 +74,33 @@ def test_mounting_a_root_channel_includes_its_children() -> None:
     service.socket("/rpc", channels=(root,))
 
     assert service.protocol.methods[0].name == "voice.turn.start"
+
+
+def test_callbacks_belong_to_the_endpoint_that_mounts_their_channel() -> None:
+    room = RpcChannel("room")
+    other = RpcChannel("other")
+    play = room.callback("play")
+    service = RpcService()
+    service.socket("/rooms", channels=(room,), name="rooms")
+    service.socket("/other", channels=(other,), name="other")
+
+    (callback,) = service.endpoint("rooms").protocol.callbacks
+
+    assert callback.name == play.name
+    assert callback.server == "rooms"
+    assert service.endpoint("other").protocol.callbacks == ()
+
+
+def test_callback_names_collide_across_channels() -> None:
+    first = RpcChannel("first", namespace="room")
+    second = RpcChannel("second", namespace="room")
+
+    @first.method("play")
+    async def play() -> None: ...
+
+    second.callback("play")
+    service = RpcService()
+    service.socket("/rpc", channels=(first, second))
+
+    with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC name"):
+        service.freeze()

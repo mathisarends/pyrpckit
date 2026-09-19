@@ -32,6 +32,7 @@ from .observer import (
     RpcRequestContext,
     RpcResponseContext,
 )
+from .protocol import RpcCallback
 from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from .streams import (
@@ -50,6 +51,7 @@ __all__ = [
     "ProtocolDefinitionError",
     "RpcBinaryInput",
     "RpcBinaryOutput",
+    "RpcCallback",
     "RpcChannel",
     "RpcCodec",
     "RpcConnection",

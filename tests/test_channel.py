@@ -97,3 +97,84 @@ def test_dotted_operation_name_suggests_a_child_channel() -> None:
 
     with pytest.raises(ProtocolDefinitionError, match=r"contains '\.'.*child"):
         channel.method("turn.start")
+
+
+class PlayParams(RpcModel):
+    uri: str
+
+
+class PlayResult(RpcModel):
+    started: bool
+
+
+class MediaUnavailableError(RpcError):
+    rpc_code = -32010
+
+
+def test_callback_declares_a_typed_server_to_client_request() -> None:
+    channel = RpcChannel("room")
+    media = channel.child("media")
+
+    play = media.callback(
+        "play",
+        params=PlayParams,
+        result=PlayResult,
+        raises=(MediaUnavailableError,),
+        summary="Play a media URI.",
+    )
+
+    assert play.name == "room.media.play"
+    assert play.params is PlayParams
+    assert play.result is PlayResult
+    assert play.raises == (MediaUnavailableError,)
+    assert play.summary == "Play a media URI."
+    assert channel.protocol.callbacks == (play,)
+
+
+def test_callback_without_params_or_result_answers_null() -> None:
+    channel = RpcChannel("room")
+
+    ping = channel.callback("ping")
+
+    assert ping.params is None
+    assert ping.result is type(None)
+
+
+def test_callback_does_not_inherit_channel_errors() -> None:
+    channel = RpcChannel("room", raises=[SharedError])
+
+    ping = channel.callback("ping")
+
+    assert ping.raises == ()
+
+
+@pytest.mark.parametrize("declare", ["method", "event", "stream"])
+def test_callback_names_collide_with_other_operations(declare: str) -> None:
+    channel = RpcChannel("room")
+
+    async def play() -> None: ...
+
+    async def play_events() -> AsyncIterator[Event]:
+        yield Event(value="x")
+
+    async def play_frames() -> AsyncIterator[bytes]:
+        yield b"x"
+
+    if declare == "method":
+        channel.method("play")(play)
+    elif declare == "event":
+        channel.event("play")(play_events)
+    else:
+        channel.stream("play")(play_frames)
+
+    with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC route"):
+        channel.callback("play")
+
+
+def test_callback_rejects_dotted_names_and_non_model_params() -> None:
+    channel = RpcChannel("room")
+
+    with pytest.raises(ProtocolDefinitionError, match="contains '.'"):
+        channel.callback("media.play")
+    with pytest.raises(ProtocolDefinitionError, match="Pydantic model"):
+        channel.callback("play", params=dict)  # type: ignore[arg-type]
