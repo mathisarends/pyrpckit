@@ -1,6 +1,6 @@
 {
   "generator": "pyrpckit",
-  "generatorVersion": "0.6.0",
+  "generatorVersion": "0.7.0",
   "layoutVersion": 10,
   "language": "python",
   "contractSha256": "975313026baa49bb112cdc0d066f3f18db5069a1b80f128829bea0f9bb34a0bf",
