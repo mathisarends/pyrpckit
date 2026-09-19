@@ -62,8 +62,9 @@ Pass it as `resolver=` to `RpcService.serve()`, an endpoint, `create_router()`,
 or `RpcTestClient`. A synchronous or asynchronous callable taking the requested
 type is accepted as a lightweight alternative.
 
-Context values take precedence over the resolver. `RpcConnection` is also made
-available by type for the lifetime of that connection.
+Context values take precedence over the resolver. `RpcConnection` and, on
+socket endpoints, `RpcPeer` are also made available by type for the lifetime of
+that connection.
 
 ## Resource scopes
 
@@ -108,7 +109,7 @@ web.include_router(dishka_router(app))
 The integration reads `web.state.dishka_container`; pass the APP container to
 `DishkaResolver` when constructing one manually. A SESSION container from
 `websocket.state` is rejected because pyrpckit opens that scope itself and adds
-`RpcConnection` to its context.
+`RpcConnection` and `RpcPeer` to its context.
 
 Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
 container for every WebSocket, including RPC sockets. pyrpckit does not use

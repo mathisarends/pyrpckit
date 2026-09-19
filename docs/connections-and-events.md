@@ -74,6 +74,9 @@ The payload type comes from `AsyncIterator[T]`, so events do not need
 `payload=`. The optional `@channel.event(payload=...)` only asserts that type
 and fails at definition time when it differs from the yielded type.
 
+Events expect no answer. When the server needs the client's result, declare a
+[callback](callbacks.md) instead.
+
 ## Observe requests
 
 Configure one observer on the service or override it on an endpoint. Observer

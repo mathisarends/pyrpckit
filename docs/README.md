@@ -6,6 +6,7 @@ guides cover the individual parts of the API in more detail:
 - [Services and channels](services.md) — define methods and assemble endpoints
 - [Dependency injection](dependencies.md) — pass application services into handlers
 - [Connections and events](connections-and-events.md) — inspect connections and push updates
+- [Callbacks](callbacks.md) — let the server call the connected client
 - [Typed errors](errors.md) — make expected failures part of the contract
 - [Binary streams](streams.md) — stream bytes on dedicated endpoints
 - [Contract and clients](clients.md) — export OpenRPC and generate typed clients

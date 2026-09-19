@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.0 - Unreleased
+
+### Added
+
+- Add callbacks, requests the server sends to a connected client.
+  `channel.callback(name, params=..., result=..., raises=...)` declares a typed
+  `RpcCallback`. Callback names share the name space of methods, events, and
+  streams.
+- Make `RpcPeer` injectable on socket endpoints. `peer.call(callback, params,
+  timeout=...)` validates params and results, raises declared errors as their
+  typed exceptions, and raises `RpcCallbackRemoteError`,
+  `RpcCallbackResultError`, `RpcCallbackTimeoutError`, or
+  `RpcPeerClosedError` otherwise. Server-originated requests use `server:<n>`
+  string IDs, and outgoing calls respect `RpcLimits`.
+- Describe callbacks under the `x-rpc-callbacks` OpenRPC extension, in the same
+  shape as `methods`.
+- Generate one abstract callback class per namespace in Python clients, plus
+  `CallbackHandler` and `callback_dispatcher()`. `connect(callbacks=...)`
+  registers handlers, which run concurrently. Declared errors of callbacks gain
+  `create()`.
+- Accept `callbacks=` in `RpcTestClient`.
+
+### Changed
+
+- Generated Python WebSocket transports answer incoming requests. Requests
+  without a registered handler get `-32601 Method not found`, where they used to
+  fail the transport.
+- `RpcTestClient` reads the socket in the background.
+  `next_notification()` now raises `RpcTestConnectionClosed` after a disconnect.
+- Raise the generated client layout version to 10.
+
 ## 0.6.0 - Unreleased
 
 ### Added
