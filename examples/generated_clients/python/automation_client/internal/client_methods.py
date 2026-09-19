@@ -27,8 +27,8 @@ class RpcClientMethodInfo:
 class RpcClientMethodDispatcher:
     """Answers the requests the server sends with the registered handlers.
 
-    Each handler implements one or more generated client method classes. Client
-    methods whose class has no handler are answered with ``-32601 Method not found``.
+    Each handler implements one or more generated handler classes. Requests whose
+    namespace has no handler are answered with ``-32601 Method not found``.
     """
 
     def __init__(
@@ -42,14 +42,14 @@ class RpcClientMethodDispatcher:
             handlers = (handlers,)
         if not isinstance(handlers, Iterable):
             raise TypeError(
-                f"{type(handlers).__name__} implements no client method namespace"
+                f"{type(handlers).__name__} implements no handler namespace"
             )
         self._handlers: dict[type[Any], object] = {}
         for handler in handlers:
             implemented = [owner for owner in owners if isinstance(handler, owner)]
             if not implemented:
                 raise TypeError(
-                    f"{type(handler).__name__} implements no client method namespace"
+                    f"{type(handler).__name__} implements no handler namespace"
                 )
             for owner in implemented:
                 if owner in self._handlers:

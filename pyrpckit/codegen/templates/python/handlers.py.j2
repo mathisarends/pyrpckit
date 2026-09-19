@@ -1,5 +1,5 @@
 {% for group in groups %}class {{ group.class_name }}(ABC):
-    """Requests the server sends to this client; implement and register them."""
+    """Requests this client handles for the server; implement and register them."""
 {% for route in group.client_methods %}
     @abstractmethod
 {% if route.summary or route.description %}{{ route | client_method_signature }}
@@ -9,7 +9,7 @@
 
 {% endfor %}{{ handler_alias }}
 
-CLIENT_METHODS: tuple[RpcClientMethodInfo, ...] = (
+_HANDLER_METHODS: tuple[RpcClientMethodInfo, ...] = (
 {% for group in groups %}{% for route in group.client_methods %}    RpcClientMethodInfo(
         method={{ route.rpc_name | literal }},
         owner={{ group.class_name }},
@@ -21,8 +21,8 @@ CLIENT_METHODS: tuple[RpcClientMethodInfo, ...] = (
 {% endfor %}{% endfor %})
 
 
-def client_method_dispatcher(
-    client_methods: ClientMethodHandler | Iterable[ClientMethodHandler] = (),
+def handler_dispatcher(
+    handlers: Handler | Iterable[Handler] = (),
 ) -> RpcClientMethodDispatcher:
-    """Answer the server's client method requests with the given handlers."""
-    return RpcClientMethodDispatcher(CLIENT_METHODS, client_methods)
+    """Answer the server's requests with the given handlers."""
+    return RpcClientMethodDispatcher(_HANDLER_METHODS, handlers)

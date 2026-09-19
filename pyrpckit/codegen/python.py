@@ -114,7 +114,7 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
     if ir.binary_streams:
         files["streams.py"] = _render_streams(ir, options)
     if ir.client_methods:
-        files["client_methods.py"] = _render_client_methods(ir, options)
+        files["handlers.py"] = _render_handlers(ir, options)
     if options.with_transport == "websocket":
         files["transport.py"] = _render_websocket_transport(options)
     if view.nodes:
@@ -334,27 +334,27 @@ def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class _ClientMethodGroup:
+class _HandlerGroup:
     class_name: str
     namespace: str
     client_methods: tuple[RouteDecl, ...]
 
 
-def _client_method_groups(ir: ClientIr) -> tuple[_ClientMethodGroup, ...]:
+def _handler_groups(ir: ClientIr) -> tuple[_HandlerGroup, ...]:
     grouped: dict[tuple[str, ...], list[RouteDecl]] = {}
     for route in ir.client_methods:
         grouped.setdefault(route.path, []).append(route)
     return tuple(
-        _ClientMethodGroup(_client_method_class(path), ".".join(path), tuple(routes))
+        _HandlerGroup(_handler_class(path), ".".join(path), tuple(routes))
         for path, routes in grouped.items()
     )
 
 
-def _client_method_class(path: tuple[str, ...]) -> str:
-    return f"{_api_class(path)}ClientMethods"
+def _handler_class(path: tuple[str, ...]) -> str:
+    return f"{_api_class(path) or 'Root'}Handler"
 
 
-def _render_client_methods(ir: ClientIr, options: PythonClientOptions) -> str:
+def _render_handlers(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     imports.add("abc", "ABC", "abstractmethod")
     imports.add("collections.abc", "Iterable")
@@ -371,22 +371,22 @@ def _render_client_methods(ir: ClientIr, options: PythonClientOptions) -> str:
         route, imports
     )
     body = render_template(
-        "python/client_methods.py.j2",
+        "python/handlers.py.j2",
         filters=filters,
-        groups=_client_method_groups(ir),
-        handler_alias=_client_method_handler_alias(ir),
+        groups=_handler_groups(ir),
+        handler_alias=_handler_alias(ir),
     )
     body = _collapse_blank_lines(body)
     return _module(options, imports, body)
 
 
-def _client_method_handler_alias(ir: ClientIr) -> str:
-    names = [group.class_name for group in _client_method_groups(ir)]
-    inline = f"type ClientMethodHandler = {' | '.join(names)}"
+def _handler_alias(ir: ClientIr) -> str:
+    names = [group.class_name for group in _handler_groups(ir)]
+    inline = f"type Handler = {' | '.join(names)}"
     if len(inline) <= 88:
         return inline
     members = "\n    | ".join(names)
-    return f"type ClientMethodHandler = (\n    {members}\n)"
+    return f"type Handler = (\n    {members}\n)"
 
 
 def _client_method_signature(route: RouteDecl, imports: _Imports) -> str:
@@ -540,9 +540,9 @@ def _render_client(
         imports.add(f"{options.package}.endpoints", "ServerName")
     if options.with_transport == "websocket" and ir.client_methods:
         imports.add(
-            f"{options.package}.client_methods",
-            "ClientMethodHandler",
-            "client_method_dispatcher",
+            f"{options.package}.handlers",
+            "Handler",
+            "handler_dispatcher",
         )
     if options.with_transport == "websocket":
         imports.add(_runtime_module(options), "ClientConnection", "RpcTransportPool")
@@ -642,14 +642,14 @@ def _render_package_init(
         imports.add(f"{options.package}.transport", "WebSocketTransport")
         exported.append("WebSocketTransport")
     if ir.client_methods:
-        client_method_exports = [
-            *(group.class_name for group in _client_method_groups(ir)),
-            "ClientMethodHandler",
-            "client_method_dispatcher",
+        handler_exports = [
+            *(group.class_name for group in _handler_groups(ir)),
+            "Handler",
+            "handler_dispatcher",
         ]
-        imports.add(options.package, "client_methods")
-        imports.add(f"{options.package}.client_methods", *client_method_exports)
-        exported.extend([*client_method_exports, "client_methods"])
+        imports.add(options.package, "handlers")
+        imports.add(f"{options.package}.handlers", *handler_exports)
+        exported.extend([*handler_exports, "handlers"])
     if ir.binary_streams:
         imports.add(options.package, "streams")
         imports.add(
@@ -969,14 +969,14 @@ def _validate(
                 ("<connect.stream_socket_factory>", "stream_socket_factory")
             )
         if ir.client_methods:
-            connect_options.append(("<connect.client_methods>", "client_methods"))
+            connect_options.append(("<connect.handlers>", "handlers"))
         assert_unique_names("connect options", connect_options)
     assert_unique_names("root client", client_members)
     _assert_unique_package_exports(ir, options, nodes, client_name)
     _validate_nodes(nodes)
-    for group in _client_method_groups(ir):
+    for group in _handler_groups(ir):
         assert_unique_names(
-            f"client_methods {group.namespace or '<root>'}",
+            f"handlers {group.namespace or '<root>'}",
             (
                 (route.rpc_name, _identifier(route.operation_name))
                 for route in group.client_methods
@@ -1023,15 +1023,15 @@ def _assert_unique_package_exports(
         exports.append(("<transport>", "WebSocketTransport"))
     if ir.client_methods:
         exports.extend(
-            (group.namespace or "<root client methods>", group.class_name)
-            for group in _client_method_groups(ir)
+            (group.namespace or "<root handlers>", group.class_name)
+            for group in _handler_groups(ir)
         )
         exports.extend(
-            ("<client_methods>", name)
+            ("<handlers>", name)
             for name in (
-                "ClientMethodHandler",
-                "client_method_dispatcher",
-                "client_methods",
+                "Handler",
+                "handler_dispatcher",
+                "handlers",
             )
         )
     if ir.binary_streams:

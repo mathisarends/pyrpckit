@@ -3,11 +3,8 @@
 from collections.abc import Iterable, Mapping
 from typing import Self
 
-from automation_client.client_methods import (
-    ClientMethodHandler,
-    client_method_dispatcher,
-)
 from automation_client.endpoints import Endpoint, ServerName, resolve_endpoints
+from automation_client.handlers import Handler, handler_dispatcher
 from automation_client.internal import (
     ClientConnection,
     RpcClientCore,
@@ -77,7 +74,7 @@ class AutomationClient:
         headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
         stream_socket_factory: BinaryWebSocketFactory | None = None,
-        client_methods: ClientMethodHandler | Iterable[ClientMethodHandler] = (),
+        handlers: Handler | Iterable[Handler] = (),
         hooks: Iterable[RpcClientHook] = (),
         eager: bool = False,
     ) -> ClientConnection[Self, ServerName]:
@@ -85,7 +82,7 @@ class AutomationClient:
         variables: dict[str, str | None] = {
             "host": host,
         }
-        dispatcher = client_method_dispatcher(client_methods)
+        dispatcher = handler_dispatcher(handlers)
 
         async def open_transport(
             endpoint_url: str,
@@ -101,7 +98,7 @@ class AutomationClient:
                 notification_queue_size=notification_queue_size,
                 headers=headers,
                 socket_factory=socket_factory,
-                client_methods=dispatcher,
+                request_handler=dispatcher,
             )
 
         async def open_stream(endpoint: BinaryStreamEndpoint) -> BinaryStreamTransport:

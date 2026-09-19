@@ -14,28 +14,28 @@ from automation_client.models import (
 )
 
 
-class TasksClientMethods(ABC):
-    """Requests the server sends to this client; implement and register them."""
+class TasksHandler(ABC):
+    """Requests this client handles for the server; implement and register them."""
 
     @abstractmethod
     async def approve(self, params: ApprovalRequest) -> ApprovalDecision:
         """Ask the operator to approve a task action."""
 
 
-class BrowserDialogsClientMethods(ABC):
-    """Requests the server sends to this client; implement and register them."""
+class BrowserDialogsHandler(ABC):
+    """Requests this client handles for the server; implement and register them."""
 
     @abstractmethod
     async def confirm(self, params: DialogRequest) -> DialogAnswer:
         """Let the operator answer a confirm() dialog of a tab."""
 
 
-type ClientMethodHandler = TasksClientMethods | BrowserDialogsClientMethods
+type Handler = TasksHandler | BrowserDialogsHandler
 
-CLIENT_METHODS: tuple[RpcClientMethodInfo, ...] = (
+_HANDLER_METHODS: tuple[RpcClientMethodInfo, ...] = (
     RpcClientMethodInfo(
         method="tasks.approve",
-        owner=TasksClientMethods,
+        owner=TasksHandler,
         attribute="approve",
         params_adapter=TypeAdapter(ApprovalRequest),
         result_adapter=TypeAdapter(ApprovalDecision),
@@ -43,7 +43,7 @@ CLIENT_METHODS: tuple[RpcClientMethodInfo, ...] = (
     ),
     RpcClientMethodInfo(
         method="browser.dialogs.confirm",
-        owner=BrowserDialogsClientMethods,
+        owner=BrowserDialogsHandler,
         attribute="confirm",
         params_adapter=TypeAdapter(DialogRequest),
         result_adapter=TypeAdapter(DialogAnswer),
@@ -52,8 +52,8 @@ CLIENT_METHODS: tuple[RpcClientMethodInfo, ...] = (
 )
 
 
-def client_method_dispatcher(
-    client_methods: ClientMethodHandler | Iterable[ClientMethodHandler] = (),
+def handler_dispatcher(
+    handlers: Handler | Iterable[Handler] = (),
 ) -> RpcClientMethodDispatcher:
-    """Answer the server's client method requests with the given handlers."""
-    return RpcClientMethodDispatcher(CLIENT_METHODS, client_methods)
+    """Answer the server's requests with the given handlers."""
+    return RpcClientMethodDispatcher(_HANDLER_METHODS, handlers)

@@ -21,7 +21,7 @@ class WebSocket(Protocol):
     async def close(self) -> None: ...
 
 
-class ClientMethodResponder(Protocol):
+class RequestHandler(Protocol):
     async def respond(self, message: JsonObject) -> JsonObject: ...
 
 
@@ -42,7 +42,7 @@ class WebSocketTransport:
         *,
         request_timeout: float | None = None,
         notification_queue_size: int = 100,
-        client_methods: ClientMethodResponder | None = None,
+        request_handler: RequestHandler | None = None,
     ) -> None:
         if notification_queue_size <= 0:
             raise ValueError("notification_queue_size must be positive")
@@ -54,7 +54,7 @@ class WebSocketTransport:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._next_request_id = 1
         self._closed = False
-        self._client_methods = client_methods
+        self._request_handler = request_handler
         self._answers: set[asyncio.Task[None]] = set()
         self._reader = asyncio.create_task(self._receive())
 
@@ -68,7 +68,7 @@ class WebSocketTransport:
         notification_queue_size: int = 100,
         headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
-        client_methods: ClientMethodResponder | None = None,
+        request_handler: RequestHandler | None = None,
     ) -> Self:
         if socket_factory is None:
             try:
@@ -87,7 +87,7 @@ class WebSocketTransport:
             socket,
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
-            client_methods=client_methods,
+            request_handler=request_handler,
         )
 
     async def request(
@@ -169,7 +169,7 @@ class WebSocketTransport:
             self._finish_notifications(failure)
 
     async def _answer(self, message: JsonObject) -> None:
-        if self._client_methods is None:
+        if self._request_handler is None:
             response: JsonObject = {
                 "jsonrpc": "2.0",
                 "id": message["id"],
@@ -183,7 +183,7 @@ class WebSocketTransport:
                 },
             }
         else:
-            response = await self._client_methods.respond(message)
+            response = await self._request_handler.respond(message)
         if not self._closed:
             await self._socket.send(json.dumps(response, separators=(",", ":")))
 

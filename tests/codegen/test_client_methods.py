@@ -3,6 +3,7 @@ import importlib
 import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, suppress
+from copy import deepcopy
 from types import ModuleType
 from typing import Any
 
@@ -17,7 +18,8 @@ from pyrpckit import (
     RpcService,
 )
 from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
+from pyrpckit.codegen.ir import build_ir
+from pyrpckit.codegen.python import PythonClientOptions, render_files
 from pyrpckit.testing import InMemorySocket
 from tests.conftest import (
     MediaPlayParams,
@@ -126,7 +128,7 @@ async def connected(module: ModuleType, **options: Any) -> AsyncIterator[Any]:
 
 
 def media_handler(module: ModuleType, answer: Any) -> Any:
-    class Media(module.RoomMediaClientMethods):
+    class Media(module.RoomMediaHandler):
         async def play(self, params: Any) -> Any:
             return await answer(params)
 
@@ -143,7 +145,7 @@ async def test_a_registered_handler_answers_the_server(
         return client_module.MediaPlayResult(started=True)
 
     async with connected(
-        client_module, client_methods=media_handler(client_module, answer)
+        client_module, handlers=media_handler(client_module, answer)
     ) as client:
         assert await client.control.play() == "started:True"
 
@@ -161,7 +163,7 @@ async def test_a_declared_error_reaches_the_server_as_its_typed_exception(
         )
 
     async with connected(
-        client_module, client_methods=media_handler(client_module, answer)
+        client_module, handlers=media_handler(client_module, answer)
     ) as client:
         assert await client.control.play() == "unavailable:s1:Speaker offline"
 
@@ -173,7 +175,7 @@ async def test_a_client_method_without_a_handler_is_answered_with_method_not_fou
         return client_module.MediaPlayResult(started=True)
 
     async with connected(
-        client_module, client_methods=[media_handler(client_module, answer)]
+        client_module, handlers=[media_handler(client_module, answer)]
     ) as client:
         assert await client.control.ping() == "remote:-32601"
 
@@ -192,7 +194,7 @@ async def test_a_failing_handler_is_answered_with_an_internal_error(
         raise RuntimeError("speaker exploded")
 
     async with connected(
-        client_module, client_methods=media_handler(client_module, answer)
+        client_module, handlers=media_handler(client_module, answer)
     ) as client:
         assert await client.control.play() == "remote:-32603"
 
@@ -207,7 +209,7 @@ async def test_a_slow_handler_does_not_block_the_clients_own_requests(
         return client_module.MediaPlayResult(started=False)
 
     async with connected(
-        client_module, client_methods=media_handler(client_module, answer)
+        client_module, handlers=media_handler(client_module, answer)
     ) as client:
         playing = asyncio.create_task(client.control.play())
         assert await client.control.status() == "ready"
@@ -218,19 +220,36 @@ async def test_a_slow_handler_does_not_block_the_clients_own_requests(
 def test_one_handler_may_implement_several_namespaces(
     client_module: ModuleType,
 ) -> None:
-    class Room(client_module.RoomClientMethods, client_module.RoomMediaClientMethods):
+    class Room(client_module.RoomHandler, client_module.RoomMediaHandler):
         async def ping(self) -> None: ...
 
         async def play(self, params: Any) -> Any: ...
 
-    client_module.client_method_dispatcher(Room())
+    client_module.handler_dispatcher(Room())
 
 
 def test_handlers_must_implement_a_namespace_once(client_module: ModuleType) -> None:
-    class Room(client_module.RoomClientMethods):
+    class Room(client_module.RoomHandler):
         async def ping(self) -> None: ...
 
-    with pytest.raises(TypeError, match="implements no client method namespace"):
-        client_module.client_method_dispatcher(object())
+    with pytest.raises(TypeError, match="implements no handler namespace"):
+        client_module.handler_dispatcher(object())
     with pytest.raises(ValueError, match="More than one handler"):
-        client_module.client_method_dispatcher([Room(), Room()])
+        client_module.handler_dispatcher([Room(), Room()])
+
+
+def test_root_client_methods_generate_a_distinct_root_handler(
+    room_document: dict[str, Any],
+) -> None:
+    document = deepcopy(room_document)
+    document["x-rpc-client-methods"][0]["name"] = "ping"
+
+    files = render_files(
+        build_ir(document),
+        PythonClientOptions(package="root_client"),
+    )
+    handlers = files["handlers.py"]
+
+    assert "client_methods.py" not in files
+    assert "class RootHandler(ABC):" in handlers
+    assert "type Handler = RootHandler" in handlers

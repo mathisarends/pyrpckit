@@ -18,8 +18,8 @@ client, or application structure. Each file is standalone and executable.
   contract that becomes
   [`automation.openrpc.json`](generated_clients/automation.openrpc.json). The
   client methods `tasks.approve` and `browser.dialogs.confirm` generate the
-  handler classes in
-  [`client_methods.py`](generated_clients/python/automation_client/client_methods.py).
+  client-side handler classes in
+  [`handlers.py`](generated_clients/python/automation_client/handlers.py).
   The binary streams generate
   [`streams.py`](generated_clients/python/automation_client/streams.py) and
   [`streams.ts`](generated_clients/typescript/streams.ts). Regenerate the
