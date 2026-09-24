@@ -281,11 +281,16 @@ class RpcServerSide:
         *,
         payload: Any = None,
         summary: str | None = None,
+        on_error: str = "continue",
     ) -> Any:
         channel = self._channel
         channel._ensure_mutable()
         if isinstance(name, FunctionType):
             return self.event()(name)
+        if on_error not in ("continue", "close"):
+            raise ProtocolDefinitionError(
+                "RPC event on_error must be 'continue' or 'close'"
+            )
         if name is not None and not isinstance(name, str):
             raise ProtocolDefinitionError(
                 "RPC event decorator expects a function or name"
@@ -302,6 +307,7 @@ class RpcServerSide:
                 function=function,
                 summary=summary or _docstring_summary(function),
                 server=None,
+                on_error=on_error,
             )
             channel._reserve(wire_name)
             channel._events.append(definition)

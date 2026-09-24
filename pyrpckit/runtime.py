@@ -227,20 +227,33 @@ async def serve_endpoint(
 
 
 async def _event_source(event, resolver, outgoing):
-    arguments = {
-        parameter.name: await resolver.resolve(parameter.dependency)
-        for parameter in event.injected_parameters
-    }
-    adapter = TypeAdapter(event.payload)
-    async for payload in event.function(**arguments):
-        value = adapter.validate_python(payload)
-        await outgoing.put(
-            RpcCodec().encode(
-                RpcNotification._with_payload_annotation(
-                    event.name, value, event.payload
+    try:
+        arguments = {
+            parameter.name: await resolver.resolve(parameter.dependency)
+            for parameter in event.injected_parameters
+        }
+        adapter = TypeAdapter(event.payload)
+        codec = RpcCodec()
+        async for payload in event.function(**arguments):
+            try:
+                value = adapter.validate_python(payload)
+                message = codec.encode(
+                    RpcNotification._with_payload_annotation(
+                        event.name, value, event.payload
+                    )
                 )
-            )
-        )
+            except Exception:
+                logger.exception("RPC event %s produced an invalid payload", event.name)
+                if event.on_error == "close":
+                    raise
+                continue
+            await outgoing.put(message)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        if event.on_error == "close":
+            raise
+        logger.exception("RPC event source %s failed", event.name)
 
 
 async def serve_stream_endpoint(

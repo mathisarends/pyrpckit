@@ -201,10 +201,32 @@ async def test_server_events_are_sent_as_typed_notifications() -> None:
     assert notification == ("events.changed", {"value": "ready"})
 
 
-async def test_invalid_server_event_closes_with_internal_error() -> None:
+async def test_invalid_server_event_does_not_close_connection() -> None:
     events = RpcChannel("events")
+    ready = asyncio.Event()
 
     @events.server.event(payload=Params)
+    async def changed() -> AsyncIterator[Params]:
+        yield {}  # type: ignore[misc]
+
+    @events.server.event(payload=Params)
+    async def healthy() -> AsyncIterator[Params]:
+        await ready.wait()
+        yield Params(value="still running")
+
+    rpc = RpcService()
+    rpc.socket("/events", channels=(events,))
+
+    async with RpcTestClient(rpc, "/events") as client:
+        ready.set()
+        notification = await asyncio.wait_for(client.next_notification(), 1)
+        assert notification == ("events.healthy", {"value": "still running"})
+
+
+async def test_event_can_opt_in_to_closing_on_error() -> None:
+    events = RpcChannel("events")
+
+    @events.server.event(payload=Params, on_error="close")
     async def changed() -> AsyncIterator[Params]:
         yield {}  # type: ignore[misc]
 
@@ -212,7 +234,7 @@ async def test_invalid_server_event_closes_with_internal_error() -> None:
     rpc.socket("/events", channels=(events,))
 
     async with RpcTestClient(rpc, "/events") as client:
-        await client.closed()
+        await asyncio.wait_for(client.closed(), 1)
 
     assert client.socket.closed == (
         RpcConnectionClose.INTERNAL_ERROR,

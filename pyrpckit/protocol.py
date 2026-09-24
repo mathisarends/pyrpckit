@@ -66,6 +66,7 @@ class RpcNotificationDefinition:
     server: str | None = None
     function: FunctionType | None = None
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
+    on_error: str = "continue"
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,6 +318,7 @@ def notification_definition(
     function: FunctionType,
     summary: str | None,
     server: str | None,
+    on_error: str = "continue",
 ) -> RpcNotificationDefinition:
     if not inspect.isasyncgenfunction(function):
         raise ProtocolDefinitionError(
@@ -354,6 +356,7 @@ def notification_definition(
         server=server,
         function=function,
         injected_parameters=injected,
+        on_error=on_error,
     )
 
 

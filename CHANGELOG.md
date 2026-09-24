@@ -16,6 +16,9 @@
   Python clients can select the previous close behavior with
   `notification_overflow="close"`; TypeScript uses `notificationOverflow`.
 - Close RPC socket connections and notify observers when the writer fails.
+- Isolate event source failures and skip invalid event payloads so other events
+  and requests continue. `@channel.server.event(on_error="close")` restores
+  connection closure for an event source.
 
 ### Changed
 
