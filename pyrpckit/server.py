@@ -1,9 +1,11 @@
+import logging
 import time
 from collections.abc import Callable
 
 from pydantic import ValidationError
 
 from pyrpckit.codec import RpcCodec
+from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
@@ -25,6 +27,8 @@ from pyrpckit.protocol import RpcProtocol
 type RpcErrorMapper = Callable[[Exception], RpcError | None]
 type RpcResponse = RpcSuccess | RpcFailure
 type RpcResponseMessage = RpcResponse | list[RpcResponse] | None
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class RpcServer:
@@ -80,15 +84,20 @@ class RpcServer:
             notification=_looks_like_notification(raw_request),
         )
         started = time.perf_counter()
+        caught_error: Exception | None = None
         await notify_observer(self._observer, "request_started", request_context)
         try:
             invocation = self._dispatcher.parse_request(raw_request)
             result = await self._dispatcher.execute(invocation)
         except Exception as error:
+            caught_error = error
             if _looks_like_notification(raw_request):
+                self._rpc_error(error, request_context.method)
                 response = None
             else:
-                response = self.failure(_request_id(raw_request), error)
+                response = self.failure(
+                    _request_id(raw_request), error, method=request_context.method
+                )
         else:
             response = (
                 RpcSuccess._with_result_annotation(
@@ -106,15 +115,18 @@ class RpcServer:
                 request=request_context,
                 response=response,
                 duration=time.perf_counter() - started,
+                error=caught_error,
             ),
         )
         return response
 
-    def failure(self, request_id: RpcRequestId, error: Exception) -> RpcFailure:
-        rpc_error = self._rpc_error(error)
+    def failure(
+        self, request_id: RpcRequestId, error: Exception, *, method: str | None = None
+    ) -> RpcFailure:
+        rpc_error = self._rpc_error(error, method)
         return RpcFailure.from_error(request_id, rpc_error)
 
-    def _rpc_error(self, error: Exception) -> RpcError:
+    def _rpc_error(self, error: Exception, method: str | None = None) -> RpcError:
         if isinstance(error, RpcError):
             return error
         if self._error_mapper is not None:
@@ -123,6 +135,7 @@ class RpcServer:
                 return mapped
         if isinstance(error, ValidationError):
             return _validation_error(error)
+        logger.error("RPC method %s failed", method, exc_info=error)
         return RpcInternalError()
 
 

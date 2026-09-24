@@ -22,6 +22,7 @@ class RpcResponseContext:
     request: RpcRequestContext
     response: object | None
     duration: float
+    error: BaseException | None = None
 
 
 @dataclass(frozen=True, slots=True)

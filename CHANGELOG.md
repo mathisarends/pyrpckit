@@ -2,6 +2,11 @@
 
 ## 0.8.0 - Unreleased
 
+### Fixed
+
+- Log unexpected RPC handler exceptions with the method name and traceback, and
+  expose the original exception to response observers.
+
 ### Changed
 
 - **Breaking:** Rename `RpcPeer` to `RpcConnectedClient` and

@@ -1,3 +1,5 @@
+import logging
+
 from pydantic import BaseModel
 
 from pyrpckit import (
@@ -148,16 +150,18 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
     assert response.error.message == "Mapped: boom"
 
 
-async def test_unmapped_handler_failures_stay_internal() -> None:
+async def test_unmapped_handler_failures_stay_internal(caplog) -> None:
     server = broken_app.create_server()
-
-    response = await server.handle(
-        {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
-    )
+    with caplog.at_level(logging.ERROR, logger="pyrpckit"):
+        response = await server.handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
+        )
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INTERNAL_ERROR
     assert response.error.message == "Internal error"
+    assert "RPC method greeting.break failed" in caplog.text
+    assert "BreakageError: boom" in caplog.text
 
 
 async def test_a_non_object_payload_fails_without_an_id(
