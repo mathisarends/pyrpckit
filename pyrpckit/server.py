@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connection import RpcLimits
@@ -45,6 +45,8 @@ class RpcServer:
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserver | None = None,
         limits: RpcLimits | None = None,
+        errors: Mapping[type[Exception], type[RpcError]] | None = None,
+        strict_errors: bool = False,
     ) -> "RpcServer":
         server = cls.__new__(cls)
         server._protocol = protocol
@@ -54,6 +56,8 @@ class RpcServer:
         server._codec = RpcCodec()
         server._limits = limits or RpcLimits()
         server._semaphore = asyncio.Semaphore(server._limits.max_concurrency)
+        server._errors = dict(errors or {})
+        server._strict_errors = strict_errors
         return server
 
     @property
@@ -93,6 +97,7 @@ class RpcServer:
         )
         started = time.perf_counter()
         caught_error: Exception | None = None
+        invocation = None
         await notify_observer(self._observer, "request_started", request_context)
         try:
             invocation = self._dispatcher.parse_request(raw_request)
@@ -100,11 +105,18 @@ class RpcServer:
         except Exception as error:
             caught_error = error
             if _looks_like_notification(raw_request):
-                self._rpc_error(error, request_context.method)
+                self._rpc_error(
+                    error,
+                    request_context.method,
+                    declared=invocation.method.raises if invocation else (),
+                )
                 response = None
             else:
                 response = self.failure(
-                    _request_id(raw_request), error, method=request_context.method
+                    _request_id(raw_request),
+                    error,
+                    method=request_context.method,
+                    declared=invocation.method.raises if invocation else (),
                 )
         else:
             response = (
@@ -129,18 +141,50 @@ class RpcServer:
         return response
 
     def failure(
-        self, request_id: RpcRequestId, error: Exception, *, method: str | None = None
+        self,
+        request_id: RpcRequestId,
+        error: Exception,
+        *,
+        method: str | None = None,
+        declared: tuple[type[RpcError], ...] = (),
     ) -> RpcFailure:
-        rpc_error = self._rpc_error(error, method)
+        rpc_error = self._rpc_error(error, method, declared=declared)
         return RpcFailure.from_error(request_id, rpc_error)
 
-    def _rpc_error(self, error: Exception, method: str | None = None) -> RpcError:
+    def _rpc_error(
+        self,
+        error: Exception,
+        method: str | None = None,
+        *,
+        declared: tuple[type[RpcError], ...] = (),
+    ) -> RpcError:
         if isinstance(error, RpcError):
-            return error
-        if self._error_mapper is not None:
+            mapped = error
+        else:
+            mapped = next(
+                (
+                    rpc_error(message=str(error))
+                    for exception, rpc_error in self._errors.items()
+                    if isinstance(error, exception)
+                ),
+                None,
+            )
+        if mapped is None and self._error_mapper is not None:
             mapped = self._error_mapper(error)
-            if mapped is not None:
-                return mapped
+        if mapped is not None:
+            if (
+                self._strict_errors
+                and method is not None
+                and not mapped._builtin
+                and type(mapped) not in declared
+            ):
+                logger.error(
+                    "RPC method %s raised undeclared error %s",
+                    method,
+                    type(mapped).__name__,
+                )
+                return RpcInternalError()
+            return mapped
         logger.error("RPC method %s failed", method, exc_info=error)
         return RpcInternalError()
 

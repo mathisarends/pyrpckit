@@ -13,6 +13,9 @@
   `RpcService.socket(..., path_model=Model)` and inject the parsed model.
 - Let binary stream handlers raise `RpcStreamClose`, map stream exceptions to
   policy-violation closes, and serialize concurrent `RpcBinaryOutput.send()` calls.
+- Map domain exceptions declaratively with `RpcService(errors=...)`, optionally
+  enforce method `raises=` declarations with `strict_errors=True`, and warn on
+  collisions between explicitly assigned numeric RPC error codes.
 
 ### Fixed
 

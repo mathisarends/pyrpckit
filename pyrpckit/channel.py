@@ -180,6 +180,8 @@ class RpcChannel:
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserver | None = None,
         limits: RpcLimits | None = None,
+        errors: Mapping[type[Exception], type[RpcError]] | None = None,
+        strict_errors: bool = False,
     ) -> RpcServer:
         from pyrpckit.dependencies import ContextResolver, context_values
 
@@ -193,6 +195,8 @@ class RpcChannel:
             error_mapper=error_mapper,
             observer=observer,
             limits=limits,
+            errors=errors,
+            strict_errors=strict_errors,
         )
 
     def _reserve(self, name: str) -> None:

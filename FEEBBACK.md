@@ -24,7 +24,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 11 | Erledigt | `8466337` | Der In-Memory-Testclient liegt wieder in `pyrpckit.testing`, mit `handle()`, Notification-Timeout und `RpcTestStream`; Repository-Tests nutzen dieselbe Implementierung. |
 | 12 | Erledigt | `f11fdbb` | `serve_websocket()`, Pre-Accept-Hooks und HTTP 401/403 mit Headern sind umgesetzt. Der im Vorschlag ausdrücklich optionale Connection-Lifespan-Hook wurde weggelassen. |
 | 13 | Erledigt | `cc0a196` | `RpcService.socket(..., path_model=RoomPath)` prüft Pfadfelder zur Definition, validiert vor `accept()` und injiziert das typisierte Modell; ungültige Werte ergeben `NOT_FOUND`. Der Parameter heißt `path_model`, weil `path` bereits das URL-Template bezeichnet. |
-| 14 | Erledigt | Commit dieses Punktes | `RpcStreamClose`, Error-Mapping für Streams und serialisierte `RpcBinaryOutput.send()`-Aufrufe sind umgesetzt; Pre-Accept-Prüfung kam bereits mit Punkt 12. |
+| 14 | Erledigt | `9ca0272` | `RpcStreamClose`, Error-Mapping für Streams und serialisierte `RpcBinaryOutput.send()`-Aufrufe sind umgesetzt; Pre-Accept-Prüfung kam bereits mit Punkt 12. |
+| 15 | Erledigt | Commit dieses Punktes | `RpcService(errors={DomainError: RpcErrorClass})` mappt deklarativ, `strict_errors` prüft `raises=`, doppelte explizite numerische Codes werden gewarnt; Docs empfehlen `data.code`. |
 
 ## Überblick nach Priorität
 

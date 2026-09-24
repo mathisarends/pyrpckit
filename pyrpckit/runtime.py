@@ -145,6 +145,8 @@ async def serve_endpoint(
                 error_mapper=error_mapper,
                 observer=endpoint.observer,
                 limits=limits,
+                errors=endpoint.service.errors,
+                strict_errors=endpoint.service.strict_errors,
             )
 
             async def writer():

@@ -10,6 +10,7 @@ from pyrpckit import (
     RpcFailure,
     RpcLimits,
     RpcServer,
+    RpcService,
     RpcSuccess,
 )
 
@@ -292,6 +293,39 @@ async def test_batch_size_limit_rejects_batch() -> None:
     )
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INVALID_REQUEST
+
+
+async def test_declarative_error_mapping_and_strict_errors() -> None:
+    class DomainMissing(Exception):
+        pass
+
+    class MissingError(RpcError):
+        pass
+
+    channel = RpcChannel("mapped")
+
+    @channel.server.method(raises=(MissingError,))
+    async def declared() -> None:
+        raise DomainMissing("gone")
+
+    @channel.server.method()
+    async def undeclared() -> None:
+        raise DomainMissing("gone")
+
+    service = RpcService(errors={DomainMissing: MissingError}, strict_errors=True)
+    endpoint = service.socket("/mapped", channels=(channel,))
+    server = endpoint.create_server()
+    declared_response = await server.handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "mapped.declared"}
+    )
+    undeclared_response = await server.handle(
+        {"jsonrpc": "2.0", "id": 2, "method": "mapped.undeclared"}
+    )
+    assert isinstance(declared_response, RpcFailure)
+    assert declared_response.error.data.code == "missing"
+    assert declared_response.error.message == "gone"
+    assert isinstance(undeclared_response, RpcFailure)
+    assert undeclared_response.error.code == RpcErrorCode.INTERNAL_ERROR
 
 
 class BreakageError(Exception):

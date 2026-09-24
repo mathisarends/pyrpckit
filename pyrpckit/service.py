@@ -1,4 +1,5 @@
 import re
+import warnings
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 from pyrpckit.channel import RpcChannel
 from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcSocket
 from pyrpckit.dependencies import RpcResolverLike
-from pyrpckit.errors import ProtocolDefinitionError
+from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import RpcProtocol, RpcStreamDefinition
 from pyrpckit.server import (
@@ -100,6 +101,8 @@ class RpcEndpoint:
             error_mapper=error_mapper or self.error_mapper,
             observer=self.observer,
             limits=limits or self.limits,
+            errors=self.service.errors,
+            strict_errors=self.service.strict_errors,
         )
 
 
@@ -151,6 +154,8 @@ class RpcService:
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserver | None = None,
         limits: RpcLimits | None = None,
+        errors: Mapping[type[Exception], type[RpcError]] | None = None,
+        strict_errors: bool = False,
     ) -> None:
         if not isinstance(version, int) or version < 1:
             raise ProtocolDefinitionError(
@@ -160,6 +165,19 @@ class RpcService:
         self._error_mapper = error_mapper
         self._observer = observer
         self._limits = limits or RpcLimits()
+        self._errors: dict[type[Exception], type[RpcError]] = {}
+        for exception, rpc_error in (errors or {}).items():
+            if not isinstance(exception, type) or not issubclass(exception, Exception):
+                raise ProtocolDefinitionError(
+                    "RPC error mapping keys must be Exception subclasses"
+                )
+            declared_error(rpc_error)
+            if rpc_error.details_type is not None:
+                raise ProtocolDefinitionError(
+                    "Declaratively mapped RPC errors cannot require details"
+                )
+            self._errors[exception] = rpc_error
+        self._strict_errors = strict_errors
         self._endpoints: list[RpcEndpoint | RpcStreamEndpoint] = []
         self._channels: set[RpcChannel] = set()
         self._mounted_streams: set[FunctionType] = set()
@@ -168,6 +186,8 @@ class RpcService:
     version = property(lambda self: self._version)
     endpoints = property(lambda self: tuple(self._endpoints))
     protocol = property(lambda self: self.freeze())
+    errors = property(lambda self: self._errors)
+    strict_errors = property(lambda self: self._strict_errors)
 
     def socket(
         self,
@@ -340,6 +360,17 @@ class RpcService:
                 _unique_name(owners, endpoint.stream.name, channel.name)
                 streams.append(replace(endpoint.stream, server=endpoint.name))
         all_names = set(owners)
+        numeric_codes: dict[int, list[str]] = {}
+        for error in errors.values():
+            numeric_codes.setdefault(error.rpc_code, []).append(error.code)
+        for rpc_code, codes in numeric_codes.items():
+            if rpc_code != -32000 and len(codes) > 1:
+                warnings.warn(
+                    f"RPC errors {', '.join(sorted(codes))} share rpc_code {rpc_code}; "
+                    "clients should use data.code",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
         for name in all_names:
             parts = name.split(".")
             for index in range(1, len(parts)):
