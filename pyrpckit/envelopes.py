@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -65,7 +65,7 @@ class RpcSuccess(RpcSchema):
         request_id: RpcRequestId,
         result: Any,
         annotation: Any,
-    ) -> "RpcSuccess":
+    ) -> Self:
         response = cls(id=request_id, result=result)
         response._result_annotation = annotation
         return response
@@ -87,7 +87,7 @@ class RpcFailure(RpcSchema):
     error: RpcErrorData
 
     @classmethod
-    def from_error(cls, request_id: RpcRequestId, error: RpcError) -> "RpcFailure":
+    def from_error(cls, request_id: RpcRequestId, error: RpcError) -> Self:
         payload = RpcErrorPayload(code=error.code, details=error.details)
         payload._details_annotation = error.details_type
         return cls(
@@ -110,7 +110,7 @@ class RpcNotification(RpcSchema):
         method: str,
         payload: Any,
         annotation: Any,
-    ) -> "RpcNotification":
+    ) -> Self:
         notification = cls(method=method, params=payload)
         notification._payload_annotation = annotation
         return notification
