@@ -17,7 +17,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 4 | Erledigt | `83f3970` | Generierte Python- und TypeScript-Clients verwerfen Notifications ohne Listener und begrenzen Queues mit `drop_oldest`; Python und TypeScript bieten die `close`-Policy als Option. |
 | 5 | Erledigt | `af1afd6` | Writer-Exceptions setzen den Close-Grund, beenden die Verbindung und lösen `connection_closed` beim Observer aus. |
 | 6 | Erledigt | `5826666` | Fehlerhafte Event-Payloads werden geloggt und übersprungen; ein ausgefallener Generator beendet nur seine Quelle. `on_error="close"` ist als Opt-in verfügbar. |
-| 7 | Erledigt | Commit dieses Punktes | Requests generierter Clients und serverseitige Client-Methods bekommen 30 s Standard-Timeout; `RpcLimits.client_method_timeout` konfiguriert letztere, explizites `None` deaktiviert sie. |
+| 7 | Erledigt | `69a258f` | Requests generierter Clients und serverseitige Client-Methods bekommen 30 s Standard-Timeout; `RpcLimits.client_method_timeout` konfiguriert letztere, explizites `None` deaktiviert sie. |
+| 8 | Erledigt | Commit dieses Punktes | `RpcLimits.send_timeout` begrenzt Queue-Wartezeit und Socket-Send; langsame Clients werden mit `POLICY_VIOLATION` und `Client too slow` geschlossen. |
 
 ## Überblick nach Priorität
 

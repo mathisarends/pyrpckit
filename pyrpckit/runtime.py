@@ -81,8 +81,17 @@ async def serve_endpoint(
     close_value = [RpcConnectionClose.NORMAL, ""]
     client_closed = False
     outgoing: asyncio.Queue[str] = asyncio.Queue(limits.max_queue_size)
+
+    async def send_outgoing(message: str) -> None:
+        try:
+            async with asyncio.timeout(limits.send_timeout):
+                await outgoing.put(message)
+        except TimeoutError:
+            logger.warning("RPC client too slow: outgoing queue blocked")
+            request_close(RpcConnectionClose.POLICY_VIOLATION, "Client too slow")
+
     connected_client = RpcConnectedClient._create(
-        connection, endpoint.protocol.client_methods, outgoing.put, limits
+        connection, endpoint.protocol.client_methods, send_outgoing, limits
     )
     values = {**values, RpcConnectedClient: connected_client}
     codec = RpcCodec()
@@ -110,12 +119,19 @@ async def serve_endpoint(
                 nonlocal client_closed
                 try:
                     while True:
-                        await socket.send(await outgoing.get())
+                        message = await outgoing.get()
+                        async with asyncio.timeout(limits.send_timeout):
+                            await socket.send(message)
                 except asyncio.CancelledError:
                     raise
                 except RpcDisconnect as error:
                     client_closed = True
                     request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+                except TimeoutError:
+                    logger.warning("RPC client too slow: socket send blocked")
+                    request_close(
+                        RpcConnectionClose.POLICY_VIOLATION, "Client too slow"
+                    )
                 except Exception:
                     logger.exception("RPC writer failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
@@ -124,7 +140,7 @@ async def serve_endpoint(
                 try:
                     response = await server.handle(message)
                     if response is not None:
-                        await outgoing.put(codec.encode(response))
+                        await send_outgoing(codec.encode(response))
                 finally:
                     semaphore.release()
 
@@ -154,7 +170,7 @@ async def serve_endpoint(
                         try:
                             message = codec.decode(frame)
                         except RpcParseError as error:
-                            await outgoing.put(
+                            await send_outgoing(
                                 codec.encode(server.failure(None, error))
                             )
                             continue
@@ -172,7 +188,7 @@ async def serve_endpoint(
                 try:
                     await asyncio.gather(
                         *(
-                            _event_source(event, scoped, outgoing)
+                            _event_source(event, scoped, send_outgoing)
                             for event in endpoint.protocol.notifications
                         )
                     )
@@ -226,7 +242,7 @@ async def serve_endpoint(
         )
 
 
-async def _event_source(event, resolver, outgoing):
+async def _event_source(event, resolver, send):
     try:
         arguments = {
             parameter.name: await resolver.resolve(parameter.dependency)
@@ -247,7 +263,7 @@ async def _event_source(event, resolver, outgoing):
                 if event.on_error == "close":
                     raise
                 continue
-            await outgoing.put(message)
+            await send(message)
     except asyncio.CancelledError:
         raise
     except Exception:

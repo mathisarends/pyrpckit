@@ -162,6 +162,30 @@ async def test_writer_failure_closes_connection_and_notifies_observer() -> None:
     assert observer.closed[-1].close_code == RpcConnectionClose.INTERNAL_ERROR
 
 
+async def test_slow_socket_send_closes_with_policy_violation() -> None:
+    class SlowSocket(InMemorySocket):
+        async def send(self, message: str) -> None:
+            await asyncio.Event().wait()
+
+    socket = SlowSocket("/rpc")
+    task = asyncio.create_task(
+        service.serve(socket, limits=RpcLimits(send_timeout=0.01))
+    )
+    await socket.client_send(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "demo.echo",
+                "params": {"value": "x"},
+            }
+        )
+    )
+    await asyncio.wait_for(task, 1)
+
+    assert socket.closed == (RpcConnectionClose.POLICY_VIOLATION, "Client too slow")
+
+
 @pytest.mark.parametrize(
     ("frame", "expected"),
     [
