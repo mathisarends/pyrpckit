@@ -29,8 +29,8 @@
 - Describe client methods under the `x-rpc-client-methods` OpenRPC extension,
   in the same shape as `methods`.
 - Generate one abstract client method class per namespace in Python clients,
-  such as `RoomMediaClientMethods`, plus `ClientMethodHandler` and
-  `client_method_dispatcher()`. `connect(client_methods=...)` registers
+  such as `RoomMediaHandler`, plus `Handler` and
+  `handler_dispatcher()`. `connect(handlers=...)` registers
   handlers, which run concurrently. Declared errors of client methods gain
   `create()`.
 

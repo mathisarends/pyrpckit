@@ -63,6 +63,8 @@ class RpcClientClosedError(RpcClientMethodError):
 class RpcConnectedClient:
     """The connected client, seen from the server: it answers client methods."""
 
+    _pending: dict[str, asyncio.Future[dict[str, Any]]]
+
     def __init__(self) -> None:
         raise TypeError("RpcConnectedClient instances are created by pyrpckit")
 
@@ -82,7 +84,7 @@ class RpcConnectedClient:
         self._send = send
         self._limits = limits
         self._semaphore = asyncio.Semaphore(limits.max_concurrency)
-        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._pending = {}
         self._next_id = 0
         self._closed = False
         return self
@@ -97,7 +99,7 @@ class RpcConnectedClient:
         *,
         timeout: float | None = None,
     ) -> ResultT:
-        """Send a client method to the client and wait for its result."""
+        """Call a method implemented by this client and validate its answer."""
         definition = self._client_methods.get(client_method.name)
         if definition is None:
             raise ValueError(

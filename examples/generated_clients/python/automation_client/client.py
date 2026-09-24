@@ -78,7 +78,8 @@ class AutomationClient:
         hooks: Iterable[RpcClientHook] = (),
         eager: bool = False,
     ) -> ClientConnection[Self, ServerName]:
-        """Configure the declared servers and optionally open them eagerly."""
+        """Connect to servers and register handlers for their requests."""
+
         variables: dict[str, str | None] = {
             "host": host,
         }

@@ -53,7 +53,9 @@
 {% endif %}        hooks: Iterable[RpcClientHook] = (),
         eager: bool = {{ "True" if servers | length == 1 else "False" }},
     ) -> ClientConnection[Self, ServerName]:
-        """Configure the declared servers and optionally open them eagerly."""
+{% if client_methods %}        """Connect to servers and register handlers for their requests."""
+{% else %}        """Configure the declared servers and optionally open them eagerly."""
+{% endif %}
 {% if variables %}        variables: dict[str, str | None] = {
 {% for variable in variables %}            {{ variable.name | literal }}: {{ variable.name | identifier }},
 {% endfor %}        }
