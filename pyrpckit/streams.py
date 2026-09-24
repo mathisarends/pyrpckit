@@ -4,7 +4,12 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict
 
-from pyrpckit.connection import RpcConnection, RpcDisconnect, RpcSocket
+from pyrpckit.connection import (
+    RpcConnection,
+    RpcConnectionClose,
+    RpcDisconnect,
+    RpcSocket,
+)
 
 _END = object()
 
@@ -25,6 +30,13 @@ class RpcInputEndMessage(BaseModel):
 
 class RpcInputEnded(Exception):
     """Raised by ``RpcBinaryInput.receive()`` after the client ended its input."""
+
+
+class RpcStreamClose(Exception):
+    def __init__(self, close: RpcConnectionClose, reason: str = "") -> None:
+        self.close = close
+        self.reason = reason
+        super().__init__(reason)
 
 
 class RpcBinaryInput:
@@ -74,7 +86,7 @@ class RpcBinaryInput:
 class RpcBinaryOutput:
     """Frames the server sends; waits while the socket applies backpressure."""
 
-    __slots__ = ("_connection", "_socket")
+    __slots__ = ("_connection", "_socket", "_lock")
 
     def __init__(self) -> None:
         raise TypeError("RpcBinaryOutput instances are created by pyrpckit")
@@ -84,11 +96,13 @@ class RpcBinaryOutput:
         self = cls.__new__(cls)
         self._socket = socket
         self._connection = connection
+        self._lock = asyncio.Lock()
         return self
 
     async def send(self, frame: bytes | bytearray | memoryview) -> None:
         if not isinstance(frame, bytes | bytearray | memoryview):
             raise TypeError("RpcBinaryOutput.send() expects bytes")
-        if self._connection.closed or self._connection.close_code is not None:
-            raise RpcDisconnect("The binary stream is closed")
-        await self._socket.send_bytes(bytes(frame))
+        async with self._lock:
+            if self._connection.closed or self._connection.close_code is not None:
+                raise RpcDisconnect("The binary stream is closed")
+            await self._socket.send_bytes(bytes(frame))

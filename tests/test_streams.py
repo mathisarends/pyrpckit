@@ -13,10 +13,12 @@ from pyrpckit import (
     RpcChannel,
     RpcConnection,
     RpcConnectionClose,
+    RpcError,
     RpcInputEnded,
     RpcLimits,
     RpcRejection,
     RpcService,
+    RpcStreamClose,
     RpcStreamDirection,
 )
 
@@ -435,6 +437,47 @@ async def test_handler_failures_close_with_internal_error() -> None:
         assert await client.closed() == (
             RpcConnectionClose.INTERNAL_ERROR,
             "Internal error",
+        )
+
+
+async def test_stream_handler_can_request_a_close() -> None:
+    channel = RpcChannel("media")
+
+    @channel.server.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        raise RpcStreamClose(RpcConnectionClose.POLICY_VIOLATION, "Unavailable")
+        yield b"never"
+
+    async with RpcTestClient(_service(frames), "/stream") as client:
+        assert await client.closed() == (
+            RpcConnectionClose.POLICY_VIOLATION,
+            "Unavailable",
+        )
+
+
+async def test_stream_error_mapper_maps_close_reason() -> None:
+    class MissingError(RpcError):
+        pass
+
+    channel = RpcChannel("media")
+
+    @channel.server.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        raise ValueError("missing")
+        yield b"never"
+
+    service = RpcService()
+    service.stream(
+        "/stream",
+        frames,
+        error_mapper=lambda error: MissingError(message=str(error))
+        if isinstance(error, ValueError)
+        else None,
+    )
+    async with RpcTestClient(service, "/stream") as client:
+        assert await client.closed() == (
+            RpcConnectionClose.POLICY_VIOLATION,
+            "missing: missing",
         )
 
 

@@ -176,6 +176,7 @@ async def serve_websocket(
                 context=context,
                 limits=limits,
                 before_accept=before_accept,
+                error_mapper=error_mapper,
             )
     except asyncio.CancelledError:
         # Starlette cancels its WebSocket task after websocket.disconnect.

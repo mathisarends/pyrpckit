@@ -28,11 +28,16 @@ from pyrpckit.dependencies import (
     context_values,
 )
 from pyrpckit.envelopes import RpcNotification
-from pyrpckit.errors import RpcParseError
+from pyrpckit.errors import RpcError, RpcParseError
 from pyrpckit.observer import RpcConnectionContext, notify_observer
 from pyrpckit.server import RpcErrorMapper, RpcServer
 from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
-from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcInputEndMessage
+from pyrpckit.streams import (
+    RpcBinaryInput,
+    RpcBinaryOutput,
+    RpcInputEndMessage,
+    RpcStreamClose,
+)
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -302,6 +307,7 @@ async def serve_stream_endpoint(
     context: object | Mapping[type[Any], object] | None = None,
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
+    error_mapper: RpcErrorMapper | None = None,
 ) -> None:
     limits = limits or RpcLimits()
     stream = endpoint.stream
@@ -327,6 +333,30 @@ async def serve_stream_endpoint(
         nonlocal client_closed
         client_closed = True
         request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+
+    def close_stream_error(error: Exception) -> None:
+        if isinstance(error, RpcStreamClose):
+            request_close(error.close, error.reason)
+            return
+        try:
+            mapped = (
+                error
+                if isinstance(error, RpcError)
+                else error_mapper(error)
+                if error_mapper is not None
+                else None
+            )
+        except Exception:
+            logger.exception("RPC binary stream error mapper failed")
+            mapped = None
+        if mapped is not None:
+            request_close(
+                RpcConnectionClose.POLICY_VIOLATION,
+                f"{mapped.code}: {mapped.message}",
+            )
+            return
+        logger.error("RPC binary stream failed", exc_info=error)
+        request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
     connection._on_close = request_close
     binary_input = (
@@ -366,9 +396,8 @@ async def serve_stream_endpoint(
                     raise
                 except RpcDisconnect as error:
                     client_disconnected(error)
-                except Exception:
-                    logger.exception("RPC binary stream failed")
-                    request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+                except Exception as error:
+                    close_stream_error(error)
 
             async def handle():
                 try:
@@ -378,9 +407,8 @@ async def serve_stream_endpoint(
                     raise
                 except RpcDisconnect as error:
                     client_disconnected(error)
-                except Exception:
-                    logger.exception("RPC binary stream failed")
-                    request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+                except Exception as error:
+                    close_stream_error(error)
 
             async def read():
                 input_ended = False
@@ -435,6 +463,8 @@ async def serve_stream_endpoint(
         connection._close_code = RpcConnectionClose.SHUTDOWN
         connection._close_reason = ""
         raise
+    except Exception as error:
+        close_stream_error(error)
     finally:
         if generator is not None:
             with suppress(Exception):

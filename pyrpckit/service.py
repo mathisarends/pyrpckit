@@ -115,6 +115,7 @@ class RpcStreamEndpoint:
     summary: str | None
     path_variables: tuple[str, ...]
     before_accept: RpcBeforeAccept | None = None
+    error_mapper: RpcErrorMapper | None = None
 
     def match(self, path: str) -> dict[str, str] | None:
         return _match(self.path, path)
@@ -127,6 +128,7 @@ class RpcStreamEndpoint:
         context: object | Mapping[type[Any], object] | None = None,
         limits: RpcLimits | None = None,
         before_accept: RpcBeforeAccept | None = None,
+        error_mapper: RpcErrorMapper | None = None,
     ) -> None:
         from pyrpckit.runtime import serve_stream_endpoint
 
@@ -137,6 +139,7 @@ class RpcStreamEndpoint:
             context=context,
             limits=limits or self.limits,
             before_accept=before_accept or self.before_accept,
+            error_mapper=error_mapper or self.error_mapper,
         )
 
 
@@ -234,6 +237,7 @@ class RpcService:
         subprotocol: str | None = None,
         summary: str | None = None,
         before_accept: RpcBeforeAccept | None = None,
+        error_mapper: RpcErrorMapper | None = None,
     ) -> RpcStreamEndpoint:
         self._ensure_mutable()
         variables = _validate_endpoint(self._endpoints, path, name, subprotocol)
@@ -264,6 +268,7 @@ class RpcService:
             summary,
             variables,
             before_accept,
+            error_mapper or self._error_mapper,
         )
         self._endpoints.append(endpoint)
         self._channels.add(channel)
@@ -398,7 +403,11 @@ class RpcService:
             )
         else:
             await endpoint.serve(
-                socket, resolver=resolver, context=context, limits=limits
+                socket,
+                resolver=resolver,
+                context=context,
+                limits=limits,
+                error_mapper=error_mapper,
             )
 
     def contract(

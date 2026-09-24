@@ -50,6 +50,7 @@ from .streams import (
     RpcBinaryOutput,
     RpcInputEnded,
     RpcInputEndMessage,
+    RpcStreamClose,
     RpcStreamDirection,
 )
 
@@ -104,6 +105,7 @@ __all__ = [
     "RpcService",
     "RpcSocket",
     "RpcStreamDirection",
+    "RpcStreamClose",
     "RpcStreamEndpoint",
     "RpcSuccess",
     "RpcValidationIssue",

@@ -11,6 +11,8 @@
   endpoints, and 401/403 handshake rejections with optional response headers.
 - Validate typed socket path variables before accepting the handshake with
   `RpcService.socket(..., path_model=Model)` and inject the parsed model.
+- Let binary stream handlers raise `RpcStreamClose`, map stream exceptions to
+  policy-violation closes, and serialize concurrent `RpcBinaryOutput.send()` calls.
 
 ### Fixed
 
