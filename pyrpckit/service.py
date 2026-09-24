@@ -49,12 +49,16 @@ class RpcEndpoint:
         notifications = tuple(
             n for n in self.service.protocol.notifications if n.server == self.name
         )
+        subscriptions = tuple(
+            s for s in self.service.protocol.subscriptions if s.server == self.name
+        )
         client_methods = tuple(
             c for c in self.service.protocol.client_methods if c.server == self.name
         )
         protocol = RpcProtocol(
             methods=methods,
             notifications=notifications,
+            subscriptions=subscriptions,
             notification_types=self.service.protocol.notification_types,
             client_methods=client_methods,
             version=self.service.version,
@@ -327,6 +331,7 @@ class RpcService:
             return self._protocol
         methods = []
         notifications = []
+        subscriptions = []
         types = []
         streams = []
         client_methods = []
@@ -343,6 +348,10 @@ class RpcService:
                         replace(item, server=endpoint.name)
                         for item in protocol.notifications
                     )
+                    subscriptions.extend(
+                        replace(item, server=endpoint.name)
+                        for item in protocol.subscriptions
+                    )
                     types.extend(protocol.notification_types)
                     client_methods.extend(
                         replace(item, server=endpoint.name)
@@ -351,6 +360,7 @@ class RpcService:
                     for item in (
                         *protocol.methods,
                         *protocol.notifications,
+                        *protocol.subscriptions,
                         *protocol.client_methods,
                     ):
                         _unique_name(owners, item.name, channel.name)
@@ -404,6 +414,7 @@ class RpcService:
         self._protocol = RpcProtocol(
             methods=methods,
             notifications=notifications,
+            subscriptions=subscriptions,
             notification_types=types,
             streams=streams,
             client_methods=client_methods,

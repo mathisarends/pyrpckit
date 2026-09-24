@@ -7,6 +7,7 @@
 {% endif %}{% endfor %}{% for event in notifications %}{{ event.rpc_name | constant }}: RpcNotificationInfo[{{ event.payload | annotation }}] = RpcNotificationInfo(
     method={{ event.rpc_name | literal }},
     message_adapter=TypeAdapter({{ event.message | annotation }}),
+    payload_adapter=TypeAdapter({{ event.payload | annotation }}),
 {% if event.server is not none %}    server={{ event.server | literal }},
 {% endif %})
 {% if not loop.last %}

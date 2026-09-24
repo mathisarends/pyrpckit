@@ -48,5 +48,6 @@ BROWSER_SCREENCAST_START: RpcRouteInfo[StartScreencastParams, None] = RpcRouteIn
 TASKS_UPDATED: RpcNotificationInfo[TaskUpdated] = RpcNotificationInfo(
     method="tasks.updated",
     message_adapter=TypeAdapter(TasksUpdatedNotification),
+    payload_adapter=TypeAdapter(TaskUpdated),
     server="production",
 )

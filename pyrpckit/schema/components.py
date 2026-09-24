@@ -81,6 +81,10 @@ def _annotations(protocol: RpcProtocol) -> dict[str, Any]:
         _add_result_types(annotations, method.result)
     for notification in protocol.notifications:
         _add(annotations, notification.payload)
+    for subscription in protocol.subscriptions:
+        if subscription.params is not None:
+            _add(annotations, subscription.params)
+        _add(annotations, subscription.payload)
     for notification_type in protocol.notification_types:
         _add(annotations, notification_type.payload)
     for client_method in protocol.client_methods:

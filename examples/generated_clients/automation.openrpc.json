@@ -788,6 +788,7 @@
       "summary": "Stream task updates."
     }
   ],
+  "x-rpc-subscriptions": [],
   "x-rpc-notification-types": [],
   "x-rpc-client-methods": [
     {

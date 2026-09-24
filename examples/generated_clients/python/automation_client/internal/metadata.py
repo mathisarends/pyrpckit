@@ -26,6 +26,7 @@ class RpcRouteInfo[ParamsT: BaseModel | None, ResultT]:
 class RpcNotificationInfo[PayloadT]:
     method: str
     message_adapter: TypeAdapter[Any]
+    payload_adapter: TypeAdapter[PayloadT]
     server: str | None = None
 
 

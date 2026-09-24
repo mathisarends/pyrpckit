@@ -27,7 +27,7 @@ from pyrpckit.dependencies import (
     connection_scope,
     context_values,
 )
-from pyrpckit.envelopes import RpcNotification
+from pyrpckit.envelopes import RpcNotification, RpcRequestEnvelope
 from pyrpckit.errors import RpcError, RpcParseError
 from pyrpckit.observer import RpcConnectionContext, notify_observer
 from pyrpckit.server import RpcErrorMapper, RpcServer
@@ -38,6 +38,7 @@ from pyrpckit.streams import (
     RpcInputEndMessage,
     RpcStreamClose,
 )
+from pyrpckit.subscriptions import SubscriptionSession
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -149,6 +150,12 @@ async def serve_endpoint(
                 errors=endpoint.service.errors,
                 strict_errors=endpoint.service.strict_errors,
             )
+            subscriptions = SubscriptionSession(
+                endpoint.protocol.subscriptions,
+                scoped,
+                send_outgoing,
+                limit=limits.max_subscriptions,
+            )
 
             async def writer():
                 nonlocal client_closed
@@ -172,6 +179,18 @@ async def serve_endpoint(
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
             async def invoke(message):
+                if isinstance(message, dict) and subscriptions.owns(
+                    str(message.get("method", ""))
+                ):
+                    try:
+                        request = RpcRequestEnvelope.model_validate(message)
+                    except ValidationError:
+                        response = await server.handle(message)
+                        if response is not None:
+                            await send_outgoing(codec.encode(response))
+                        return
+                    await subscriptions.handle(request)
+                    return
                 response = await server.handle(message)
                 if response is not None:
                     await send_outgoing(codec.encode(response))
@@ -238,6 +257,7 @@ async def serve_endpoint(
             for task in (*background, *tasks):
                 task.cancel()
             await asyncio.gather(*background, *tasks, return_exceptions=True)
+            await subscriptions.close()
             if close_value[0] in (
                 RpcConnectionClose.NORMAL,
                 RpcConnectionClose.SHUTDOWN,

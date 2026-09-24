@@ -235,6 +235,11 @@ class _Renderer:
                 for event in node.notifications
                 for name in _model_names(event.payload)
             )
+            model_names.update(
+                event.params_model
+                for event in node.notifications
+                if event.params_model is not None
+            )
         if model_names:
             imports.append(_type_import(model_names, f"{root}models"))
         body = self.template(
@@ -280,6 +285,11 @@ class _Renderer:
         models = _route_model_names(self.root_operations)
         models.update(
             name for event in self.root_events for name in _model_names(event.payload)
+        )
+        models.update(
+            event.params_model
+            for event in self.root_events
+            if event.params_model is not None
         )
         if models:
             imports.append(_type_import(models, "./models"))
@@ -358,7 +368,7 @@ class _Renderer:
             servers=self.ir.servers,
             with_websocket=self.options.with_transport == "websocket",
             nodes=self.nodes,
-            routes=self.ir.operations or self.ir.notifications,
+            routes=bool(self.ir.operations),
             notifications=self.ir.notifications,
             binary_streams=self.ir.binary_streams,
             models=bool(self.ir.declarations),

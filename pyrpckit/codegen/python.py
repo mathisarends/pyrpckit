@@ -269,6 +269,11 @@ def _render_routes(ir: ClientIr, options: PythonClientOptions) -> str:
             f"{options.package}.models",
             *_model_names(event.message),
             *_model_names(event.payload),
+            *(
+                ()
+                if event.params_model is None
+                else (_schema_name(event.params_model),)
+            ),
         )
     body = render_template(
         "python/routes.py.j2",
@@ -445,6 +450,13 @@ def _add_notification_imports(
 ) -> None:
     imports.add("collections.abc", "AsyncIterator")
     imports.add(f"{options.package}.models", *_model_names(event.payload))
+    if event.params_model is not None:
+        imports.add(f"{options.package}.models", _schema_name(event.params_model))
+    for parameter in event.params:
+        imports.add(f"{options.package}.models", *_model_names(parameter.type))
+        _parameter_annotation(parameter, imports, options)
+    if event.params_model is not None:
+        imports.add(f"{options.package}.models", _schema_name(event.params_model))
     imports.add(f"{options.package}.routes", _constant(event.rpc_name))
     _annotation(event.payload, imports)
 

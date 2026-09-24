@@ -101,6 +101,7 @@ class RpcLimits:
     client_method_timeout: float | None = 30.0
     send_timeout: float | None = 10.0
     max_batch_size: int = 32
+    max_subscriptions: int = 100
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1 or self.max_queue_size < 1:
@@ -113,6 +114,8 @@ class RpcLimits:
             raise ValueError("send_timeout must be positive or None")
         if self.max_batch_size < 0:
             raise ValueError("max_batch_size must be at least 0")
+        if self.max_subscriptions < 1:
+            raise ValueError("max_subscriptions must be at least 1")
 
 
 class _Headers(Mapping[str, str]):

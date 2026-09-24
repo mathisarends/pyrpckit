@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Iterable, Mapping
+from contextlib import suppress
 from types import MappingProxyType
 from typing import Any, Protocol, cast
 
@@ -163,6 +164,82 @@ class RpcClientCore:
         notification: RpcNotificationInfo[PayloadT],
     ) -> AsyncIterator[PayloadT]:
         return self._subscribe(notification)
+
+    def subscribe_remote[PayloadT](
+        self,
+        notification: RpcNotificationInfo[PayloadT],
+        *,
+        params: BaseModel | None = None,
+    ) -> AsyncIterator[PayloadT]:
+        return self._subscribe_remote(notification, params)
+
+    async def _subscribe_remote[PayloadT](
+        self,
+        notification: RpcNotificationInfo[PayloadT],
+        params: BaseModel | None,
+    ) -> AsyncIterator[PayloadT]:
+        transport = await self._transport_for(notification.server)
+        hub = self._hubs.get(id(transport))
+        if hub is None:
+            hub = _NotificationHub(transport)
+            self._hubs[id(transport)] = hub
+        subscriber = _Subscriber(notification.method, self._notification_queue_size)
+        if hub.terminal is not None:
+            raise RpcTransportError("The notification stream is closed")
+        hub.subscribers.append(subscriber)
+        if hub.task is None:
+            hub.task = asyncio.create_task(self._pump_notifications(hub))
+        subscription_id: str | None = None
+        try:
+            payload = (
+                None
+                if params is None
+                else params.model_dump(mode="json", by_alias=True, exclude_unset=True)
+            )
+            result = await transport.request(
+                f"{notification.method}.subscribe", payload
+            )
+            if not isinstance(result, dict) or not isinstance(
+                result.get("subscriptionId"), str
+            ):
+                raise RpcTransportError("Invalid subscription response")
+            subscription_id = result["subscriptionId"]
+            while True:
+                item = await subscriber.queue.get()
+                if item is _STREAM_ENDED:
+                    return
+                if isinstance(item, BaseException):
+                    raise RpcTransportError("The notification stream failed") from item
+                assert isinstance(item, dict)
+                values = item.get("params")
+                if (
+                    not isinstance(values, dict)
+                    or values.get("subscriptionId") != subscription_id
+                ):
+                    continue
+                if values.get("complete") is True:
+                    return
+                if "error" in values:
+                    raise RpcTransportError(str(values["error"]))
+                if "payload" not in values:
+                    raise RpcTransportError("Subscription notification has no payload")
+                try:
+                    yield notification.payload_adapter.validate_python(
+                        values["payload"]
+                    )
+                except ValidationError as error:
+                    raise RpcNotificationValidationError(
+                        notification.method, error
+                    ) from error
+        finally:
+            if subscriber in hub.subscribers:
+                hub.subscribers.remove(subscriber)
+            if subscription_id is not None:
+                with suppress(Exception):
+                    await transport.request(
+                        f"{notification.method}.unsubscribe",
+                        {"subscriptionId": subscription_id},
+                    )
 
     async def _subscribe[PayloadT](
         self,

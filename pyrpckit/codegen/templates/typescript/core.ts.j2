@@ -288,6 +288,80 @@ export class RpcClientCore {
     return this.#notificationValues(route);
   }
 
+  subscribeRemote<Payload>(
+    route: RpcNotificationInfo<Payload>,
+    params?: object,
+  ): AsyncIterable<Payload> {
+    return this.#remoteValues(route, params);
+  }
+
+  async *#remoteValues<Payload>(
+    route: RpcNotificationInfo<Payload>,
+    params?: object,
+  ): AsyncIterable<Payload> {
+    const transport = await this.#transportFor(route.server);
+    const subscriber: Subscriber = {
+      method: route.method,
+      queue: new AsyncQueue<JsonRpcNotification>(100),
+    };
+    let hub = this.#hubs.get(transport);
+    if (hub === undefined) {
+      hub = { subscribers: new Set(), pumping: false };
+      this.#hubs.set(transport, hub);
+    }
+    if (hub.ended !== undefined) {
+      throw new Error("The notification stream is closed");
+    }
+    hub.subscribers.add(subscriber);
+    if (!hub.pumping) {
+      hub.pumping = true;
+      void this.#pump(transport, hub);
+    }
+    let subscriptionId: string | undefined;
+    try {
+      const result = await transport.request(
+        `${route.method}.subscribe`,
+        params === undefined ? undefined : withoutUndefined(params),
+      );
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        !("subscriptionId" in result) ||
+        typeof result.subscriptionId !== "string"
+      ) {
+        throw new Error("Invalid subscription response");
+      }
+      subscriptionId = result.subscriptionId;
+      for await (const message of subscriber.queue) {
+        const values = message.params;
+        if (
+          typeof values !== "object" ||
+          values === null ||
+          !("subscriptionId" in values) ||
+          values.subscriptionId !== subscriptionId
+        )
+          continue;
+        if ("complete" in values && values.complete === true) return;
+        if ("error" in values) throw new Error(String(values.error));
+        if (!("payload" in values)) {
+          throw new Error("Subscription notification has no payload");
+        }
+        yield values.payload as Payload;
+      }
+    } finally {
+      hub.subscribers.delete(subscriber);
+      if (subscriptionId !== undefined) {
+        try {
+          await transport.request(`${route.method}.unsubscribe`, {
+            subscriptionId,
+          });
+        } catch {
+          /* the connection may already be closed */
+        }
+      }
+    }
+  }
+
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;

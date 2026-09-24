@@ -59,6 +59,27 @@ def render_openrpc(
             )
             for notification in protocol.notifications
         ],
+        "x-rpc-subscriptions": [
+            described(
+                _with_server(
+                    {
+                        "name": subscription.name,
+                        "subscribe": f"{subscription.name}.subscribe",
+                        "unsubscribe": f"{subscription.name}.unsubscribe",
+                        "params": (
+                            _ref(type_name(subscription.params))
+                            if subscription.params is not None
+                            else None
+                        ),
+                        "payload": _ref(type_name(subscription.payload)),
+                    },
+                    subscription.server,
+                    server_lookup,
+                ),
+                subscription.summary,
+            )
+            for subscription in protocol.subscriptions
+        ],
         "x-rpc-notification-types": [
             {"name": item.name, "payload": _ref(type_name(item.payload))}
             for item in protocol.notification_types
@@ -160,6 +181,11 @@ def _validate_server_references(
         ("notification", notification.name, notification.server)
         for notification in protocol.notifications
         if notification.server is not None
+    )
+    references.extend(
+        ("subscription", item.name, item.server)
+        for item in protocol.subscriptions
+        if item.server is not None
     )
     references.extend(
         ("client method", client_method.name, client_method.server)

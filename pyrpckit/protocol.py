@@ -71,6 +71,20 @@ class RpcNotificationDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class RpcSubscriptionDefinition:
+    name: str
+    params: type[BaseModel] | None
+    payload: Any
+    function: FunctionType
+    injected_parameters: tuple[RpcInjectedParameter, ...]
+    params_parameter: str | None
+    params_origin: type[BaseModel] | None
+    resolver_scope: RpcResolverScope
+    summary: str | None = None
+    server: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RpcStreamDefinition:
     name: str
     function: FunctionType
@@ -107,6 +121,7 @@ class RpcProtocol:
         *,
         methods: Iterable[RpcMethodDefinition] = (),
         notifications: Iterable[RpcNotificationDefinition] = (),
+        subscriptions: Iterable[RpcSubscriptionDefinition] = (),
         notification_types: Iterable[RpcNotificationTypeDefinition] = (),
         streams: Iterable[RpcStreamDefinition] = (),
         client_methods: Iterable[RpcClientMethod[Any, Any]] = (),
@@ -120,6 +135,9 @@ class RpcProtocol:
         self._notifications = _unique(
             "notification",
             ((notification.name, notification) for notification in notifications),
+        )
+        self._subscriptions = _unique(
+            "subscription", ((item.name, item) for item in subscriptions)
         )
         self._notification_types = _unique(
             "notification type",
@@ -141,6 +159,10 @@ class RpcProtocol:
     @property
     def notifications(self) -> tuple[RpcNotificationDefinition, ...]:
         return tuple(self._notifications.values())
+
+    @property
+    def subscriptions(self) -> tuple[RpcSubscriptionDefinition, ...]:
+        return tuple(self._subscriptions.values())
 
     @property
     def notification_types(self) -> tuple[RpcNotificationTypeDefinition, ...]:
@@ -363,6 +385,42 @@ def notification_definition(
         function=function,
         injected_parameters=injected,
         on_error=on_error,
+    )
+
+
+def subscription_definition(
+    *,
+    name: str,
+    function: FunctionType,
+    summary: str | None,
+    resolver_scope: RpcResolverScope,
+) -> RpcSubscriptionDefinition:
+    if not inspect.isasyncgenfunction(function):
+        raise ProtocolDefinitionError(
+            f"RPC subscription {function.__qualname__} must be an async generator"
+        )
+    hints = get_type_hints(function, include_extras=True)
+    result = hints.get("return")
+    if get_origin(result) not in (AsyncIterator, AsyncGenerator):
+        raise ProtocolDefinitionError(
+            f"RPC subscription {function.__qualname__} must return "
+            "AsyncIterator[Payload]"
+        )
+    payload = get_args(result)[0]
+    TypeAdapter(payload).json_schema()
+    params, params_parameter, injected = _router_params_model(function)
+    return RpcSubscriptionDefinition(
+        name=name,
+        params=params,
+        payload=payload,
+        function=function,
+        injected_parameters=injected,
+        params_parameter=params_parameter,
+        params_origin=(
+            hints[params_parameter] if params_parameter is not None else None
+        ),
+        resolver_scope=resolver_scope,
+        summary=summary,
     )
 
 

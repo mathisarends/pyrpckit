@@ -79,6 +79,46 @@ and fails at definition time when it differs from the yielded type.
 Events expect no answer. When the server needs the client's result, declare a
 [client method](client-methods.md) instead.
 
+## Subscriptions with parameters
+
+Declare an async generator when each connection needs its own filtered event
+stream:
+
+```python
+class TaskFilter(RpcModel):
+    project_id: str
+
+
+@tasks.server.subscription()
+async def changes(params: TaskFilter) -> AsyncIterator[TaskUpdated]:
+    async for update in task_bus.listen(params.project_id):
+        yield update
+```
+
+The generated Python client exposes `client.tasks.changes(project_id="demo")`
+as an async iterator. Close the iterator promptly when leaving a loop early:
+
+```python
+from contextlib import aclosing
+
+
+async with aclosing(client.tasks.changes(project_id="demo")) as changes:
+    async for update in changes:
+        if update.title == "Done":
+            break
+```
+
+The generated TypeScript client accepts a typed params object. Breaking a
+`for await` loop sends the unsubscribe request automatically.
+
+On the wire, `tasks.changes.subscribe` returns a `subscriptionId`,
+`tasks.changes` notifications carry `{subscriptionId, payload}`, and
+`tasks.changes.unsubscribe` stops that generator. The generator's `finally`
+block runs on unsubscribe and disconnect. `RpcLimits.max_subscriptions`
+limits active subscriptions per connection (default 100). The OpenRPC document
+describes these streams in `x-rpc-subscriptions`. Existing server events remain
+broadcast notifications without subscription parameters.
+
 ## Observe requests
 
 Configure one observer on the service or override it on an endpoint. Observer

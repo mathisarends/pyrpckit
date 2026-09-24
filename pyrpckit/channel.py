@@ -22,11 +22,13 @@ from pyrpckit.protocol import (
     RpcNotificationDefinition,
     RpcProtocol,
     RpcStreamDefinition,
+    RpcSubscriptionDefinition,
     client_method_definition,
     method_definition,
     notification_definition,
     notification_type_definitions,
     stream_definition,
+    subscription_definition,
 )
 from pyrpckit.server import (
     RpcErrorMapper,
@@ -72,6 +74,7 @@ class RpcChannel:
         self._resolver_scope = resolver_scope
         self._routes: list[RpcRoute] = []
         self._events: list[RpcNotificationDefinition] = []
+        self._subscriptions: list[RpcSubscriptionDefinition] = []
         self._streams: list[RpcStreamDefinition] = []
         self._client_methods: list[RpcClientMethod[Any, Any]] = []
         self._children: list[RpcChannel] = []
@@ -86,6 +89,7 @@ class RpcChannel:
     resolver_scope = property(lambda self: self._resolver_scope)
     routes = property(lambda self: tuple(self._routes))
     events = property(lambda self: tuple(self._events))
+    subscriptions = property(lambda self: tuple(self._subscriptions))
     streams = property(lambda self: tuple(self._streams))
     client_methods = property(lambda self: tuple(self._client_methods))
     children = property(lambda self: tuple(self._children))
@@ -135,6 +139,7 @@ class RpcChannel:
                 for r in self.routes
             ]
             notifications = list(self.events)
+            subscriptions = list(self.subscriptions)
             notification_types = [
                 item
                 for event in self.events
@@ -146,6 +151,7 @@ class RpcChannel:
                 protocol = child.freeze()
                 definitions.extend(protocol.methods)
                 notifications.extend(protocol.notifications)
+                subscriptions.extend(protocol.subscriptions)
                 notification_types.extend(protocol.notification_types)
                 streams.extend(protocol.streams)
                 client_methods.extend(protocol.client_methods)
@@ -166,6 +172,7 @@ class RpcChannel:
             self._protocol = RpcProtocol(
                 methods=definitions,
                 notifications=notifications,
+                subscriptions=subscriptions,
                 notification_types=notification_types,
                 streams=streams,
                 client_methods=client_methods,
@@ -326,6 +333,44 @@ class RpcServerSide:
             )
             channel._reserve(wire_name)
             channel._events.append(definition)
+            return function
+
+        return decorate
+
+    @overload
+    def subscription(self, function: FunctionType, /) -> FunctionType: ...
+
+    @overload
+    def subscription(
+        self, name: str | None = None, /, *, summary: str | None = None
+    ) -> Callable[[FunctionType], FunctionType]: ...
+
+    def subscription(
+        self, name: str | FunctionType | None = None, /, *, summary: str | None = None
+    ) -> Any:
+        channel = self._channel
+        channel._ensure_mutable()
+        if isinstance(name, FunctionType):
+            return self.subscription()(name)
+        if name is not None and not isinstance(name, str):
+            raise ProtocolDefinitionError(
+                "RPC subscription decorator expects a function or name"
+            )
+
+        def decorate(function: FunctionType) -> FunctionType:
+            channel._validate_function(function, "subscription", coroutine=False)
+            wire_name = join_rpc_name(
+                channel.namespace,
+                _segment(name or function.__name__, "subscription name"),
+            )
+            definition = subscription_definition(
+                name=wire_name,
+                function=function,
+                summary=summary or _docstring_summary(function),
+                resolver_scope=channel.resolver_scope,
+            )
+            channel._reserve(wire_name)
+            channel._subscriptions.append(definition)
             return function
 
         return decorate

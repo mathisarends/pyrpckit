@@ -225,6 +225,9 @@ class NotificationDecl:
     message: TypeExpr
     summary: str = ""
     server: str | None = None
+    subscription: bool = False
+    params_model: str | None = None
+    params: tuple[ParamDecl, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +276,7 @@ def build_ir(document: dict[str, Any]) -> ClientIr:
         (route for route in routes if route.path),
         (stream for stream in binary_streams if stream.path),
     )
-    notifications = _notifications(document)
+    notifications = _notifications(document, schemas)
     client_methods = tuple(
         _route(item) for item in document.get("x-rpc-client-methods", ())
     )
@@ -357,6 +360,10 @@ def _roots(
     for notification in notifications:
         roots.update(named_types(notification.payload))
         roots.update(named_types(notification.message))
+        if notification.params_model is not None:
+            roots.add(notification.params_model)
+        for parameter in notification.params:
+            roots.update(named_types(parameter.type))
     return roots
 
 
@@ -540,7 +547,9 @@ def _error(error: dict[str, Any]) -> ErrorDecl:
     )
 
 
-def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
+def _notifications(
+    document: dict[str, Any], schemas: dict[str, Any]
+) -> tuple[NotificationDecl, ...]:
     declarations: list[NotificationDecl] = []
     for notification in document.get("x-rpc-notifications", ()):
         *path, operation_name = notification["name"].split(".")
@@ -555,6 +564,40 @@ def _notifications(document: dict[str, Any]) -> tuple[NotificationDecl, ...]:
                 server=_server_reference(
                     notification,
                     owner=f"Notification {notification['name']!r}",
+                ),
+            )
+        )
+    for subscription in document.get("x-rpc-subscriptions", ()):
+        *path, operation_name = subscription["name"].split(".")
+        params_schema = subscription.get("params")
+        params_model = None if params_schema is None else ref_name(params_schema)
+        properties = (
+            {} if params_model is None else schemas[params_model].get("properties", {})
+        )
+        required = (
+            set()
+            if params_model is None
+            else set(schemas[params_model].get("required", ()))
+        )
+        declarations.append(
+            NotificationDecl(
+                rpc_name=subscription["name"],
+                operation_name=operation_name,
+                path=tuple(path),
+                payload=type_expression(subscription["payload"]),
+                message=PrimitiveType(Primitive.ANY),
+                summary=subscription.get("summary", ""),
+                server=_server_reference(
+                    subscription,
+                    owner=f"Subscription {subscription['name']!r}",
+                ),
+                subscription=True,
+                params_model=params_model,
+                params=tuple(
+                    _parameter(
+                        {"name": name, "schema": schema, "required": name in required}
+                    )
+                    for name, schema in properties.items()
                 ),
             )
         )
