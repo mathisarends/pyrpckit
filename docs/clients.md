@@ -34,9 +34,9 @@ streams are derived from the service. `base_url` accepts either an HTTP or
 WebSocket URL (or a URL template); `http` and `https` are translated to `ws`
 and `wss`. Every supplied variable must occur in the resulting server URLs.
 
-`contract.to_openrpc()` returns the complete document, including binary stream
-extensions, for integrations that need a dictionary instead of rendered JSON.
-The built-in renderer preserves Unicode characters.
+Use `contract.write("tasks.openrpc.json")` to write canonical UTF-8 JSON, or
+`contract.to_json()` to get the same text. `contract.to_openrpc()` returns the
+complete document as a dictionary for integrations that need one.
 
 ## One configuration for contract and clients
 

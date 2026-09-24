@@ -1,7 +1,9 @@
+import json
 import re
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -73,6 +75,12 @@ class RpcContract:
             servers=self.servers,
             binary_streams=self.binary_streams,
         )
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_openrpc(), indent=2, ensure_ascii=False) + "\n"
+
+    def write(self, path: str | Path) -> None:
+        Path(path).write_text(self.to_json(), encoding="utf-8", newline="\n")
 
 
 def contract_from_service(

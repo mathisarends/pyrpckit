@@ -18,6 +18,8 @@
   collisions between explicitly assigned numeric RPC error codes.
 - Cache endpoint protocols, warn about unknown client-method response IDs,
   simplify client-method serialization, and share request-name derivation.
+- Export contracts with canonical UTF-8 JSON through `RpcContract.to_json()`
+  and `RpcContract.write(path)`; CLI rendering uses the same serializer.
 
 ### Fixed
 

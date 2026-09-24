@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +55,14 @@ def test_contract_derives_servers_and_streams() -> None:
 
 def test_render_contract_uses_service_contract() -> None:
     text = render_contract(contract)
+    assert text == contract.to_json()
     assert '"x-rpckit-code": "missing"' in text
+
+
+def test_contract_write_uses_canonical_json(tmp_path: Path) -> None:
+    path = tmp_path / "control.openrpc.json"
+    contract.write(path)
+    assert path.read_bytes() == contract.to_json().encode("utf-8")
 
 
 def test_http_base_url_is_converted_and_contract_renders_itself() -> None:

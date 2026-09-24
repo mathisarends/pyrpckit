@@ -1,10 +1,10 @@
 import importlib
-import json
+from dataclasses import replace
 
 from pyrpckit.channel import RpcChannel
 from pyrpckit.contract import RpcContract
 from pyrpckit.protocol import RpcProtocol
-from pyrpckit.schema.openrpc import Server, render_openrpc
+from pyrpckit.schema.openrpc import Server
 from pyrpckit.service import RpcService
 
 
@@ -63,15 +63,12 @@ def render_contract(
     servers: tuple[Server, ...] | None = None,
 ) -> str:
     """Render a contract as the JSON text committed to the repository."""
-    protocol = source.protocol
     resolved_title = source.title if title is None else title
     resolved_description = source.description if description is None else description
     resolved_servers = tuple(source.servers) if servers is None else servers
-    document = render_openrpc(
-        protocol,
+    return replace(
+        source,
         title=resolved_title,
         description=resolved_description,
         servers=resolved_servers,
-        binary_streams=(source.binary_streams),
-    )
-    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    ).to_json()
