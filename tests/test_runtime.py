@@ -1,11 +1,13 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 import pytest
 
 from pyrpckit import (
     Inject,
+    ProtocolDefinitionError,
     RpcChannel,
     RpcConnection,
     RpcConnectionClose,
@@ -106,6 +108,40 @@ async def test_unsupported_subprotocol_is_rejected_before_acceptance() -> None:
         RpcRejection.PROTOCOL_ERROR,
         "Unsupported subprotocol",
     )
+
+
+async def test_socket_path_model_is_validated_and_injected() -> None:
+    class RoomPath(RpcModel):
+        room_id: UUID
+
+    room = RpcChannel("room")
+
+    @room.server.method()
+    async def get(path: Inject[RoomPath]) -> str:
+        return str(path.room_id)
+
+    rpc = RpcService()
+    rpc.socket("/rooms/{room_id}", channels=(room,), path_model=RoomPath)
+    value = "bc1560c4-68c2-471f-b2f7-2ef3e6cc87bd"
+
+    async with RpcTestClient(rpc, f"/rooms/{value}") as client:
+        assert await client.request("room.get") == value
+
+    async with RpcTestClient(rpc, "/rooms/invalid") as client:
+        await client.closed()
+        assert client.socket.rejection == (
+            RpcRejection.NOT_FOUND,
+            "Invalid path variable",
+        )
+
+
+def test_socket_path_model_fields_must_match_template() -> None:
+    class WrongPath(RpcModel):
+        other: UUID
+
+    rpc = RpcService()
+    with pytest.raises(ProtocolDefinitionError, match="must match path variables"):
+        rpc.socket("/rooms/{room_id}", channels=(channel,), path_model=WrongPath)
 
 
 async def test_parse_error_is_answered_and_connection_remains_usable() -> None:

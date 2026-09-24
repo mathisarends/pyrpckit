@@ -9,6 +9,8 @@
   Add `RpcTestStream` for stream endpoints.
 - Add `fastapi.serve_websocket()`, pre-accept hooks for socket and stream
   endpoints, and 401/403 handshake rejections with optional response headers.
+- Validate typed socket path variables before accepting the handshake with
+  `RpcService.socket(..., path_model=Model)` and inject the parsed model.
 
 ### Fixed
 

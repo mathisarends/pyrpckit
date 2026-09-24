@@ -62,6 +62,7 @@ async def _prepare(
             await socket.reject(RpcRejection.NOT_FOUND, "Invalid path variable")
             return None
         path_values = {name: getattr(parsed, name) for name in path_model.model_fields}
+        base_values[path_model] = parsed
     if before_accept is not None:
         try:
             accepted_values = await before_accept(socket.handshake)
@@ -91,7 +92,12 @@ async def serve_endpoint(
 ) -> None:
     limits = limits or RpcLimits()
     prepared = await _prepare(
-        endpoint, socket, resolver, context, before_accept=before_accept
+        endpoint,
+        socket,
+        resolver,
+        context,
+        endpoint.path_model,
+        before_accept,
     )
     if prepared is None:
         return

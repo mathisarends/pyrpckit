@@ -6,6 +6,8 @@ from types import FunctionType
 from typing import Any
 from urllib.parse import unquote
 
+from pydantic import BaseModel
+
 from pyrpckit.channel import RpcChannel
 from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcSocket
 from pyrpckit.dependencies import RpcResolverLike
@@ -31,6 +33,7 @@ class RpcEndpoint:
     summary: str | None
     path_variables: tuple[str, ...]
     before_accept: RpcBeforeAccept | None = None
+    path_model: type[BaseModel] | None = None
 
     @property
     def protocol(self) -> RpcProtocol:
@@ -176,9 +179,22 @@ class RpcService:
         subprotocol: str | None = None,
         summary: str | None = None,
         before_accept: RpcBeforeAccept | None = None,
+        path_model: type[BaseModel] | None = None,
     ) -> RpcEndpoint:
         self._ensure_mutable()
         variables = _validate_endpoint(self._endpoints, path, name, subprotocol)
+        if path_model is not None:
+            if not isinstance(path_model, type) or not issubclass(
+                path_model, BaseModel
+            ):
+                raise ProtocolDefinitionError(
+                    "RPC socket path_model must be a Pydantic model"
+                )
+            if set(path_model.model_fields) != set(variables):
+                raise ProtocolDefinitionError(
+                    "RPC socket path_model fields must match path variables "
+                    f"{variables!r}"
+                )
         if not channels:
             raise ProtocolDefinitionError("RPC sockets need at least one channel")
         if any(not isinstance(channel, RpcChannel) for channel in channels):
@@ -200,6 +216,7 @@ class RpcService:
             summary,
             variables,
             before_accept,
+            path_model,
         )
         self._endpoints.append(endpoint)
         self._channels.update(channels)

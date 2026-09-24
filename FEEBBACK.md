@@ -22,7 +22,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 9 | Erledigt | `b53b59e` | Ein gecachter Adapter wird für Params, Resultate, Events und Envelope-Serialisierung wiederverwendet; der Event-Codec wird pro Quelle erzeugt. Ein zeitabhängiger Mikro-Benchmark bleibt weg, da er als CI-Test keine verlässliche Regression misst. |
 | 10 | Erledigt | `137ec2f` | `max_batch_size` begrenzt Batches; Items laufen parallel und teilen sich die `max_concurrency`-Semaphore mit einzelnen Requests. |
 | 11 | Erledigt | `8466337` | Der In-Memory-Testclient liegt wieder in `pyrpckit.testing`, mit `handle()`, Notification-Timeout und `RpcTestStream`; Repository-Tests nutzen dieselbe Implementierung. |
-| 12 | Erledigt | Commit dieses Punktes | `serve_websocket()`, Pre-Accept-Hooks und HTTP 401/403 mit Headern sind umgesetzt. Der im Vorschlag ausdrücklich optionale Connection-Lifespan-Hook wurde weggelassen. |
+| 12 | Erledigt | `f11fdbb` | `serve_websocket()`, Pre-Accept-Hooks und HTTP 401/403 mit Headern sind umgesetzt. Der im Vorschlag ausdrücklich optionale Connection-Lifespan-Hook wurde weggelassen. |
+| 13 | Erledigt | Commit dieses Punktes | `RpcService.socket(..., path_model=RoomPath)` prüft Pfadfelder zur Definition, validiert vor `accept()` und injiziert das typisierte Modell; ungültige Werte ergeben `NOT_FOUND`. Der Parameter heißt `path_model`, weil `path` bereits das URL-Template bezeichnet. |
 
 ## Überblick nach Priorität
 
