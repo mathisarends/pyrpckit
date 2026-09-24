@@ -11,6 +11,7 @@ guides cover the individual parts of the API in more detail:
 - [Binary streams](streams.md) — stream bytes on dedicated endpoints
 - [Contract and clients](clients.md) — export OpenRPC and generate typed clients
 - [Transports](transports.md) — serve with FastAPI, a custom adapter, or in-memory tests
+- [Releasing](releasing.md) — version, validate, and tag a release
 
 Start with services and channels if you are building a server. Start with the
 contract and client guide if the server definition already exists.

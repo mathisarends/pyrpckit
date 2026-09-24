@@ -2,6 +2,20 @@
 
 ## 0.8.0 - Unreleased
 
+### Migration from 0.7
+
+- Regenerate and commit Python and TypeScript clients with this version's
+  generator. Generated `connect()` now opens every declared server; pass
+  `lazy=True` in Python or `lazy: true` in TypeScript to defer connections.
+- Replace `RpcPeer` with `RpcConnectedClient` and `RpcPeerClosedError` with
+  `RpcClientClosedError`. Import from `pyrpckit` or the documented public
+  integration modules.
+- Review the new 30-second request and client-method timeouts. Pass `None`
+  explicitly where a call is intended to wait indefinitely.
+- Handler results are validated before sending, and Pydantic validation errors
+  raised inside handlers now become internal errors. Fix handler return values
+  and raise declared RPC errors for expected failures.
+
 ### Added
 
 - Give observers a `RpcObserver` base class with optional connection, notification,
@@ -87,6 +101,12 @@
 
 ## 0.7.0 - Unreleased
 
+### Migration from 0.6
+
+- Move server declarations to `channel.server.method`, `.event`, and `.stream`,
+  and rename `channel.server()` / `endpoint.server()` to `create_server()`.
+- Regenerate clients for the new client-method contract and generated layout.
+
 ### Added
 
 - Group channel declarations by the side that implements them:
@@ -125,7 +145,14 @@
   helpers under `tests/`.
 - Raise the generated client layout version to 10.
 
-## 0.6.0 - Unreleased
+## 0.6.0 - 2026-09-19
+
+### Migration from 0.5
+
+- Regenerate binary stream clients. Open Python streams with `async with` and
+  use `BinarySender` / `BinaryChannel` for input or bidirectional streams.
+- Move authentication checks to the hosting adapter before `serve()` and
+  configure limits and error mapping on `RpcService`.
 
 ### Added
 

@@ -35,6 +35,7 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 22 | Erledigt | `6fe1c9b` | `RpcEndpoint.create_server(observer=...)` ist ergänzt; Resolver/Context-Aufbau ist geteilt. `RpcDisconnect(close, reason)` und typisierte Close-Codes mit `OTHER`/`raw_close_code` sind konsistent; Duplikatfehler nennen die Namen. Stream-Error-Mapping kam mit Punkt 14. |
 | 23 | Erledigt | `e283cd3` | `RpcContract.to_json()` und `.write(path)` geben kanonisches UTF-8-JSON aus; CLI und `--check` verwenden denselben Serializer. |
 | 24 | Erledigt | `58b5932` | Unbekannte Client-Method-Antworten warnen; Requests werden direkt serialisiert; Namensableitung ist geteilt; Endpoint-Protokolle werden gecacht; redundanter Beispiel-`code` und der unnötige Lazy Import sind entfernt. Der `params.params`-Fehlertext ist durch Punkt 2 entfallen. |
+| 25 | Erledigt | Commit dieses Punktes | Zielversion bleibt `0.8.0`; das Changelog enthält Migrationsschritte und das datierte vorhandene 0.6-Tag. `docs/releasing.md` beschreibt Prüfung, Datierung und Tagging. Auf ausdrücklichen Wunsch gibt es keine Kompatibilitäts-Aliasse, keinen zusätzlichen Handshake-Versionscheck und keinen Cara-Integrationstest. |
 | Zusatz: Dishka-Annotationen | Erledigt | Commit dieses Punkts | `dishka.py` verwendet `from __future__ import annotations`; `dishka_router()` und `DishkaResolver` brauchen keine String-Annotationen mehr, obwohl optionale Typen nur unter `TYPE_CHECKING` importiert werden. |
 | Zusatz: Endpoint-Filter | Erledigt | Commit dieses Punkts | `RpcEndpoint.protocol` verwendet eine lokale Referenz auf das Service-Protokoll und sprechende Namen für Methoden, Notifications und Subscriptions; die Filterlogik bleibt unverändert. |
 
@@ -513,3 +514,9 @@ binary_streams=...)` von Hand auf und serialisiert JSON selbst;
   früh mit klarer Meldung statt mit `method_not_found`.
 - cara als Integrationstest nutzen: vor jedem Release gegen cara's Testsuite
   laufen lassen.
+
+**Entscheidung für 0.8.0:** Breaking Changes sind während der 0.x-Releases
+erlaubt; Verbraucher generieren ihre Clients nach dem Upgrade neu. Daher gibt
+es keine Kompatibilitäts-Aliasse und keinen zusätzlichen Versions-Handshake.
+Der Cara-Integrationstest entfällt auf ausdrücklichen Wunsch. Release-Datum
+und Tag werden erst beim tatsächlichen Release gesetzt.
