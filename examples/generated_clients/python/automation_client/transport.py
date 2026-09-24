@@ -61,6 +61,9 @@ class WebSocketTransport:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._next_request_id = 1
         self._closed = False
+        self.closed: asyncio.Future[BaseException | None] = (
+            asyncio.get_running_loop().create_future()
+        )
         self._request_handler = request_handler
         self._answers: set[asyncio.Task[None]] = set()
         self._reader = asyncio.create_task(self._receive())
@@ -126,6 +129,9 @@ class WebSocketTransport:
         finally:
             self._pending.pop(request_id, None)
 
+    def start_notifications(self) -> None:
+        self._notification_listener = True
+
     async def notifications(self) -> AsyncIterator[JsonObject]:
         self._notification_listener = True
         while True:
@@ -148,6 +154,8 @@ class WebSocketTransport:
             task.cancel()
         await asyncio.gather(self._reader, *self._answers, return_exceptions=True)
         self._fail_pending(RpcTransportError("The WebSocket transport was closed"))
+        if not self.closed.done():
+            self.closed.set_result(None)
 
     async def _receive(self) -> None:
         failure: BaseException | None = None
@@ -188,6 +196,8 @@ class WebSocketTransport:
             self._fail_pending(error)
         finally:
             self._finish_notifications(failure)
+            if not self.closed.done():
+                self.closed.set_result(failure)
 
     async def _answer(self, message: JsonObject) -> None:
         if self._request_handler is None:

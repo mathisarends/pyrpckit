@@ -187,25 +187,39 @@ owns.
 
 Contracts may route different methods to different WebSocket servers. A
 generated client still presents one namespace tree and selects the declared
-server for each call. A single-server client opens eagerly so authentication or
-network failures occur at connection time. Multi-server clients open each
-socket only when a method routed to that server is first called; concurrent
-first calls share the same connection attempt.
-
-Pass `eager=True` / `eager: true` to open every server in parallel, or false to
-force lazy behavior:
+server for each call. `connect()` opens every declared server in parallel, so
+authentication and network failures occur at connection time. Pass `lazy=True`
+or `lazy: true` to open each socket when a method routed to it is first called;
+concurrent first calls share the same connection attempt:
 
 ```python
-async with TasksClient.connect(host="stage.example.com", eager=True) as client:
+async with TasksClient.connect(host="stage.example.com", lazy=True) as client:
     ...
 ```
 
 ```ts
 const client = await TasksClient.connect({
   host: "stage.example.com",
-  eager: true,
+  lazy: true,
 });
 ```
+
+Python clients expose `client.closed`, which resolves with the cause of the
+first unexpected WebSocket disconnect, or `None` after a normal close. Pass
+`reconnect=True` to retry failed connections with bounded backoff and resume
+active subscriptions on the new socket. The delay can be adjusted with
+`reconnect_initial_delay` and `reconnect_max_delay`.
+
+```python
+async with TasksClient.connect(reconnect=True) as client:
+    cause = await client.closed
+    if cause is not None:
+        print(f"Connection lost: {cause}")
+```
+
+TypeScript clients accept `onDisconnect` to observe unexpected socket loss.
+The callback receives the socket error; callers can create a new client when
+needed.
 
 Top-level server variables such as `host` apply to every server and binary
 stream that declares that variable. Override only exceptional deployments with

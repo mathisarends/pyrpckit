@@ -21,6 +21,7 @@ export type WebSocketOptions = {
   readonly notificationQueueSize?: number;
   readonly notificationOverflow?: "drop_oldest" | "close";
   readonly socketFactory?: WebSocketFactory;
+  readonly onDisconnect?: (error: unknown) => void;
 };
 
 type WebSocketSocket = {
@@ -53,9 +54,12 @@ export class WebSocketTransport implements RpcTransport {
   readonly #pending = new Map<number, PendingRequest>();
   #nextRequestId = 1;
   #closed = false;
+  #failed = false;
+  readonly #onDisconnect?: (error: unknown) => void;
 
   private constructor(socket: WebSocketSocket, options: WebSocketOptions) {
     this.#socket = socket;
+    this.#onDisconnect = options.onDisconnect;
     this.#requestTimeoutMs =
       options.requestTimeoutMs === null
         ? undefined
@@ -116,7 +120,7 @@ export class WebSocketTransport implements RpcTransport {
     if (this.#closed) return;
     this.#closed = true;
     this.#socket.close();
-    this.#fail(new Error("The WebSocket transport was closed"));
+    this.#fail(new Error("The WebSocket transport was closed"), false);
   }
 
   #receive(raw: unknown): void {
@@ -158,7 +162,9 @@ export class WebSocketTransport implements RpcTransport {
     else throw new Error("JSON-RPC response has no result or error");
   }
 
-  #fail(error: unknown): void {
+  #fail(error: unknown, unexpected = true): void {
+    if (this.#failed) return;
+    this.#failed = true;
     if (!this.#closed) this.#closed = true;
     for (const pending of this.#pending.values()) {
       if (pending.timeout !== undefined) clearTimeout(pending.timeout);
@@ -166,6 +172,7 @@ export class WebSocketTransport implements RpcTransport {
     }
     this.#pending.clear();
     this.#notifications.fail(error);
+    if (unexpected) this.#onDisconnect?.(error);
   }
 }
 

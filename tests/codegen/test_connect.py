@@ -147,6 +147,7 @@ async def test_connect_opens_a_socket_only_for_the_server_that_is_used(
     async with client_module.GreetingClient.connect(
         host="stage.example.com",
         socket_factory=network,
+        lazy=True,
     ) as client:
         assert network.urls == []
 
@@ -166,12 +167,55 @@ async def test_connecting_eagerly_opens_every_declared_server(
     async with client_module.GreetingClient.connect(
         host="stage.example.com",
         socket_factory=network,
-        eager=True,
     ):
         assert sorted(network.urls) == [
             "wss://stage.example.com/rpc",
             "wss://stage.example.com/second",
         ]
+
+
+async def test_closed_signal_reports_unexpected_transport_failure(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork()
+    client = await client_module.GreetingClient.connect(socket_factory=network)
+    try:
+        assert not client.closed.done()
+        network.sockets[0]._replies.put_nowait("not json")
+        failure = await asyncio.wait_for(client.closed, 1)
+        assert isinstance(failure, client_module.RpcTransportError)
+    finally:
+        await client.close()
+
+
+async def test_closed_signal_completes_on_explicit_close(
+    client_module: ModuleType,
+) -> None:
+    client = await client_module.GreetingClient.connect(socket_factory=FakeNetwork())
+    await client.close()
+    assert await asyncio.wait_for(client.closed, 1) is None
+
+
+async def test_reconnect_opens_a_fresh_socket_after_disconnect(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "ok"})
+    client = await client_module.GreetingClient.connect(
+        socket_factory=network,
+        reconnect=True,
+        reconnect_initial_delay=0.001,
+    )
+    try:
+        assert (await client.greeting.say(name="first")).text == "ok"
+        network.sockets[0]._replies.put_nowait("not json")
+        assert isinstance(
+            await asyncio.wait_for(client.closed, 1),
+            client_module.RpcTransportError,
+        )
+        assert (await client.greeting.say(name="second")).text == "ok"
+        assert len(network.sockets) == 3
+    finally:
+        await client.close()
 
 
 async def test_connect_forwards_headers_to_websocket_factories(
@@ -182,6 +226,7 @@ async def test_connect_forwards_headers_to_websocket_factories(
     client = await client_module.GreetingClient.connect(
         socket_factory=network,
         headers={"Authorization": "Bearer secret"},
+        lazy=True,
     )
     try:
         await client.greeting.say(name="Mathis")
@@ -217,7 +262,6 @@ async def test_async_header_factory_refreshes_each_connection(
             socket_factory=network,
             stream_socket_factory=stream_factory,
             headers=headers,
-            eager=True,
         ) as client,
         client.greeting.frames(),
     ):
@@ -237,6 +281,7 @@ async def test_http_endpoint_override_is_converted_to_websocket(
     async with client_module.GreetingClient.connect(
         servers={client_module.ServerName.PRIMARY: "https://stage.example.com/rpc"},
         socket_factory=network,
+        lazy=True,
     ) as client:
         await client.greeting.say(name="Mathis")
     assert network.urls == ["wss://stage.example.com/rpc"]
@@ -286,6 +331,7 @@ async def test_a_single_server_can_be_pointed_somewhere_else(
         host="stage.example.com",
         servers={client_module.ServerName.PRIMARY: "wss://localhost:8000/rpc"},
         socket_factory=network,
+        lazy=True,
     ) as client:
         await client.greeting.say(name="Mathis")
 
@@ -331,6 +377,23 @@ async def test_binary_streams_reuse_the_host_the_client_connected_with(
         with pytest.raises(TypeError, match="host"):
             client.greeting.frames(host="other.example.com")
 
+    assert opened == ["wss://stage.example.com/frames"]
+
+
+async def test_with_transports_forwards_stream_variables(
+    client_module: ModuleType,
+) -> None:
+    opened: list[str] = []
+
+    async def stream_opener(endpoint: Any) -> Any:
+        opened.append(endpoint.url)
+        return FakeSocket(endpoint.url, None)
+
+    client = client_module.GreetingClient.with_transports(
+        {}, stream_opener=stream_opener, variables={"host": "stage.example.com"}
+    )
+    async with client.greeting.frames():
+        pass
     assert opened == ["wss://stage.example.com/frames"]
 
 

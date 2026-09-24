@@ -30,6 +30,7 @@ export class {{ client_name }} {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
 {% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
+      readonly variables?: Readonly<Record<string, string>>;
 {% endif %}    },
   ): {{ client_name }} {
     return new {{ client_name }}(transports, options);
@@ -41,11 +42,12 @@ export class {{ client_name }} {
 {% for variable in variables %}      readonly {{ variable.name | property }}?: {{ variable | server_variable_type }};
 {% endfor %}{% if servers | length == 1 %}      readonly url?: string | URL;
 {% endif %}      readonly servers?: EndpointOverrides;
-      readonly eager?: boolean;
+      readonly lazy?: boolean;
       readonly requestTimeoutMs?: number | null;
       readonly notificationQueueSize?: number;
       readonly notificationOverflow?: "drop_oldest" | "close";
       readonly socketFactory?: WebSocketFactory;
+      readonly onDisconnect?: (error: unknown) => void;
 {% if binary_streams %}      readonly streamSocketFactory?: BinaryWebSocketFactory;
       readonly streamQueueSize?: number;
 {% endif %}      readonly hooks?: readonly RpcClientHook[];
@@ -69,9 +71,10 @@ export class {{ client_name }} {
           notificationQueueSize: options.notificationQueueSize,
           notificationOverflow: options.notificationOverflow,
           socketFactory: options.socketFactory,
+          onDisconnect: options.onDisconnect,
         }),
     });
-    if (options.eager ?? {{ "true" if servers | length == 1 else "false" }}) await pool.openAll();
+    if (!options.lazy) await pool.openAll();
     return new {{ client_name }}(pool, {
       hooks: options.hooks,
 {% if binary_streams %}      streamOpener: (endpoint) =>

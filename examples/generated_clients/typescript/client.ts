@@ -52,6 +52,7 @@ export class AutomationClient {
       readonly closeTransport?: boolean;
       readonly hooks?: readonly RpcClientHook[];
       readonly streamOpener?: BinaryStreamOpener;
+      readonly variables?: Readonly<Record<string, string>>;
     },
   ): AutomationClient {
     return new AutomationClient(transports, options);
@@ -62,11 +63,12 @@ export class AutomationClient {
     options: {
       readonly host?: string;
       readonly servers?: EndpointOverrides;
-      readonly eager?: boolean;
+      readonly lazy?: boolean;
       readonly requestTimeoutMs?: number | null;
       readonly notificationQueueSize?: number;
       readonly notificationOverflow?: "drop_oldest" | "close";
       readonly socketFactory?: WebSocketFactory;
+      readonly onDisconnect?: (error: unknown) => void;
       readonly streamSocketFactory?: BinaryWebSocketFactory;
       readonly streamQueueSize?: number;
       readonly hooks?: readonly RpcClientHook[];
@@ -85,9 +87,10 @@ export class AutomationClient {
           notificationQueueSize: options.notificationQueueSize,
           notificationOverflow: options.notificationOverflow,
           socketFactory: options.socketFactory,
+          onDisconnect: options.onDisconnect,
         }),
     });
-    if (options.eager ?? false) await pool.openAll();
+    if (!options.lazy) await pool.openAll();
     return new AutomationClient(pool, {
       hooks: options.hooks,
       streamOpener: (endpoint) =>

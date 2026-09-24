@@ -123,7 +123,7 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
 
 async function main(): Promise<void> {
   const client = await GreetingClient.connect({
-    eager: false,
+    lazy: true,
     streamSocketFactory: (url) => new FakeStreamSocket(String(url)) as never,
   });
 

@@ -22,6 +22,10 @@
 {% endif %}        )
 {% for node in nodes %}        self.{{ node.segment | identifier }} = {{ node.path | api_class }}(self._rpc)
 {% endfor %}
+    @property
+    def closed(self) -> asyncio.Future[BaseException | None]:
+        return self._rpc.closed
+
     @classmethod
     def with_transports(
         cls,
@@ -31,6 +35,7 @@
         hooks: Iterable[RpcClientHook] = (),
         notification_queue_size: int = 100,
 {% if binary_streams %}        stream_opener: BinaryStreamOpener | None = None,
+        variables: Mapping[str, str] | None = None,
 {% endif %}    ) -> Self:
         """Build a client on transports the caller owns, for tests and adapters."""
         return cls(
@@ -39,6 +44,7 @@
             hooks=hooks,
             notification_queue_size=notification_queue_size,
 {% if binary_streams %}            stream_opener=stream_opener,
+            variables=variables,
 {% endif %}        )
 {% if with_websocket %}
     @classmethod
@@ -58,10 +64,13 @@
 {% if binary_streams %}        stream_socket_factory: BinaryWebSocketFactory | None = None,
 {% endif %}{% if client_methods %}        handlers: Handler | Iterable[Handler] = (),
 {% endif %}        hooks: Iterable[RpcClientHook] = (),
-        eager: bool = {{ "True" if servers | length == 1 else "False" }},
+        lazy: bool = False,
+        reconnect: bool = False,
+        reconnect_initial_delay: float = 0.25,
+        reconnect_max_delay: float = 5.0,
     ) -> ClientConnection[Self, ServerName]:
 {% if client_methods %}        """Connect to servers and register handlers for their requests."""
-{% else %}        """Configure the declared servers and optionally open them eagerly."""
+{% else %}        """Open every declared server unless ``lazy=True`` is set."""
 {% endif %}
 {% if variables %}        variables: dict[str, str | None] = {
 {% for variable in variables %}            {{ variable.name | literal }}: {{ variable.name | identifier }},
@@ -108,6 +117,9 @@
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
             notification_overflow=notification_overflow,
+            reconnect=reconnect,
+            reconnect_initial_delay=reconnect_initial_delay,
+            reconnect_max_delay=reconnect_max_delay,
         )
         return ClientConnection(
             client_factory=lambda transports: cls(
@@ -122,7 +134,7 @@
                 },
 {% endif %}            ),
             pool=pool,
-            eager=eager,
+            eager=not lazy,
         )
 {% endif %}{% for route in operations %}
 {{ operation(route) }}{% endfor %}{% for event in notifications %}

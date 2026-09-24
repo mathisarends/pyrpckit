@@ -4,6 +4,9 @@
 
 ### Added
 
+- Expose Python `client.closed` and TypeScript `onDisconnect` for unexpected
+  WebSocket loss. Python clients can retry connections with bounded backoff and
+  resume active subscriptions using `connect(reconnect=True)`.
 - Add parameterized `@channel.server.subscription()` streams with per-connection
   subscribe/unsubscribe lifecycle, generated Python and TypeScript iterators,
   `x-rpc-subscriptions` in OpenRPC, and `RpcLimits.max_subscriptions`.
@@ -38,6 +41,12 @@
 
 ### Fixed
 
+- Forward `variables` through generated `with_transports()` and
+  `withTransports()` when binary streams are present, and retain the first
+  notification sent immediately after a subscription is accepted.
+- **Breaking:** Generated Python and TypeScript `connect()` now open all
+  declared servers by default. Use `lazy=True` or `lazy: true` for on-demand
+  connections; the old `eager` option is removed.
 - Log unexpected RPC handler exceptions with the method name and traceback, and
   expose the original exception to response observers.
 - **Breaking:** Treat Pydantic validation errors raised inside handlers as

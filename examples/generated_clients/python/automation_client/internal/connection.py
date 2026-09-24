@@ -51,32 +51,96 @@ class RpcTransportPool[ServerT: str]:
         request_timeout: float | None = 30.0,
         notification_queue_size: int = 100,
         notification_overflow: str = "drop_oldest",
+        reconnect: bool = False,
+        reconnect_initial_delay: float = 0.25,
+        reconnect_max_delay: float = 5.0,
     ) -> None:
+        if (
+            reconnect_initial_delay <= 0
+            or reconnect_max_delay < reconnect_initial_delay
+        ):
+            raise ValueError("Invalid reconnect backoff delays")
         self._endpoints = {endpoint.server: endpoint for endpoint in endpoints}
         self._transport_factory = transport_factory
         self._request_timeout = request_timeout
         self._notification_queue_size = notification_queue_size
         self._notification_overflow = notification_overflow
+        self.reconnect = reconnect
+        self._reconnect_initial_delay = reconnect_initial_delay
+        self._reconnect_max_delay = reconnect_max_delay
         self._transports: dict[ServerT, RpcTransport] = {}
         self._locks: dict[ServerT, asyncio.Lock] = {}
+        self._ever_connected: set[ServerT] = set()
+        self._closing = asyncio.Event()
+        self._closed_future: asyncio.Future[BaseException | None] | None = None
+
+    @property
+    def closed(self) -> asyncio.Future[BaseException | None]:
+        if self._closed_future is None:
+            self._closed_future = asyncio.get_running_loop().create_future()
+        return self._closed_future
+
+    def _transport_closed(
+        self,
+        name: ServerT,
+        transport: RpcTransport,
+        result: asyncio.Future[BaseException | None],
+    ) -> None:
+        if not self.closed.done():
+            self.closed.set_result(result.result())
+        if (
+            self.reconnect
+            and result.result() is not None
+            and self._transports.get(name) is transport
+        ):
+            self._transports.pop(name, None)
 
     async def get(self, server: str | None) -> RpcTransport:
+        if self._closing.is_set():
+            raise RpcTransportError("The RPC client is closed")
         name = self._server_name(server)
         transport = self._transports.get(name)
+        if transport is not None and self.reconnect and _failed(transport):
+            self._transports.pop(name, None)
+            transport = None
         if transport is not None:
             return transport
         async with self._locks.setdefault(name, asyncio.Lock()):
+            if self._closing.is_set():
+                raise RpcTransportError("The RPC client is closed")
             transport = self._transports.get(name)
+            if transport is not None and self.reconnect and _failed(transport):
+                self._transports.pop(name, None)
+                transport = None
             if transport is None:
                 endpoint = self._endpoints[name]
-                transport = await self._transport_factory(
-                    endpoint.url,
-                    subprotocols=endpoint.subprotocols,
-                    request_timeout=self._request_timeout,
-                    notification_queue_size=self._notification_queue_size,
-                    notification_overflow=self._notification_overflow,
-                )
+                delay = self._reconnect_initial_delay
+                while True:
+                    try:
+                        transport = await self._transport_factory(
+                            endpoint.url,
+                            subprotocols=endpoint.subprotocols,
+                            request_timeout=self._request_timeout,
+                            notification_queue_size=self._notification_queue_size,
+                            notification_overflow=self._notification_overflow,
+                        )
+                        break
+                    except Exception:
+                        if not self.reconnect or name not in self._ever_connected:
+                            raise
+                        try:
+                            await asyncio.wait_for(self._closing.wait(), delay)
+                        except TimeoutError:
+                            delay = min(delay * 2, self._reconnect_max_delay)
+                            continue
+                        raise RpcTransportError("The RPC client is closed") from None
                 self._transports[name] = transport
+                self._ever_connected.add(name)
+                closed = getattr(transport, "closed", None)
+                if isinstance(closed, asyncio.Future):
+                    closed.add_done_callback(
+                        lambda result: self._transport_closed(name, transport, result)
+                    )
             return transport
 
     async def open_all(self) -> None:
@@ -92,12 +156,15 @@ class RpcTransportPool[ServerT: str]:
             raise failure
 
     async def close(self) -> None:
+        self._closing.set()
         transports = tuple(self._transports.values())
         self._transports.clear()
         await asyncio.gather(
             *(transport.close() for transport in transports),
             return_exceptions=True,
         )
+        if not self.closed.done():
+            self.closed.set_result(None)
 
     def _server_name(self, server: str | None) -> ServerT:
         if server is not None:
@@ -111,6 +178,15 @@ class RpcTransportPool[ServerT: str]:
             "The route has no server and cannot be dispatched across "
             "multiple transports"
         )
+
+
+def _failed(transport: RpcTransport) -> bool:
+    closed = getattr(transport, "closed", None)
+    return (
+        isinstance(closed, asyncio.Future)
+        and closed.done()
+        and closed.result() is not None
+    )
 
 
 class ClientConnection[ClientT: _Closable, ServerT: str]:

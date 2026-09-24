@@ -528,6 +528,7 @@ def _render_client(
     client_name: str,
 ) -> str:
     imports = _Imports()
+    imports.add_module("asyncio")
     imports.add("collections.abc", "Iterable", "Mapping")
     imports.add("typing", "Self")
     imports.add(

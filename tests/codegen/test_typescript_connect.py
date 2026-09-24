@@ -112,6 +112,11 @@ def test_generated_client_connect_behavior_in_node(
                 this.readyState = 3;
               }
 
+              disconnect(): void {
+                this.readyState = 3;
+                this.#emit("close", { data: undefined });
+              }
+
               #emit(type: string, event: { readonly data: unknown }): void {
                 for (const listener of this.#listeners.get(type) ?? []) {
                   listener(event);
@@ -146,6 +151,7 @@ def test_generated_client_connect_behavior_in_node(
               const lazyUrls: string[] = [];
               const lazy = await GreetingClient.connect({
                 host: "stage.example.com",
+                lazy: true,
                 socketFactory: (url) => {
                   lazyUrls.push(String(url));
                   return new FakeSocket(String(url), { text: "Hello, Mathis!" });
@@ -162,7 +168,6 @@ def test_generated_client_connect_behavior_in_node(
               const eagerUrls: string[] = [];
               const eager = await GreetingClient.connect({
                 host: "stage.example.com",
-                eager: true,
                 socketFactory: (url) => {
                   eagerUrls.push(String(url));
                   return new FakeSocket(String(url));
@@ -175,10 +180,26 @@ def test_generated_client_connect_behavior_in_node(
               );
               await eager.close();
 
+              let disconnected = 0;
+              const sockets: FakeSocket[] = [];
+              const observed = await GreetingClient.connect({
+                socketFactory: (url) => {
+                  const socket = new FakeSocket(String(url));
+                  sockets.push(socket);
+                  return socket;
+                },
+                onDisconnect: () => { disconnected += 1; },
+              });
+              sockets[0].disconnect();
+              assert(disconnected === 1, "disconnect callback was not called");
+              await observed.close();
+              assert(disconnected === 1, "explicit close called onDisconnect");
+
               const overrideUrls: string[] = [];
               const overridden = await GreetingClient.connect({
                 host: "stage.example.com",
-                    servers: { primary: "https://localhost:8000/rpc" },
+                lazy: true,
+                servers: { primary: "https://localhost:8000/rpc" },
                 socketFactory: (url) => {
                   overrideUrls.push(String(url));
                   return new FakeSocket(String(url), { text: "Hello, Mathis!" });
