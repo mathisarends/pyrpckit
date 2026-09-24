@@ -20,6 +20,8 @@
   simplify client-method serialization, and share request-name derivation.
 - Export contracts with canonical UTF-8 JSON through `RpcContract.to_json()`
   and `RpcContract.write(path)`; CLI rendering uses the same serializer.
+- Export public signature types from the package root, type service match and
+  contract methods, and provide typed event and stream decorator overloads.
 
 ### Fixed
 

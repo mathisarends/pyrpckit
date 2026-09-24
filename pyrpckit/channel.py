@@ -281,6 +281,20 @@ class RpcServerSide:
 
         return decorate
 
+    @overload
+    def event(self, function: FunctionType, /) -> FunctionType: ...
+
+    @overload
+    def event(
+        self,
+        name: str | None = None,
+        /,
+        *,
+        payload: Any = None,
+        summary: str | None = None,
+        on_error: str = "continue",
+    ) -> Callable[[FunctionType], FunctionType]: ...
+
     def event(
         self,
         name: str | FunctionType | None = None,
@@ -321,6 +335,20 @@ class RpcServerSide:
             return function
 
         return decorate
+
+    @overload
+    def stream(self, function: FunctionType, /) -> FunctionType: ...
+
+    @overload
+    def stream(
+        self,
+        name: str | None = None,
+        /,
+        *,
+        content_type: str = "application/octet-stream",
+        input_content_type: str | None = None,
+        summary: str | None = None,
+    ) -> Callable[[FunctionType], FunctionType]: ...
 
     def stream(
         self,

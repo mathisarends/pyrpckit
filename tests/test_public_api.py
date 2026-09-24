@@ -12,7 +12,6 @@ from pyrpckit import RpcRejection, RpcServer
         "RpcFeatureDefinition",
         "RpcHandler",
         "RpcNotificationDefinition",
-        "RpcProtocol",
         "RpcApp",
         "RpcRouter",
         "OpenRpcContract",
@@ -33,10 +32,15 @@ def test_servers_are_created_by_an_app() -> None:
         RpcServer()
 
 
-def test_authentication_rejections_are_not_part_of_the_rpc_api() -> None:
-    assert not hasattr(RpcRejection, "UNAUTHORIZED")
-    assert not hasattr(RpcRejection, "FORBIDDEN")
+def test_authentication_rejections_are_public() -> None:
+    assert RpcRejection.UNAUTHORIZED.value == "unauthorized"
+    assert RpcRejection.FORBIDDEN.value == "forbidden"
 
 
-def test_internal_test_helpers_are_not_distributed() -> None:
-    assert importlib.util.find_spec("pyrpckit.testing") is None
+def test_test_helpers_are_distributed() -> None:
+    assert importlib.util.find_spec("pyrpckit.testing") is not None
+
+
+def test_public_signature_types_are_exported() -> None:
+    for name in ("RpcResolverLike", "RpcResponseMessage", "RpcProtocol"):
+        assert name in pyrpckit.__all__

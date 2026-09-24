@@ -21,7 +21,13 @@ from .connection import (
 )
 from .constants import LOGGER_NAME
 from .contract import RpcContract, ServerVariable
-from .dependencies import Inject, RpcResolver, RpcResolverScope, call_scope
+from .dependencies import (
+    Inject,
+    RpcResolver,
+    RpcResolverLike,
+    RpcResolverScope,
+    call_scope,
+)
 from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
     ProtocolDefinitionError,
@@ -42,8 +48,8 @@ from .observer import (
     RpcRequestContext,
     RpcResponseContext,
 )
-from .protocol import RpcClientMethod
-from .server import RpcErrorMapper, RpcServer
+from .protocol import RpcClientMethod, RpcProtocol
+from .server import RpcErrorMapper, RpcResponseMessage, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from .streams import (
     RpcBinaryInput,
@@ -99,8 +105,11 @@ __all__ = [
     "RpcRequestId",
     "RpcRequestContext",
     "RpcResolver",
+    "RpcResolverLike",
     "RpcResolverScope",
     "RpcResponseContext",
+    "RpcResponseMessage",
+    "RpcProtocol",
     "RpcServer",
     "RpcService",
     "RpcSocket",

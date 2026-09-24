@@ -14,3 +14,7 @@ guides cover the individual parts of the API in more detail:
 
 Start with services and channels if you are building a server. Start with the
 contract and client guide if the server definition already exists.
+
+The stable import surface is `pyrpckit` plus the documented integration
+modules `pyrpckit.fastapi`, `pyrpckit.dishka`, `pyrpckit.testing`, and
+`pyrpckit.codegen`. Other submodules are implementation details.

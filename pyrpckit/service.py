@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from pyrpckit.channel import RpcChannel, request_name
 from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcRejection, RpcSocket
+from pyrpckit.contract import RpcContract, ServerVariable
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
@@ -309,7 +310,9 @@ class RpcService:
             + ", ".join(e.name for e in self.endpoints)
         )
 
-    def match(self, path: str):
+    def match(
+        self, path: str
+    ) -> tuple[RpcEndpoint | RpcStreamEndpoint, dict[str, str]] | None:
         ordered = sorted(
             enumerate(self.endpoints), key=lambda item: ("{" in item[1].path, item[0])
         )
@@ -449,8 +452,8 @@ class RpcService:
         title: str,
         base_url: str,
         description: str = "Typed JSON-RPC API.",
-        variables=None,
-    ):
+        variables: Mapping[str, ServerVariable] | None = None,
+    ) -> RpcContract:
         from pyrpckit.contract import contract_from_service
 
         return contract_from_service(

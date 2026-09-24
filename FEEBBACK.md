@@ -26,7 +26,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 13 | Erledigt | `cc0a196` | `RpcService.socket(..., path_model=RoomPath)` prüft Pfadfelder zur Definition, validiert vor `accept()` und injiziert das typisierte Modell; ungültige Werte ergeben `NOT_FOUND`. Der Parameter heißt `path_model`, weil `path` bereits das URL-Template bezeichnet. |
 | 14 | Erledigt | `9ca0272` | `RpcStreamClose`, Error-Mapping für Streams und serialisierte `RpcBinaryOutput.send()`-Aufrufe sind umgesetzt; Pre-Accept-Prüfung kam bereits mit Punkt 12. |
 | 15 | Erledigt | `b623b7a` | `RpcService(errors={DomainError: RpcErrorClass})` mappt deklarativ, `strict_errors` prüft `raises=`, doppelte explizite numerische Codes werden gewarnt; Docs empfehlen `data.code`. |
-| 23 | Erledigt | Commit dieses Punktes | `RpcContract.to_json()` und `.write(path)` geben kanonisches UTF-8-JSON aus; CLI und `--check` verwenden denselben Serializer. |
+| 20 | Teilweise | Commit dieses Punktes | Signatur-Typen werden top-level exportiert; `match()` und `contract()` sind typisiert, Event/Stream-Dekoratoren haben Overloads. Die stabilen Importmodule sind dokumentiert. `pyright --verifytypes` bleibt offen, bis die restlichen Public-API-Änderungen abgeschlossen sind. |
+| 23 | Erledigt | `e283cd3` | `RpcContract.to_json()` und `.write(path)` geben kanonisches UTF-8-JSON aus; CLI und `--check` verwenden denselben Serializer. |
 | 24 | Erledigt | `58b5932` | Unbekannte Client-Method-Antworten warnen; Requests werden direkt serialisiert; Namensableitung ist geteilt; Endpoint-Protokolle werden gecacht; redundanter Beispiel-`code` und der unnötige Lazy Import sind entfernt. Der `params.params`-Fehlertext ist durch Punkt 2 entfallen. |
 
 ## Überblick nach Priorität
