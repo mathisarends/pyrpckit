@@ -301,7 +301,7 @@ export class RpcClientCore {
     const transport = await this.#transportFor(route.server);
     const subscriber: Subscriber = {
       method: route.method,
-      queue: new AsyncQueue<JsonRpcNotification>(),
+      queue: new AsyncQueue<JsonRpcNotification>(100),
     };
     let hub = this.#hubs.get(transport);
     if (hub === undefined) {
@@ -355,12 +355,18 @@ export class RpcClientCore {
 }
 
 class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
+  readonly #capacity: number;
   readonly #values: Value[] = [];
   readonly #waiters: Array<{
     readonly resolve: (result: IteratorResult<Value>) => void;
     readonly reject: (error: unknown) => void;
   }> = [];
   #ended = false;
+  #overflowWarned = false;
+
+  constructor(capacity: number) {
+    this.#capacity = capacity;
+  }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<Value> {
     return this;
@@ -378,7 +384,18 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
   push(value: Value): void {
     const waiter = this.#waiters.shift();
     if (waiter !== undefined) waiter.resolve({ value, done: false });
-    else this.#values.push(value);
+    else {
+      if (this.#values.length === this.#capacity) {
+        this.#values.shift();
+        if (!this.#overflowWarned) {
+          console.warn(
+            "Notification subscriber queue overflowed; dropping oldest notifications",
+          );
+          this.#overflowWarned = true;
+        }
+      }
+      this.#values.push(value);
+    }
   }
 
   end(): void {

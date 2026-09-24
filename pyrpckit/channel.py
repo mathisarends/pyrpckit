@@ -157,7 +157,7 @@ class RpcChannel:
             definitions = [
                 replace(
                     d,
-                    request_name=_request_name(d.name)
+                    request_name=request_name(d.name)
                     if d.request_name in duplicate_requests
                     else d.request_name,
                 )
@@ -438,5 +438,5 @@ def _docstring_summary(function: Any) -> str | None:
     return None if not doc else doc.splitlines()[0].strip() or None
 
 
-def _request_name(wire_name: str) -> str:
+def request_name(wire_name: str) -> str:
     return "".join(part.capitalize() for part in wire_name.split(".")) + "Request"

@@ -48,7 +48,6 @@ class ApprovalDecision(RpcModel):
 
 class ApprovalUnavailableError(RpcError):
     rpc_code = -32030
-    code = "approval_unavailable"
 
 
 class Tab(RpcModel):

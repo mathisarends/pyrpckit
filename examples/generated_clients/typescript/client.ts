@@ -63,8 +63,9 @@ export class AutomationClient {
       readonly host?: string;
       readonly servers?: EndpointOverrides;
       readonly eager?: boolean;
-      readonly requestTimeoutMs?: number;
+      readonly requestTimeoutMs?: number | null;
       readonly notificationQueueSize?: number;
+      readonly notificationOverflow?: "drop_oldest" | "close";
       readonly socketFactory?: WebSocketFactory;
       readonly streamSocketFactory?: BinaryWebSocketFactory;
       readonly streamQueueSize?: number;
@@ -81,6 +82,7 @@ export class AutomationClient {
           subprotocols: endpoint.subprotocols,
           requestTimeoutMs: options.requestTimeoutMs,
           notificationQueueSize: options.notificationQueueSize,
+          notificationOverflow: options.notificationOverflow,
           socketFactory: options.socketFactory,
         }),
     });

@@ -16,6 +16,8 @@
 - Map domain exceptions declaratively with `RpcService(errors=...)`, optionally
   enforce method `raises=` declarations with `strict_errors=True`, and warn on
   collisions between explicitly assigned numeric RPC error codes.
+- Cache endpoint protocols, warn about unknown client-method response IDs,
+  simplify client-method serialization, and share request-name derivation.
 
 ### Fixed
 

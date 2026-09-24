@@ -166,7 +166,7 @@ class RpcConnectedClient:
             self._pending.get(request_id) if isinstance(request_id, str) else None
         )
         if response is None or response.done():
-            logger.debug(
+            logger.warning(
                 "Dropped a response to unknown client_method id %r", request_id
             )
         else:
@@ -201,10 +201,7 @@ def _request_frame(
         if params is None:
             raise TypeError(f"RPC client method {client_method.name!r} needs params")
         adapter = _adapter(client_method.params)
-        value = adapter.validate_python(
-            params.model_dump() if isinstance(params, BaseModel) else params
-        )
-        message["params"] = adapter.dump_python(value, mode="json", by_alias=True)
+        message["params"] = adapter.dump_python(params, mode="json", by_alias=True)
     return json.dumps(message, separators=(",", ":"), ensure_ascii=False)
 
 

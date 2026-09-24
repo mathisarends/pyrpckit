@@ -1,5 +1,8 @@
 # Services and channels
 
+JSON-RPC methods accept parameters by name as a JSON object. Positional
+parameter arrays are not supported.
+
 A channel owns related operations and their wire namespace. A service mounts
 one or more channels on concrete socket paths. Keeping those concepts separate
 lets one application expose several independently addressable APIs while still

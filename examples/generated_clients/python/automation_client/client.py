@@ -33,6 +33,7 @@ class AutomationClient:
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
+        notification_queue_size: int = 100,
         stream_opener: BinaryStreamOpener | None = None,
         variables: Mapping[str, str] | None = None,
     ) -> None:
@@ -40,6 +41,7 @@ class AutomationClient:
             transport,
             close_transport=close_transport,
             hooks=hooks,
+            notification_queue_size=notification_queue_size,
             stream_opener=stream_opener,
             variables=variables,
         )
@@ -53,6 +55,7 @@ class AutomationClient:
         *,
         close_transport: bool = True,
         hooks: Iterable[RpcClientHook] = (),
+        notification_queue_size: int = 100,
         stream_opener: BinaryStreamOpener | None = None,
     ) -> Self:
         """Build a client on transports the caller owns, for tests and adapters."""
@@ -60,6 +63,7 @@ class AutomationClient:
             transports,
             close_transport=close_transport,
             hooks=hooks,
+            notification_queue_size=notification_queue_size,
             stream_opener=stream_opener,
         )
 
@@ -69,8 +73,9 @@ class AutomationClient:
         *,
         host: str | None = None,
         servers: Mapping[ServerName, str | Endpoint] | None = None,
-        request_timeout: float | None = None,
+        request_timeout: float | None = 30.0,
         notification_queue_size: int = 100,
+        notification_overflow: str = "drop_oldest",
         headers: Mapping[str, str] | None = None,
         socket_factory: WebSocketFactory | None = None,
         stream_socket_factory: BinaryWebSocketFactory | None = None,
@@ -91,12 +96,14 @@ class AutomationClient:
             subprotocols: tuple[str, ...],
             request_timeout: float | None,
             notification_queue_size: int,
+            notification_overflow: str,
         ) -> RpcTransport:
             return await WebSocketTransport.open(
                 endpoint_url,
                 subprotocols=subprotocols,
                 request_timeout=request_timeout,
                 notification_queue_size=notification_queue_size,
+                notification_overflow=notification_overflow,
                 headers=headers,
                 socket_factory=socket_factory,
                 request_handler=dispatcher,
@@ -114,11 +121,13 @@ class AutomationClient:
             transport_factory=open_transport,
             request_timeout=request_timeout,
             notification_queue_size=notification_queue_size,
+            notification_overflow=notification_overflow,
         )
         return ClientConnection(
             client_factory=lambda transports: cls(
                 transports,
                 hooks=hooks,
+                notification_queue_size=notification_queue_size,
                 stream_opener=open_stream,
                 variables={
                     name: value

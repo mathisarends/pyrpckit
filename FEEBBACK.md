@@ -25,7 +25,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 12 | Erledigt | `f11fdbb` | `serve_websocket()`, Pre-Accept-Hooks und HTTP 401/403 mit Headern sind umgesetzt. Der im Vorschlag ausdrücklich optionale Connection-Lifespan-Hook wurde weggelassen. |
 | 13 | Erledigt | `cc0a196` | `RpcService.socket(..., path_model=RoomPath)` prüft Pfadfelder zur Definition, validiert vor `accept()` und injiziert das typisierte Modell; ungültige Werte ergeben `NOT_FOUND`. Der Parameter heißt `path_model`, weil `path` bereits das URL-Template bezeichnet. |
 | 14 | Erledigt | `9ca0272` | `RpcStreamClose`, Error-Mapping für Streams und serialisierte `RpcBinaryOutput.send()`-Aufrufe sind umgesetzt; Pre-Accept-Prüfung kam bereits mit Punkt 12. |
-| 15 | Erledigt | Commit dieses Punktes | `RpcService(errors={DomainError: RpcErrorClass})` mappt deklarativ, `strict_errors` prüft `raises=`, doppelte explizite numerische Codes werden gewarnt; Docs empfehlen `data.code`. |
+| 15 | Erledigt | `b623b7a` | `RpcService(errors={DomainError: RpcErrorClass})` mappt deklarativ, `strict_errors` prüft `raises=`, doppelte explizite numerische Codes werden gewarnt; Docs empfehlen `data.code`. |
+| 24 | Erledigt | Commit dieses Punktes | Unbekannte Client-Method-Antworten warnen; Requests werden direkt serialisiert; Namensableitung ist geteilt; Endpoint-Protokolle werden gecacht; redundanter Beispiel-`code` und der unnötige Lazy Import sind entfernt. Der `params.params`-Fehlertext ist durch Punkt 2 entfallen. |
 
 ## Überblick nach Priorität
 

@@ -2,15 +2,15 @@ import re
 import warnings
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import FunctionType
 from typing import Any
 from urllib.parse import unquote
 
 from pydantic import BaseModel
 
-from pyrpckit.channel import RpcChannel
-from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcSocket
+from pyrpckit.channel import RpcChannel, request_name
+from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcRejection, RpcSocket
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
@@ -35,9 +35,12 @@ class RpcEndpoint:
     path_variables: tuple[str, ...]
     before_accept: RpcBeforeAccept | None = None
     path_model: type[BaseModel] | None = None
+    _protocol: RpcProtocol | None = field(default=None, init=False, repr=False)
 
     @property
     def protocol(self) -> RpcProtocol:
+        if self._protocol is not None:
+            return self._protocol
         self.service.freeze()
         methods = tuple(
             m for m in self.service.protocol.methods if m.server == self.name
@@ -48,13 +51,15 @@ class RpcEndpoint:
         client_methods = tuple(
             c for c in self.service.protocol.client_methods if c.server == self.name
         )
-        return RpcProtocol(
+        protocol = RpcProtocol(
             methods=methods,
             notifications=notifications,
             notification_types=self.service.protocol.notification_types,
             client_methods=client_methods,
             version=self.service.version,
         )
+        object.__setattr__(self, "_protocol", protocol)
+        return protocol
 
     def match(self, path: str) -> dict[str, str] | None:
         return _match(self.path, path)
@@ -387,8 +392,7 @@ class RpcService:
         methods = [
             replace(
                 m,
-                request_name="".join(p.capitalize() for p in m.name.split("."))
-                + "Request",
+                request_name=request_name(m.name),
             )
             if m.request_name in duplicate_requests
             else m
@@ -419,8 +423,6 @@ class RpcService:
             path = path[len(root_path) :] or "/"
         matched = self.match(path)
         if matched is None:
-            from pyrpckit.connection import RpcRejection
-
             await socket.reject(RpcRejection.NOT_FOUND, "Not found")
             return
         endpoint, _ = matched

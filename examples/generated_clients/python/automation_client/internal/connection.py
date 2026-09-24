@@ -32,6 +32,7 @@ class _TransportFactory(Protocol):
         subprotocols: tuple[str, ...],
         request_timeout: float | None,
         notification_queue_size: int,
+        notification_overflow: str,
     ) -> Awaitable[RpcTransport]: ...
 
 
@@ -47,13 +48,15 @@ class RpcTransportPool[ServerT: str]:
         *,
         endpoints: Iterable[_ConnectionEndpoint[ServerT]],
         transport_factory: _TransportFactory,
-        request_timeout: float | None = None,
+        request_timeout: float | None = 30.0,
         notification_queue_size: int = 100,
+        notification_overflow: str = "drop_oldest",
     ) -> None:
         self._endpoints = {endpoint.server: endpoint for endpoint in endpoints}
         self._transport_factory = transport_factory
         self._request_timeout = request_timeout
         self._notification_queue_size = notification_queue_size
+        self._notification_overflow = notification_overflow
         self._transports: dict[ServerT, RpcTransport] = {}
         self._locks: dict[ServerT, asyncio.Lock] = {}
 
@@ -71,6 +74,7 @@ class RpcTransportPool[ServerT: str]:
                     subprotocols=endpoint.subprotocols,
                     request_timeout=self._request_timeout,
                     notification_queue_size=self._notification_queue_size,
+                    notification_overflow=self._notification_overflow,
                 )
                 self._transports[name] = transport
             return transport
