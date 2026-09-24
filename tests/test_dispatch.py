@@ -1,6 +1,7 @@
 import pytest
+from pydantic import BaseModel
 
-from pyrpckit import RpcInvalidParamsError, RpcMethodNotFoundError
+from pyrpckit import RpcChannel, RpcInvalidParamsError, RpcMethodNotFoundError
 from pyrpckit.dispatch import RpcDispatcher
 from pyrpckit.protocol import RpcProtocol
 
@@ -36,6 +37,7 @@ def test_parsing_resolves_the_method_and_validates_the_params(
 
     assert invocation.method.handler_name == "say"
     assert isinstance(invocation.params, SayParams)
+    assert type(invocation.params) is SayParams
     assert invocation.params.name == "Mathis"
     assert invocation.request.expects_response
 
@@ -102,3 +104,19 @@ def test_params_sent_to_a_method_without_params_are_rejected(
 
     assert "params.name" in error.value.message
     assert error.value.code == "invalid_params"
+
+
+def test_foreign_model_params_keep_declared_class_and_wire_aliases() -> None:
+    class ForeignParams(BaseModel):
+        user_id: int
+
+    channel = RpcChannel("foreign")
+
+    @channel.server.method()
+    async def accept(params: ForeignParams) -> None: ...
+
+    invocation = RpcDispatcher(channel.protocol).parse_request(
+        _request("foreign.accept", {"userId": 7})
+    )
+    assert type(invocation.params) is ForeignParams
+    assert invocation.params.user_id == 7

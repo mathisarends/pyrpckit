@@ -82,9 +82,17 @@ def _validated_params(
             )
         return None
     try:
-        return adapter(method.params).validate_python(raw_params)
+        validated = adapter(method.params).validate_python(raw_params)
+        if (
+            method.params_origin is not None
+            and type(validated) is not method.params_origin
+        ):
+            return method.params_origin.model_validate(
+                validated.model_dump(by_alias=False), by_name=True
+            )
     except ValidationError as error:
         raise RpcInvalidParamsError.from_validation_error(error) from error
+    return validated
 
 
 def _unexpected_params_error(

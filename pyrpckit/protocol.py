@@ -44,6 +44,7 @@ class RpcMethodDefinition:
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
     resolver_scope: RpcResolverScope | None = None
     params_parameter: str | None = None
+    params_origin: type[BaseModel] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +187,11 @@ def method_definition(
         injected_parameters=injected,
         resolver_scope=resolver_scope,
         params_parameter=params_parameter,
+        params_origin=(
+            get_type_hints(function, include_extras=True)[params_parameter]
+            if params_parameter is not None
+            else None
+        ),
     )
 
 

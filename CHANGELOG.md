@@ -22,6 +22,8 @@
   and `RpcContract.write(path)`; CLI rendering uses the same serializer.
 - Export public signature types from the package root, type service match and
   contract methods, and provide typed event and stream decorator overloads.
+- **Breaking:** Pass handlers the exact Pydantic params class they declared,
+  while retaining camel-case wire validation and serialization.
 
 ### Fixed
 
