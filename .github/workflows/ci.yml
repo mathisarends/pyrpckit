@@ -28,6 +28,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+      - name: Public type completeness
+        run: uv run python scripts/verify_types.py
+
   test:
     runs-on: ubuntu-latest
     strategy:

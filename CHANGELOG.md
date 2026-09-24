@@ -34,6 +34,8 @@
   and `RpcContract.write(path)`; CLI rendering uses the same serializer.
 - Export public signature types from the package root, type service match and
   contract methods, and provide typed event and stream decorator overloads.
+- Check public type completeness in CI with Pyright and guard its current
+  baseline against regressions.
 - Use postponed annotations for the optional Dishka and FastAPI types in
   `dishka_router` and `DishkaResolver`.
 - **Breaking:** Pass handlers the exact Pydantic params class they declared,
