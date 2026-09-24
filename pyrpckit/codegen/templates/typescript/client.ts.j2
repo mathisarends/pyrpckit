@@ -44,6 +44,7 @@ export class {{ client_name }} {
       readonly eager?: boolean;
       readonly requestTimeoutMs?: number;
       readonly notificationQueueSize?: number;
+      readonly notificationOverflow?: "drop_oldest" | "close";
       readonly socketFactory?: WebSocketFactory;
 {% if binary_streams %}      readonly streamSocketFactory?: BinaryWebSocketFactory;
       readonly streamQueueSize?: number;
@@ -64,6 +65,7 @@ export class {{ client_name }} {
           subprotocols: endpoint.subprotocols,
           requestTimeoutMs: options.requestTimeoutMs,
           notificationQueueSize: options.notificationQueueSize,
+          notificationOverflow: options.notificationOverflow,
           socketFactory: options.socketFactory,
         }),
     });

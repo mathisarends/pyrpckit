@@ -11,6 +11,10 @@
   JSON-RPC error codes.
 - **Breaking:** Validate handler results before sending them. Invalid results
   now produce logged internal errors instead of malformed success responses.
+- Generated WebSocket clients discard notifications until a listener starts and
+  drop the oldest queued notification on overflow, preserving active requests.
+  Python clients can select the previous close behavior with
+  `notification_overflow="close"`; TypeScript uses `notificationOverflow`.
 
 ### Changed
 

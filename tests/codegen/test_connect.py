@@ -117,6 +117,27 @@ def client_module(
             del sys.modules[name]
 
 
+async def test_notifications_without_listener_do_not_close_transport(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork(result={"text": "ok"})
+    transport = await client_module.WebSocketTransport.open(
+        "wss://api.example.com/rpc",
+        socket_factory=network,
+        notification_queue_size=2,
+    )
+    try:
+        socket = network.sockets[0]
+        for _ in range(1000):
+            socket._replies.put_nowait(
+                json.dumps({"jsonrpc": "2.0", "method": "greeting.changed"})
+            )
+        assert await transport.request("greeting.say") == {"text": "ok"}
+        assert not socket.closed
+    finally:
+        await transport.close()
+
+
 async def test_connect_opens_a_socket_only_for_the_server_that_is_used(
     client_module: ModuleType,
 ) -> None:

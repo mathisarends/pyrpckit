@@ -15,6 +15,7 @@ export type WebSocketOptions = {
   readonly subprotocols?: readonly string[];
   readonly requestTimeoutMs?: number;
   readonly notificationQueueSize?: number;
+  readonly notificationOverflow?: "drop_oldest" | "close";
   readonly socketFactory?: WebSocketFactory;
 };
 
@@ -52,7 +53,10 @@ export class WebSocketTransport implements RpcTransport {
   private constructor(socket: WebSocketSocket, options: WebSocketOptions) {
     this.#socket = socket;
     this.#requestTimeoutMs = options.requestTimeoutMs;
-    this.#notifications = new AsyncQueue(options.notificationQueueSize ?? 100);
+    this.#notifications = new AsyncQueue(
+      options.notificationQueueSize ?? 100,
+      options.notificationOverflow ?? "drop_oldest",
+    );
     socket.addEventListener("message", (event) => this.#receive(event.data));
     socket.addEventListener("error", () => {
       this.#fail(new Error("The WebSocket connection failed"));
@@ -166,12 +170,16 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
     readonly reject: (error: unknown) => void;
   }> = [];
   #failure?: unknown;
+  #listening = false;
+  #overflowWarned = false;
+  readonly #overflow: "drop_oldest" | "close";
 
-  constructor(capacity: number) {
+  constructor(capacity: number, overflow: "drop_oldest" | "close") {
     if (!Number.isInteger(capacity) || capacity <= 0) {
       throw new Error("notificationQueueSize must be a positive integer");
     }
     this.#capacity = capacity;
+    this.#overflow = overflow;
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<Value> {
@@ -179,6 +187,7 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
   }
 
   next(): Promise<IteratorResult<Value>> {
+    this.#listening = true;
     const value = this.#values.shift();
     if (value !== undefined) return Promise.resolve({ value, done: false });
     if (this.#failure !== undefined) return Promise.reject(this.#failure);
@@ -188,13 +197,22 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
   }
 
   push(value: Value): void {
+    if (!this.#listening) return;
     const waiter = this.#waiters.shift();
     if (waiter !== undefined) {
       waiter.resolve({ value, done: false });
       return;
     }
     if (this.#values.length === this.#capacity) {
-      throw new Error("The WebSocket notification queue overflowed");
+      if (this.#overflow === "close")
+        throw new Error("The WebSocket notification queue overflowed");
+      this.#values.shift();
+      if (!this.#overflowWarned) {
+        console.warn(
+          "The WebSocket notification queue overflowed; dropping oldest notifications",
+        );
+        this.#overflowWarned = true;
+      }
     }
     this.#values.push(value);
   }
