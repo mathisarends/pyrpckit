@@ -14,6 +14,8 @@ CLOSE_CODES = MappingProxyType(
 )
 REJECTION_CLOSE_CODES = MappingProxyType(
     {
+        RpcRejection.UNAUTHORIZED: 1008,
+        RpcRejection.FORBIDDEN: 1008,
         RpcRejection.NOT_FOUND: 1008,
         RpcRejection.PROTOCOL_ERROR: 1002,
         RpcRejection.UNAVAILABLE: 1013,

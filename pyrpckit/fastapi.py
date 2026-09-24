@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
 
 from pyrpckit.connection import (
+    RpcBeforeAccept,
     RpcConnectionClose,
     RpcDisconnect,
     RpcHandshake,
@@ -19,6 +20,8 @@ from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 type FastApiResolverFactory = Callable[[WebSocket], RpcResolverLike]
 
 _HTTP_STATUS = {
+    RpcRejection.UNAUTHORIZED: 401,
+    RpcRejection.FORBIDDEN: 403,
     RpcRejection.NOT_FOUND: 404,
     RpcRejection.PROTOCOL_ERROR: 400,
     RpcRejection.UNAVAILABLE: 503,
@@ -44,11 +47,20 @@ class FastApiSocket:
     async def accept(self, subprotocol: str | None = None) -> None:
         await self._websocket.accept(subprotocol=subprotocol)
 
-    async def reject(self, rejection: RpcRejection, reason: str) -> None:
+    async def reject(
+        self,
+        rejection: RpcRejection,
+        reason: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
         if "websocket.http.response" in self._websocket.scope.get("extensions", {}):
             await self._websocket.send_denial_response(
                 Response(
-                    reason, status_code=_HTTP_STATUS[rejection], media_type="text/plain"
+                    reason,
+                    status_code=_HTTP_STATUS[rejection],
+                    media_type="text/plain",
+                    headers=dict(headers or {}),
                 )
             )
         else:
@@ -89,6 +101,7 @@ def create_router(
     context: object | Mapping[type[Any], object] | None = None,
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
+    before_accept: RpcBeforeAccept | None = None,
 ) -> APIRouter:
     if resolver is not None and resolver_factory is not None:
         raise ValueError("resolver and resolver_factory are mutually exclusive")
@@ -102,6 +115,7 @@ def create_router(
             context=context,
             error_mapper=error_mapper,
             limits=limits,
+            before_accept=before_accept,
         )
         router.add_api_websocket_route(endpoint.path, handler, name=endpoint.name)
     return router
@@ -115,32 +129,54 @@ def _create_handler(
     context: object | Mapping[type[Any], object] | None,
     error_mapper: RpcErrorMapper | None,
     limits: RpcLimits | None,
+    before_accept: RpcBeforeAccept | None,
 ):
     async def handler(websocket: WebSocket) -> None:
-        socket = FastApiSocket(websocket)
         connection_resolver = (
             resolver_factory(websocket) if resolver_factory is not None else resolver
         )
-        try:
-            if isinstance(endpoint, RpcEndpoint):
-                await endpoint.serve(
-                    socket,
-                    resolver=connection_resolver,
-                    context=context,
-                    error_mapper=error_mapper,
-                    limits=limits,
-                )
-            else:
-                await endpoint.serve(
-                    socket,
-                    resolver=connection_resolver,
-                    context=context,
-                    limits=limits,
-                )
-        except asyncio.CancelledError:
-            # Starlette cancels its WebSocket task immediately after delivering
-            # websocket.disconnect. Cancellation is normal teardown at this ASGI
-            # boundary and must not leak through TestClient's context manager.
-            return
+        await serve_websocket(
+            endpoint,
+            websocket,
+            resolver=connection_resolver,
+            context=context,
+            error_mapper=error_mapper,
+            limits=limits,
+            before_accept=before_accept,
+        )
 
     return handler
+
+
+async def serve_websocket(
+    endpoint: RpcEndpoint | RpcStreamEndpoint,
+    websocket: WebSocket,
+    *,
+    resolver: RpcResolverLike | None = None,
+    context: object | Mapping[type[Any], object] | None = None,
+    error_mapper: RpcErrorMapper | None = None,
+    limits: RpcLimits | None = None,
+    before_accept: RpcBeforeAccept | None = None,
+) -> None:
+    socket = FastApiSocket(websocket)
+    try:
+        if isinstance(endpoint, RpcEndpoint):
+            await endpoint.serve(
+                socket,
+                resolver=resolver,
+                context=context,
+                error_mapper=error_mapper,
+                limits=limits,
+                before_accept=before_accept,
+            )
+        else:
+            await endpoint.serve(
+                socket,
+                resolver=resolver,
+                context=context,
+                limits=limits,
+                before_accept=before_accept,
+            )
+    except asyncio.CancelledError:
+        # Starlette cancels its WebSocket task after websocket.disconnect.
+        return

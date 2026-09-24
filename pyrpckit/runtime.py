@@ -11,10 +11,12 @@ from pyrpckit._adapter import adapter
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connected_client import RpcConnectedClient
 from pyrpckit.connection import (
+    RpcBeforeAccept,
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
     RpcLimits,
+    RpcReject,
     RpcRejection,
     RpcSocket,
 )
@@ -35,7 +37,9 @@ from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcInputEndMessage
 logger = logging.getLogger(LOGGER_NAME)
 
 
-async def _prepare(endpoint, socket, resolver, context, path_model=None):
+async def _prepare(
+    endpoint, socket, resolver, context, path_model=None, before_accept=None
+):
     endpoint.service.freeze()
     resolved = as_resolver(resolver)
     values = context_values(context)
@@ -58,6 +62,18 @@ async def _prepare(endpoint, socket, resolver, context, path_model=None):
             await socket.reject(RpcRejection.NOT_FOUND, "Invalid path variable")
             return None
         path_values = {name: getattr(parsed, name) for name in path_model.model_fields}
+    if before_accept is not None:
+        try:
+            accepted_values = await before_accept(socket.handshake)
+        except RpcReject as error:
+            await socket.reject(error.rejection, error.reason, headers=error.headers)
+            return None
+        except Exception:
+            logger.exception("RPC before_accept hook failed")
+            await socket.reject(RpcRejection.INTERNAL_ERROR, "Internal error")
+            return None
+        if accepted_values is not None:
+            base_values.update(accepted_values)
     await socket.accept(endpoint.subprotocol)
     connection._accepted = True
     return connection, resolved, base_values, path_values
@@ -71,9 +87,12 @@ async def serve_endpoint(
     context: object | Mapping[type[Any], object] | None = None,
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
+    before_accept: RpcBeforeAccept | None = None,
 ) -> None:
     limits = limits or RpcLimits()
-    prepared = await _prepare(endpoint, socket, resolver, context)
+    prepared = await _prepare(
+        endpoint, socket, resolver, context, before_accept=before_accept
+    )
     if prepared is None:
         return
     connection, resolved, values, _ = prepared
@@ -276,10 +295,13 @@ async def serve_stream_endpoint(
     resolver: RpcResolverLike | None = None,
     context: object | Mapping[type[Any], object] | None = None,
     limits: RpcLimits | None = None,
+    before_accept: RpcBeforeAccept | None = None,
 ) -> None:
     limits = limits or RpcLimits()
     stream = endpoint.stream
-    prepared = await _prepare(endpoint, socket, resolver, context, stream.path_model)
+    prepared = await _prepare(
+        endpoint, socket, resolver, context, stream.path_model, before_accept
+    )
     if prepared is None:
         return
     connection, resolved, values, path_values = prepared

@@ -71,7 +71,13 @@ class InMemorySocket:
         self.accepted = True
         self.subprotocol = subprotocol
 
-    async def reject(self, rejection: RpcRejection, reason: str) -> None:
+    async def reject(
+        self,
+        rejection: RpcRejection,
+        reason: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
         self.rejection = (rejection, reason)
         await self._outgoing.put(_DISCONNECT)
 

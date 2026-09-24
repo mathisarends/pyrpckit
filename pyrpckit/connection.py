@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
@@ -6,6 +6,8 @@ from typing import Protocol
 
 
 class RpcRejection(StrEnum):
+    UNAUTHORIZED = "unauthorized"
+    FORBIDDEN = "forbidden"
     NOT_FOUND = "not_found"
     PROTOCOL_ERROR = "protocol_error"
     UNAVAILABLE = "unavailable"
@@ -45,11 +47,34 @@ class RpcHandshake:
     client: tuple[str, int] | None = None
 
 
+type RpcBeforeAccept = Callable[[RpcHandshake], Awaitable[Mapping[type, object] | None]]
+
+
+class RpcReject(Exception):
+    def __init__(
+        self,
+        rejection: RpcRejection,
+        reason: str = "",
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        self.rejection = rejection
+        self.reason = reason
+        self.headers = headers
+        super().__init__(reason)
+
+
 class RpcSocket(Protocol):
     @property
     def handshake(self) -> RpcHandshake: ...
     async def accept(self, subprotocol: str | None = None) -> None: ...
-    async def reject(self, rejection: RpcRejection, reason: str) -> None: ...
+    async def reject(
+        self,
+        rejection: RpcRejection,
+        reason: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> None: ...
     async def receive(self) -> str | bytes: ...
     async def send(self, message: str) -> None: ...
     async def send_bytes(self, data: bytes) -> None: ...

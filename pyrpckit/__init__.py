@@ -9,11 +9,13 @@ from .connected_client import (
     RpcConnectedClient,
 )
 from .connection import (
+    RpcBeforeAccept,
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
     RpcHandshake,
     RpcLimits,
+    RpcReject,
     RpcRejection,
     RpcSocket,
 )
@@ -59,6 +61,7 @@ __all__ = [
     "ProtocolDefinitionError",
     "RpcBinaryInput",
     "RpcBinaryOutput",
+    "RpcBeforeAccept",
     "RpcClientClosedError",
     "RpcClientMethod",
     "RpcClientMethodError",
@@ -91,6 +94,7 @@ __all__ = [
     "RpcObserver",
     "RpcParseError",
     "RpcRejection",
+    "RpcReject",
     "RpcRequestId",
     "RpcRequestContext",
     "RpcResolver",

@@ -7,6 +7,8 @@
 - Restore `pyrpckit.testing.RpcTestClient` for in-memory service tests, with
   client-method handlers, notification timeouts, and binary stream helpers.
   Add `RpcTestStream` for stream endpoints.
+- Add `fastapi.serve_websocket()`, pre-accept hooks for socket and stream
+  endpoints, and 401/403 handshake rejections with optional response headers.
 
 ### Fixed
 

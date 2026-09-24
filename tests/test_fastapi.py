@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from fastapi import Depends, FastAPI, WebSocketDisconnect
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.testclient import WebSocketDenialResponse
@@ -13,9 +13,11 @@ from pyrpckit import (
     RpcChannel,
     RpcConnection,
     RpcDisconnect,
+    RpcReject,
+    RpcRejection,
     RpcService,
 )
-from pyrpckit.fastapi import FastApiSocket, create_router
+from pyrpckit.fastapi import FastApiSocket, create_router, serve_websocket
 
 
 class EchoParams(BaseModel):
@@ -198,3 +200,69 @@ def test_router_rejects_invalid_stream_path_variables_as_not_found() -> None:
     ):
         pass
     assert denied.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("rejection", "status"),
+    [(RpcRejection.UNAUTHORIZED, 401), (RpcRejection.FORBIDDEN, 403)],
+)
+def test_before_accept_rejects_with_http_status_and_headers(rejection, status) -> None:
+    service = create_service()
+
+    async def authenticate(handshake):
+        if handshake.headers.get("authorization") != "Bearer secret":
+            raise RpcReject(
+                rejection,
+                "Unauthorized",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return None
+
+    web = FastAPI()
+    web.include_router(create_router(service, before_accept=authenticate))
+    with (
+        TestClient(web) as client,
+        pytest.raises(WebSocketDenialResponse) as denied,
+        client.websocket_connect("/rpc"),
+    ):
+        pass
+    assert denied.value.status_code == status
+    assert denied.value.headers["www-authenticate"] == "Bearer"
+
+
+def test_before_accept_supplies_injected_context() -> None:
+    class Principal:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    channel = RpcChannel("auth")
+
+    @channel.server.method()
+    async def who(principal: Inject[Principal]) -> str:
+        return principal.name
+
+    async def authenticate(handshake):
+        return {Principal: Principal("Ada")}
+
+    service = RpcService()
+    service.socket("/auth", channels=(channel,), before_accept=authenticate)
+    web = FastAPI()
+    web.include_router(create_router(service))
+    with TestClient(web) as client, client.websocket_connect("/auth") as websocket:
+        websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "auth.who"})
+        assert websocket.receive_json()["result"] == "Ada"
+
+
+def test_serve_websocket_helper_serves_manual_route() -> None:
+    service = create_service()
+    web = FastAPI()
+
+    @web.websocket("/rpc")
+    async def route(websocket: WebSocket) -> None:
+        await serve_websocket(service.endpoint("rpc"), websocket)
+
+    with TestClient(web) as client, client.websocket_connect("/rpc") as websocket:
+        websocket.send_json(
+            {"jsonrpc": "2.0", "id": 1, "method": "demo.echo", "params": {"value": "x"}}
+        )
+        assert websocket.receive_json()["result"] == {"value": "x"}

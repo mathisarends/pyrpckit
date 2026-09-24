@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from pyrpckit.channel import RpcChannel
-from pyrpckit.connection import RpcLimits, RpcSocket
+from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcSocket
 from pyrpckit.dependencies import RpcResolverLike
 from pyrpckit.errors import ProtocolDefinitionError
 from pyrpckit.observer import RpcObserver
@@ -30,6 +30,7 @@ class RpcEndpoint:
     subprotocol: str | None
     summary: str | None
     path_variables: tuple[str, ...]
+    before_accept: RpcBeforeAccept | None = None
 
     @property
     def protocol(self) -> RpcProtocol:
@@ -62,6 +63,7 @@ class RpcEndpoint:
         context: object | Mapping[type[Any], object] | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
+        before_accept: RpcBeforeAccept | None = None,
     ) -> None:
         from pyrpckit.runtime import serve_endpoint
 
@@ -72,6 +74,7 @@ class RpcEndpoint:
             context=context,
             error_mapper=error_mapper or self.error_mapper,
             limits=limits or self.limits,
+            before_accept=before_accept or self.before_accept,
         )
 
     def create_server(
@@ -108,6 +111,7 @@ class RpcStreamEndpoint:
     subprotocol: str | None
     summary: str | None
     path_variables: tuple[str, ...]
+    before_accept: RpcBeforeAccept | None = None
 
     def match(self, path: str) -> dict[str, str] | None:
         return _match(self.path, path)
@@ -119,6 +123,7 @@ class RpcStreamEndpoint:
         resolver: RpcResolverLike | None = None,
         context: object | Mapping[type[Any], object] | None = None,
         limits: RpcLimits | None = None,
+        before_accept: RpcBeforeAccept | None = None,
     ) -> None:
         from pyrpckit.runtime import serve_stream_endpoint
 
@@ -128,6 +133,7 @@ class RpcStreamEndpoint:
             resolver=resolver,
             context=context,
             limits=limits or self.limits,
+            before_accept=before_accept or self.before_accept,
         )
 
 
@@ -169,6 +175,7 @@ class RpcService:
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
+        before_accept: RpcBeforeAccept | None = None,
     ) -> RpcEndpoint:
         self._ensure_mutable()
         variables = _validate_endpoint(self._endpoints, path, name, subprotocol)
@@ -192,6 +199,7 @@ class RpcService:
             subprotocol,
             summary,
             variables,
+            before_accept,
         )
         self._endpoints.append(endpoint)
         self._channels.update(channels)
@@ -208,6 +216,7 @@ class RpcService:
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
+        before_accept: RpcBeforeAccept | None = None,
     ) -> RpcStreamEndpoint:
         self._ensure_mutable()
         variables = _validate_endpoint(self._endpoints, path, name, subprotocol)
@@ -237,6 +246,7 @@ class RpcService:
             subprotocol,
             summary,
             variables,
+            before_accept,
         )
         self._endpoints.append(endpoint)
         self._channels.add(channel)
