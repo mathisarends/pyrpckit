@@ -14,6 +14,7 @@ from pyrpckit.envelopes import (
     RpcSuccess,
 )
 from pyrpckit.errors import RpcError, RpcInvalidParamsError
+from pyrpckit.observer import RpcObserverLike, notify_observer
 from pyrpckit.protocol import RpcSubscriptionDefinition
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,13 @@ class SubscriptionSession:
         send: Callable[[str], Awaitable[None]],
         *,
         limit: int,
+        observer: RpcObserverLike | None = None,
     ) -> None:
         self._definitions = {item.name: item for item in definitions}
         self._resolver = resolver
         self._send = send
         self._limit = limit
+        self._observer = observer
         self._next_id = 1
         self._tasks: dict[str, tuple[str, asyncio.Task[None]]] = {}
         self._codec = RpcCodec()
@@ -118,19 +121,18 @@ class SubscriptionSession:
                 generator = definition.function(**arguments)
                 async for payload in generator:
                     value = adapter(definition.payload).validate_python(payload)
-                    await self._send(
-                        self._codec.encode(
-                            RpcNotification(
-                                method=definition.name,
-                                params={
-                                    "subscriptionId": subscription_id,
-                                    "payload": adapter(definition.payload).dump_python(
-                                        value, mode="json", by_alias=True
-                                    ),
-                                },
-                            )
+                    message = self._codec.encode(
+                        RpcNotification(
+                            method=definition.name,
+                            params={
+                                "subscriptionId": subscription_id,
+                                "payload": adapter(definition.payload).dump_python(
+                                    value, mode="json", by_alias=True
+                                ),
+                            },
                         )
                     )
+                    await self._send_notification(definition.name, message)
             await self._terminal(definition.name, subscription_id, complete=True)
         except asyncio.CancelledError:
             raise
@@ -144,7 +146,8 @@ class SubscriptionSession:
     async def _terminal(
         self, name: str, subscription_id: str, *, complete: bool
     ) -> None:
-        await self._send(
+        await self._send_notification(
+            name,
             self._codec.encode(
                 RpcNotification(
                     method=name,
@@ -154,7 +157,13 @@ class SubscriptionSession:
                         **({} if complete else {"error": "Subscription failed"}),
                     },
                 )
-            )
+            ),
+        )
+
+    async def _send_notification(self, name: str, message: str) -> None:
+        await self._send(message)
+        await notify_observer(
+            self._observer, "notification_sent", name, len(message.encode())
         )
 
 

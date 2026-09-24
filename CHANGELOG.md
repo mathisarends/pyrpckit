@@ -4,6 +4,10 @@
 
 ### Added
 
+- Give observers a `RpcObserver` base class with optional connection, notification,
+  stream-frame, and slow-consumer callbacks; retain structural typing through
+  `RpcObserverLike`. Request contexts now include the live connection, when
+  available.
 - Expose Python `client.closed` and TypeScript `onDisconnect` for unexpected
   WebSocket loss. Python clients can retry connections with bounded backoff and
   resume active subscriptions using `connect(reconnect=True)`.

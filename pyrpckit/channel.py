@@ -16,7 +16,7 @@ from pyrpckit.dependencies import (
     resolver_with_context,
 )
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
-from pyrpckit.observer import RpcObserver
+from pyrpckit.observer import RpcObserverLike
 from pyrpckit.protocol import (
     RpcClientMethod,
     RpcNotificationDefinition,
@@ -185,7 +185,7 @@ class RpcChannel:
         context: object | Mapping[type[Any], object] | None = None,
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
-        observer: RpcObserver | None = None,
+        observer: RpcObserverLike | None = None,
         limits: RpcLimits | None = None,
         errors: Mapping[type[Exception], type[RpcError]] | None = None,
         strict_errors: bool = False,

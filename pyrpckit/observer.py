@@ -15,6 +15,7 @@ class RpcRequestContext:
     method: str | None
     request_id: RpcRequestId
     notification: bool
+    connection: RpcConnection | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +35,7 @@ class RpcConnectionContext:
     raw_close_code: int | None = None
 
 
-class RpcObserver(Protocol):
+class RpcObserverLike(Protocol):
     async def request_started(self, context: RpcRequestContext) -> None: ...
 
     async def request_finished(self, context: RpcResponseContext) -> None: ...
@@ -42,15 +43,45 @@ class RpcObserver(Protocol):
     async def connection_closed(self, context: RpcConnectionContext) -> None: ...
 
 
+class RpcObserver:
+    """Subclass and override only the callbacks needed by an application."""
+
+    async def request_started(self, context: RpcRequestContext) -> None:
+        pass
+
+    async def request_finished(self, context: RpcResponseContext) -> None:
+        pass
+
+    async def connection_opened(self, connection: RpcConnection) -> None:
+        pass
+
+    async def connection_closed(self, context: RpcConnectionContext) -> None:
+        pass
+
+    async def notification_sent(self, name: str, size: int) -> None:
+        pass
+
+    async def slow_consumer_closed(self, connection: RpcConnection) -> None:
+        pass
+
+    async def stream_frame_sent(self, connection: RpcConnection, size: int) -> None:
+        pass
+
+    async def stream_frame_received(self, connection: RpcConnection, size: int) -> None:
+        pass
+
+
 async def notify_observer(
-    observer: RpcObserver | None,
+    observer: RpcObserverLike | None,
     method: str,
-    context: object,
+    *args: object,
 ) -> None:
     if observer is None:
         return
+    callback = getattr(observer, method, None)
+    if callback is None:
+        return
     try:
-        callback = getattr(observer, method)
-        await callback(context)
+        await callback(*args)
     except Exception:
         logger.exception("RPC observer %s callback failed", method)

@@ -10,6 +10,7 @@ from pyrpckit.connection import (
     RpcDisconnect,
     RpcSocket,
 )
+from pyrpckit.observer import RpcObserverLike, notify_observer
 
 _END = object()
 
@@ -86,16 +87,22 @@ class RpcBinaryInput:
 class RpcBinaryOutput:
     """Frames the server sends; waits while the socket applies backpressure."""
 
-    __slots__ = ("_connection", "_socket", "_lock")
+    __slots__ = ("_connection", "_socket", "_lock", "_observer")
 
     def __init__(self) -> None:
         raise TypeError("RpcBinaryOutput instances are created by pyrpckit")
 
     @classmethod
-    def _create(cls, socket: RpcSocket, connection: RpcConnection) -> Self:
+    def _create(
+        cls,
+        socket: RpcSocket,
+        connection: RpcConnection,
+        observer: RpcObserverLike | None = None,
+    ) -> Self:
         self = cls.__new__(cls)
         self._socket = socket
         self._connection = connection
+        self._observer = observer
         self._lock = asyncio.Lock()
         return self
 
@@ -105,4 +112,8 @@ class RpcBinaryOutput:
         async with self._lock:
             if self._connection.closed or self._connection.close_code is not None:
                 raise RpcDisconnect(reason="The binary stream is closed")
-            await self._socket.send_bytes(bytes(frame))
+            data = bytes(frame)
+            await self._socket.send_bytes(data)
+            await notify_observer(
+                self._observer, "stream_frame_sent", self._connection, len(data)
+            )

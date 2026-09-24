@@ -45,6 +45,7 @@ from .models import RpcModel
 from .observer import (
     RpcConnectionContext,
     RpcObserver,
+    RpcObserverLike,
     RpcRequestContext,
     RpcResponseContext,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "RpcModel",
     "RpcNotification",
     "RpcObserver",
+    "RpcObserverLike",
     "RpcParseError",
     "RpcRejection",
     "RpcReject",

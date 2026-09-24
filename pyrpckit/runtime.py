@@ -109,10 +109,19 @@ async def serve_endpoint(
         return
     connection, resolved, values, _ = prepared
     started = time.perf_counter()
+    await notify_observer(endpoint.observer, "connection_opened", connection)
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     client_closed = False
     outgoing: asyncio.Queue[str] = asyncio.Queue(limits.max_queue_size)
+    slow_consumer_reported = False
+
+    async def report_slow_consumer() -> None:
+        nonlocal slow_consumer_reported
+        if slow_consumer_reported:
+            return
+        slow_consumer_reported = True
+        await notify_observer(endpoint.observer, "slow_consumer_closed", connection)
 
     async def send_outgoing(message: str) -> None:
         try:
@@ -121,6 +130,7 @@ async def serve_endpoint(
         except TimeoutError:
             logger.warning("RPC client too slow: outgoing queue blocked")
             request_close(RpcConnectionClose.POLICY_VIOLATION, "Client too slow")
+            await report_slow_consumer()
 
     connected_client = RpcConnectedClient._create(
         connection, endpoint.protocol.client_methods, send_outgoing, limits
@@ -146,6 +156,7 @@ async def serve_endpoint(
                 resolver=scoped,
                 error_mapper=error_mapper,
                 observer=endpoint.observer,
+                connection=connection,
                 limits=limits,
                 errors=endpoint.service.errors,
                 strict_errors=endpoint.service.strict_errors,
@@ -155,6 +166,7 @@ async def serve_endpoint(
                 scoped,
                 send_outgoing,
                 limit=limits.max_subscriptions,
+                observer=endpoint.observer,
             )
 
             async def writer():
@@ -174,6 +186,7 @@ async def serve_endpoint(
                     request_close(
                         RpcConnectionClose.POLICY_VIOLATION, "Client too slow"
                     )
+                    await report_slow_consumer()
                 except Exception:
                     logger.exception("RPC writer failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
@@ -238,7 +251,9 @@ async def serve_endpoint(
                 try:
                     await asyncio.gather(
                         *(
-                            _event_source(event, scoped, send_outgoing)
+                            _event_source(
+                                event, scoped, send_outgoing, endpoint.observer
+                            )
                             for event in endpoint.protocol.notifications
                         )
                     )
@@ -293,7 +308,7 @@ async def serve_endpoint(
         )
 
 
-async def _event_source(event, resolver, send):
+async def _event_source(event, resolver, send, observer):
     try:
         arguments = {
             parameter.name: await resolver.resolve(parameter.dependency)
@@ -315,6 +330,9 @@ async def _event_source(event, resolver, send):
                     raise
                 continue
             await send(message)
+            await notify_observer(
+                observer, "notification_sent", event.name, len(message.encode())
+            )
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -342,6 +360,7 @@ async def serve_stream_endpoint(
         return
     connection, resolved, values, path_values = prepared
     started = time.perf_counter()
+    await notify_observer(endpoint.observer, "connection_opened", connection)
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     client_closed = False
@@ -390,7 +409,9 @@ async def serve_stream_endpoint(
     if not stream.is_generator:
         values = {
             **values,
-            RpcBinaryOutput: RpcBinaryOutput._create(socket, connection),
+            RpcBinaryOutput: RpcBinaryOutput._create(
+                socket, connection, endpoint.observer
+            ),
         }
         if binary_input is not None:
             values[RpcBinaryInput] = binary_input
@@ -415,7 +436,14 @@ async def serve_stream_endpoint(
                                 RpcConnectionClose.INTERNAL_ERROR, "Internal error"
                             )
                             return
-                        await socket.send_bytes(bytes(frame))
+                        data = bytes(frame)
+                        await socket.send_bytes(data)
+                        await notify_observer(
+                            endpoint.observer,
+                            "stream_frame_sent",
+                            connection,
+                            len(data),
+                        )
                     request_close(RpcConnectionClose.NORMAL, "")
                 except asyncio.CancelledError:
                     raise
@@ -470,6 +498,12 @@ async def serve_stream_endpoint(
                             return
                         else:
                             await binary_input._put(frame)
+                            await notify_observer(
+                                endpoint.observer,
+                                "stream_frame_received",
+                                connection,
+                                len(frame),
+                            )
                 except RpcDisconnect as error:
                     client_disconnected(error)
 

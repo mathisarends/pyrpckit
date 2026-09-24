@@ -14,7 +14,7 @@ from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcRejection, RpcSoc
 from pyrpckit.contract import RpcContract, ServerVariable
 from pyrpckit.dependencies import RpcResolverLike, resolver_with_context
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
-from pyrpckit.observer import RpcObserver
+from pyrpckit.observer import RpcObserverLike
 from pyrpckit.protocol import RpcProtocol, RpcStreamDefinition
 from pyrpckit.server import (
     RpcErrorMapper,
@@ -29,7 +29,7 @@ class RpcEndpoint:
     path: str
     channels: tuple[RpcChannel, ...]
     error_mapper: RpcErrorMapper | None
-    observer: RpcObserver | None
+    observer: RpcObserverLike | None
     limits: RpcLimits
     subprotocol: str | None
     summary: str | None
@@ -98,7 +98,7 @@ class RpcEndpoint:
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
-        observer: RpcObserver | None = None,
+        observer: RpcObserverLike | None = None,
     ) -> RpcServer:
         return RpcServer._from_channel(
             self.protocol,
@@ -117,7 +117,7 @@ class RpcStreamEndpoint:
     name: str
     path: str
     stream: RpcStreamDefinition
-    observer: RpcObserver | None
+    observer: RpcObserverLike | None
     limits: RpcLimits
     subprotocol: str | None
     summary: str | None
@@ -157,7 +157,7 @@ class RpcService:
         *,
         version: int = 1,
         error_mapper: RpcErrorMapper | None = None,
-        observer: RpcObserver | None = None,
+        observer: RpcObserverLike | None = None,
         limits: RpcLimits | None = None,
         errors: Mapping[type[Exception], type[RpcError]] | None = None,
         strict_errors: bool = False,
@@ -202,7 +202,7 @@ class RpcService:
         channels: Sequence[RpcChannel],
         name: str | None = None,
         error_mapper: RpcErrorMapper | None = None,
-        observer: RpcObserver | None = None,
+        observer: RpcObserverLike | None = None,
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
@@ -262,7 +262,7 @@ class RpcService:
         /,
         *,
         name: str | None = None,
-        observer: RpcObserver | None = None,
+        observer: RpcObserverLike | None = None,
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,

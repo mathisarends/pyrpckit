@@ -126,8 +126,12 @@ state belongs to that service instance, so tests and parallel apps remain
 isolated:
 
 ```python
-class GatewayObserver:
-    async def request_started(self, context: RpcRequestContext) -> None: ...
+from pyrpckit import RpcObserver
+
+
+class GatewayObserver(RpcObserver):
+    async def request_started(self, context: RpcRequestContext) -> None:
+        logger.info("rpc started method=%s", context.method)
 
     async def request_finished(self, context: RpcResponseContext) -> None:
         logger.info(
@@ -138,6 +142,9 @@ class GatewayObserver:
             isinstance(context.response, RpcSuccess),
         )
 
+    async def connection_opened(self, connection: RpcConnection) -> None:
+        logger.info("rpc connected endpoint=%s", connection.endpoint)
+
     async def connection_closed(self, context: RpcConnectionContext) -> None:
         logger.info("rpc disconnected code=%s", context.close_code)
 
@@ -147,6 +154,14 @@ app = RpcService(observer=GatewayObserver())
 
 Observer failures are logged without replacing the RPC result. There is no
 module-level observer or global configuration.
+`RpcObserver` supplies no-op callbacks, so subclasses only override what they
+need. `RpcObserverLike` remains available for structural typing. Request
+contexts expose `connection` for socket requests and `None` when using a
+standalone `RpcServer`. The optional callbacks `notification_sent(name, size)`,
+`stream_frame_sent(connection, size)`,
+`stream_frame_received(connection, size)`, and
+`slow_consumer_closed(connection)` report activity and backpressure; `size` is
+the number of bytes sent or received.
 
 ## Runtime limits
 

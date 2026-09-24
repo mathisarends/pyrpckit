@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable, Mapping
 
 from pyrpckit.codec import RpcCodec
-from pyrpckit.connection import RpcLimits
+from pyrpckit.connection import RpcConnection, RpcLimits
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
@@ -16,7 +16,7 @@ from pyrpckit.errors import (
     RpcParseError,
 )
 from pyrpckit.observer import (
-    RpcObserver,
+    RpcObserverLike,
     RpcRequestContext,
     RpcResponseContext,
     notify_observer,
@@ -43,7 +43,8 @@ class RpcServer:
         *,
         resolver: RpcResolver | None = None,
         error_mapper: RpcErrorMapper | None = None,
-        observer: RpcObserver | None = None,
+        observer: RpcObserverLike | None = None,
+        connection: RpcConnection | None = None,
         limits: RpcLimits | None = None,
         errors: Mapping[type[Exception], type[RpcError]] | None = None,
         strict_errors: bool = False,
@@ -53,6 +54,7 @@ class RpcServer:
         server._dispatcher = RpcDispatcher(protocol, resolver=resolver)
         server._error_mapper = error_mapper
         server._observer = observer
+        server._connection = connection
         server._codec = RpcCodec()
         server._limits = limits or RpcLimits()
         server._semaphore = asyncio.Semaphore(server._limits.max_concurrency)
@@ -94,6 +96,7 @@ class RpcServer:
             method=_request_method(raw_request),
             request_id=_request_id(raw_request),
             notification=_looks_like_notification(raw_request),
+            connection=self._connection,
         )
         started = time.perf_counter()
         caught_error: Exception | None = None
