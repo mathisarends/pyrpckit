@@ -219,6 +219,41 @@ async def test_a_validation_error_in_handler_is_internal(caplog) -> None:
     assert "ValidationError" in caplog.text
 
 
+async def test_invalid_handler_result_is_internal(caplog) -> None:
+    channel = RpcChannel("result")
+
+    @channel.server.method()
+    async def broken() -> int:
+        return "abc"  # type: ignore[return-value]
+
+    with caplog.at_level(logging.ERROR, logger="pyrpckit"):
+        response = await channel.create_server().handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "result.broken"}
+        )
+
+    assert isinstance(response, RpcFailure)
+    assert response.error.code == RpcErrorCode.INTERNAL_ERROR
+    assert "ValidationError" in caplog.text
+
+
+async def test_matching_dict_handler_result_is_accepted() -> None:
+    class Result(BaseModel):
+        value: int
+
+    channel = RpcChannel("result")
+
+    @channel.server.method()
+    async def valid() -> Result:
+        return {"value": 3}  # type: ignore[return-value]
+
+    response = await channel.create_server().handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "result.valid"}
+    )
+
+    assert isinstance(response, RpcSuccess)
+    assert response.result.value == 3
+
+
 class BreakageError(Exception):
     pass
 

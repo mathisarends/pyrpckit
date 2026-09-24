@@ -63,7 +63,10 @@ class RpcDispatcher:
                         f"RPC method {method.name} has no params parameter"
                     )
                 arguments[method.params_parameter] = invocation.params
-            return await function(**arguments)
+            result = await function(**arguments)
+            return TypeAdapter(method.result).validate_python(
+                result, from_attributes=True
+            )
 
 
 def _validated_params(

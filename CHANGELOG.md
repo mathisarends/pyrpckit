@@ -9,6 +9,8 @@
 - **Breaking:** Treat Pydantic validation errors raised inside handlers as
   internal server errors. Invalid request envelopes and params retain their
   JSON-RPC error codes.
+- **Breaking:** Validate handler results before sending them. Invalid results
+  now produce logged internal errors instead of malformed success responses.
 
 ### Changed
 
