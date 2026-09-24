@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from pyrpckit.channel import RpcChannel, request_name
 from pyrpckit.connection import RpcBeforeAccept, RpcLimits, RpcRejection, RpcSocket
 from pyrpckit.contract import RpcContract, ServerVariable
-from pyrpckit.dependencies import RpcResolverLike
+from pyrpckit.dependencies import RpcResolverLike, resolver_with_context
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
 from pyrpckit.protocol import RpcProtocol, RpcStreamDefinition
@@ -94,18 +94,13 @@ class RpcEndpoint:
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
+        observer: RpcObserver | None = None,
     ) -> RpcServer:
-        from pyrpckit.dependencies import ContextResolver, as_resolver, context_values
-
-        resolved = as_resolver(resolver)
-        values = context_values(context)
-        if values:
-            resolved = ContextResolver(resolved, values)
         return RpcServer._from_channel(
             self.protocol,
-            resolver=resolved,
+            resolver=resolver_with_context(resolver, context),
             error_mapper=error_mapper or self.error_mapper,
-            observer=self.observer,
+            observer=observer or self.observer,
             limits=limits or self.limits,
             errors=self.service.errors,
             strict_errors=self.service.strict_errors,
@@ -232,7 +227,12 @@ class RpcService:
             raise ProtocolDefinitionError("An RPC channel can only be mounted once")
         names = [c.name for c in (*self._channels, *channels)]
         if len(names) != len(set(names)):
-            raise ProtocolDefinitionError("RPC channel names must be unique")
+            duplicates = sorted(
+                name for name, count in Counter(names).items() if count > 1
+            )
+            raise ProtocolDefinitionError(
+                f"RPC channel names must be unique: {', '.join(duplicates)}"
+            )
         endpoint = RpcEndpoint(
             self,
             name or _endpoint_name(path),

@@ -28,9 +28,10 @@ class RpcResponseContext:
 @dataclass(frozen=True, slots=True)
 class RpcConnectionContext:
     connection: RpcConnection
-    close_code: RpcConnectionClose | int | None
+    close_code: RpcConnectionClose | None
     close_reason: str
     duration: float
+    raw_close_code: int | None = None
 
 
 class RpcObserver(Protocol):

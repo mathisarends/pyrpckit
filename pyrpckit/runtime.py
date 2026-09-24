@@ -127,11 +127,12 @@ async def serve_endpoint(
     values = {**values, RpcConnectedClient: connected_client}
     codec = RpcCodec()
 
-    def request_close(code, reason):
+    def request_close(code, reason, raw_close_code=None):
         if not close_event.is_set():
             close_value[:] = [code, reason]
             connection._close_code = code
             connection._close_reason = reason
+            connection._raw_close_code = raw_close_code
             close_event.set()
             connected_client._close()
 
@@ -160,7 +161,7 @@ async def serve_endpoint(
                     raise
                 except RpcDisconnect as error:
                     client_closed = True
-                    request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+                    request_close(error.code, error.reason, error.raw_close_code)
                 except TimeoutError:
                     logger.warning("RPC client too slow: socket send blocked")
                     request_close(
@@ -212,7 +213,7 @@ async def serve_endpoint(
                         task.add_done_callback(tasks.discard)
                 except RpcDisconnect as error:
                     client_closed = True
-                    request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+                    request_close(error.code, error.reason, error.raw_close_code)
 
             async def events():
                 try:
@@ -267,6 +268,7 @@ async def serve_endpoint(
                 close_code=connection.close_code,
                 close_reason=connection.close_reason,
                 duration=time.perf_counter() - started,
+                raw_close_code=connection.raw_close_code,
             ),
         )
 
@@ -324,17 +326,18 @@ async def serve_stream_endpoint(
     close_value = [RpcConnectionClose.NORMAL, ""]
     client_closed = False
 
-    def request_close(code, reason):
+    def request_close(code, reason, raw_close_code=None):
         if not close_event.is_set():
             close_value[:] = [code, reason]
             connection._close_code = code
             connection._close_reason = reason
+            connection._raw_close_code = raw_close_code
             close_event.set()
 
     def client_disconnected(error: RpcDisconnect) -> None:
         nonlocal client_closed
         client_closed = True
-        request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+        request_close(error.code, error.reason, error.raw_close_code)
 
     def close_stream_error(error: Exception) -> None:
         if isinstance(error, RpcStreamClose):
@@ -483,6 +486,7 @@ async def serve_stream_endpoint(
                 close_code=connection.close_code,
                 close_reason=connection.close_reason,
                 duration=time.perf_counter() - started,
+                raw_close_code=connection.raw_close_code,
             ),
         )
 

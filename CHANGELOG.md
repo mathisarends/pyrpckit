@@ -24,6 +24,10 @@
   contract methods, and provide typed event and stream decorator overloads.
 - **Breaking:** Pass handlers the exact Pydantic params class they declared,
   while retaining camel-case wire validation and serialization.
+- **Breaking:** Align `RpcDisconnect(close, reason)` with connection closing,
+  expose unknown peer codes as `RpcConnectionClose.OTHER` plus `raw_close_code`,
+  and accept `observer=` on endpoint servers. Duplicate-channel errors name
+  the colliding channels.
 
 ### Fixed
 

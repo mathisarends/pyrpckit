@@ -12,8 +12,8 @@ from pyrpckit.connection import RpcLimits
 from pyrpckit.dependencies import (
     RpcResolverLike,
     RpcResolverScope,
-    as_resolver,
     call_scope,
+    resolver_with_context,
 )
 from pyrpckit.errors import ProtocolDefinitionError, RpcError, declared_error
 from pyrpckit.observer import RpcObserver
@@ -183,15 +183,9 @@ class RpcChannel:
         errors: Mapping[type[Exception], type[RpcError]] | None = None,
         strict_errors: bool = False,
     ) -> RpcServer:
-        from pyrpckit.dependencies import ContextResolver, context_values
-
-        resolved = as_resolver(resolver)
-        values = context_values(context)
-        if values:
-            resolved = ContextResolver(resolved, values)
         return RpcServer._from_channel(
             self.protocol,
-            resolver=resolved,
+            resolver=resolver_with_context(resolver, context),
             error_mapper=error_mapper,
             observer=observer,
             limits=limits,

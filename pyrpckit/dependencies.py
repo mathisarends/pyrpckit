@@ -91,6 +91,15 @@ class ContextResolver:
             yield ContextResolver(resolver, self._values)
 
 
+def resolver_with_context(
+    resolver: RpcResolverLike | None,
+    context: object | Mapping[type[Any], object] | None,
+) -> RpcResolver:
+    resolved = as_resolver(resolver)
+    values = context_values(context)
+    return ContextResolver(resolved, values) if values else resolved
+
+
 @asynccontextmanager
 async def call_scope(resolver: RpcResolver) -> AsyncGenerator[RpcResolver, None]:
     """Enter one resolver scope for an RPC invocation.

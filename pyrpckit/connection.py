@@ -21,16 +21,28 @@ class RpcConnectionClose(StrEnum):
     POLICY_VIOLATION = "policy_violation"
     MESSAGE_TOO_BIG = "message_too_big"
     INTERNAL_ERROR = "internal_error"
+    OTHER = "other"
 
 
 class RpcDisconnect(Exception):
     def __init__(
         self,
+        close: RpcConnectionClose | int = RpcConnectionClose.NORMAL,
         reason: str = "",
-        *,
-        code: RpcConnectionClose | int | None = None,
     ) -> None:
-        self.code = code
+        if isinstance(close, RpcConnectionClose):
+            self.code = close
+            self.raw_close_code = None
+        else:
+            self.code = {
+                1000: RpcConnectionClose.NORMAL,
+                1001: RpcConnectionClose.SHUTDOWN,
+                1002: RpcConnectionClose.PROTOCOL_ERROR,
+                1008: RpcConnectionClose.POLICY_VIOLATION,
+                1009: RpcConnectionClose.MESSAGE_TOO_BIG,
+                1011: RpcConnectionClose.INTERNAL_ERROR,
+            }.get(close, RpcConnectionClose.OTHER)
+            self.raw_close_code = close
         self.reason = reason
         super().__init__(reason)
 
@@ -125,6 +137,7 @@ class RpcConnection:
         "_handshake",
         "_close_code",
         "_close_reason",
+        "_raw_close_code",
         "_on_close",
         "_path_params",
     )
@@ -146,6 +159,7 @@ class RpcConnection:
         self._closed = False
         self._close_code = None
         self._close_reason = ""
+        self._raw_close_code = None
         self._on_close = None
         return self
 
@@ -161,6 +175,7 @@ class RpcConnection:
     closed = property(lambda self: self._closed)
     close_code = property(lambda self: self._close_code)
     close_reason = property(lambda self: self._close_reason)
+    raw_close_code = property(lambda self: self._raw_close_code)
 
     async def close(
         self, close: RpcConnectionClose = RpcConnectionClose.NORMAL, *, reason: str = ""

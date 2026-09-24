@@ -27,7 +27,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 14 | Erledigt | `9ca0272` | `RpcStreamClose`, Error-Mapping für Streams und serialisierte `RpcBinaryOutput.send()`-Aufrufe sind umgesetzt; Pre-Accept-Prüfung kam bereits mit Punkt 12. |
 | 15 | Erledigt | `b623b7a` | `RpcService(errors={DomainError: RpcErrorClass})` mappt deklarativ, `strict_errors` prüft `raises=`, doppelte explizite numerische Codes werden gewarnt; Docs empfehlen `data.code`. |
 | 20 | Teilweise | `ac8911d` | Signatur-Typen werden top-level exportiert; `match()` und `contract()` sind typisiert, Event/Stream-Dekoratoren haben Overloads. Die stabilen Importmodule sind dokumentiert. `pyright --verifytypes` bleibt offen, bis die restlichen Public-API-Änderungen abgeschlossen sind. |
-| 21 | Erledigt | Commit dieses Punktes | Wire-Validierung bleibt erhalten; vor dem Handler wird das deklarierte Pydantic-Modell rekonstruiert, sodass `type(params)` genau stimmt. |
+| 21 | Erledigt | `db50faf` | Wire-Validierung bleibt erhalten; vor dem Handler wird das deklarierte Pydantic-Modell rekonstruiert, sodass `type(params)` genau stimmt. |
+| 22 | Erledigt | Commit dieses Punktes | `RpcEndpoint.create_server(observer=...)` ist ergänzt; Resolver/Context-Aufbau ist geteilt. `RpcDisconnect(close, reason)` und typisierte Close-Codes mit `OTHER`/`raw_close_code` sind konsistent; Duplikatfehler nennen die Namen. Stream-Error-Mapping kam mit Punkt 14. |
 | 23 | Erledigt | `e283cd3` | `RpcContract.to_json()` und `.write(path)` geben kanonisches UTF-8-JSON aus; CLI und `--check` verwenden denselben Serializer. |
 | 24 | Erledigt | `58b5932` | Unbekannte Client-Method-Antworten warnen; Requests werden direkt serialisiert; Namensableitung ist geteilt; Endpoint-Protokolle werden gecacht; redundanter Beispiel-`code` und der unnötige Lazy Import sind entfernt. Der `params.params`-Fehlertext ist durch Punkt 2 entfallen. |
 

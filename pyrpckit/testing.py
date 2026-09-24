@@ -111,7 +111,7 @@ class InMemorySocket:
         code: RpcConnectionClose | int = RpcConnectionClose.NORMAL,
         reason: str = "",
     ) -> None:
-        await self._incoming.put(RpcDisconnect(reason, code=code))
+        await self._incoming.put(RpcDisconnect(code, reason))
 
 
 @dataclass(frozen=True, slots=True)

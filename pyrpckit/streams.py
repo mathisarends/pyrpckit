@@ -104,5 +104,5 @@ class RpcBinaryOutput:
             raise TypeError("RpcBinaryOutput.send() expects bytes")
         async with self._lock:
             if self._connection.closed or self._connection.close_code is not None:
-                raise RpcDisconnect("The binary stream is closed")
+                raise RpcDisconnect(reason="The binary stream is closed")
             await self._socket.send_bytes(bytes(frame))

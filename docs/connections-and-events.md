@@ -22,8 +22,10 @@ app.socket("/rpc", channels=(tasks,))
 
 Headers are case-insensitive. `RpcConnection` also exposes `endpoint`, `path`,
 `path_params`, `query_params`, `subprotocols`, `client`, `closed`, `close_code`,
-and `close_reason`. Connection-scope finalizers can inspect the close fields to
-log why a socket ended.
+`raw_close_code`, and `close_reason`. `close_code` is always a
+`RpcConnectionClose` value; unknown peer codes become `OTHER` and remain
+available as `raw_close_code`. Connection-scope finalizers can inspect these
+fields to log why a socket ended.
 
 Inject it like any other server-side dependency:
 

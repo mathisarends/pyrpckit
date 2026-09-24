@@ -11,6 +11,7 @@ from pyrpckit import (
     RpcChannel,
     RpcConnection,
     RpcConnectionClose,
+    RpcDisconnect,
     RpcErrorCode,
     RpcLimits,
     RpcModel,
@@ -75,7 +76,8 @@ async def test_client_close_information_is_exposed_on_the_connection() -> None:
         await client.request("demo.echo", {"value": "yes"})
         await client.socket.client_disconnect(1001, "Going away")
 
-    assert connections[0].close_code == 1001
+    assert connections[0].close_code == RpcConnectionClose.SHUTDOWN
+    assert connections[0].raw_close_code == 1001
     assert connections[0].close_reason == "Going away"
     assert observer.closed[0].close_reason == "Going away"
 
@@ -142,6 +144,12 @@ def test_socket_path_model_fields_must_match_template() -> None:
     rpc = RpcService()
     with pytest.raises(ProtocolDefinitionError, match="must match path variables"):
         rpc.socket("/rooms/{room_id}", channels=(channel,), path_model=WrongPath)
+
+
+def test_unknown_peer_close_code_is_preserved_separately() -> None:
+    error = RpcDisconnect(4321, "custom")
+    assert error.code == RpcConnectionClose.OTHER
+    assert error.raw_close_code == 4321
 
 
 async def test_parse_error_is_answered_and_connection_remains_usable() -> None:

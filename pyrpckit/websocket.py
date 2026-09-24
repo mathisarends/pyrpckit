@@ -10,6 +10,7 @@ CLOSE_CODES = MappingProxyType(
         RpcConnectionClose.POLICY_VIOLATION: 1008,
         RpcConnectionClose.MESSAGE_TOO_BIG: 1009,
         RpcConnectionClose.INTERNAL_ERROR: 1011,
+        RpcConnectionClose.OTHER: 1008,
     }
 )
 REJECTION_CLOSE_CODES = MappingProxyType(
