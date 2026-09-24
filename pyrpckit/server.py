@@ -2,8 +2,6 @@ import logging
 import time
 from collections.abc import Callable
 
-from pydantic import ValidationError
-
 from pyrpckit.codec import RpcCodec
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
@@ -12,7 +10,6 @@ from pyrpckit.envelopes import RpcFailure, RpcRequestId, RpcSuccess
 from pyrpckit.errors import (
     RpcError,
     RpcInternalError,
-    RpcInvalidParamsError,
     RpcInvalidRequestError,
     RpcParseError,
 )
@@ -133,16 +130,8 @@ class RpcServer:
             mapped = self._error_mapper(error)
             if mapped is not None:
                 return mapped
-        if isinstance(error, ValidationError):
-            return _validation_error(error)
         logger.error("RPC method %s failed", method, exc_info=error)
         return RpcInternalError()
-
-
-def _validation_error(error: ValidationError) -> RpcError:
-    if any("params" in issue["loc"] for issue in error.errors(include_url=False)):
-        return RpcInvalidParamsError.from_validation_error(error)
-    return RpcInvalidRequestError()
 
 
 def _request_id(raw_request: object) -> RpcRequestId:

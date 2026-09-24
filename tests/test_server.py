@@ -194,9 +194,7 @@ async def test_a_boolean_id_on_a_failed_request_is_not_echoed_back(
     assert response.id is None
 
 
-async def test_a_validation_error_naming_a_params_field_becomes_invalid_params() -> (
-    None
-):
+async def test_a_validation_error_in_handler_is_internal(caplog) -> None:
     class NestedParams(BaseModel):
         params: str
 
@@ -206,17 +204,19 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     async def broken(params: SayParams) -> None:
         NestedParams.model_validate({"params": 1})
 
-    response = await router.create_server().handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "greeting.broken",
-            "params": {"name": "M"},
-        }
-    )
+    with caplog.at_level(logging.ERROR, logger="pyrpckit"):
+        response = await router.create_server().handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "greeting.broken",
+                "params": {"name": "M"},
+            }
+        )
 
     assert isinstance(response, RpcFailure)
-    assert response.error.code == RpcErrorCode.INVALID_PARAMS
+    assert response.error.code == RpcErrorCode.INTERNAL_ERROR
+    assert "ValidationError" in caplog.text
 
 
 class BreakageError(Exception):

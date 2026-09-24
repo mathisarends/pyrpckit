@@ -6,6 +6,9 @@
 
 - Log unexpected RPC handler exceptions with the method name and traceback, and
   expose the original exception to response observers.
+- **Breaking:** Treat Pydantic validation errors raised inside handlers as
+  internal server errors. Invalid request envelopes and params retain their
+  JSON-RPC error codes.
 
 ### Changed
 

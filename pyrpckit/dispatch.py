@@ -5,7 +5,11 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from pyrpckit.dependencies import EmptyResolver, RpcResolver
 from pyrpckit.envelopes import RpcRequestEnvelope
-from pyrpckit.errors import ProtocolDefinitionError, RpcInvalidParamsError
+from pyrpckit.errors import (
+    ProtocolDefinitionError,
+    RpcInvalidParamsError,
+    RpcInvalidRequestError,
+)
 from pyrpckit.protocol import RpcMethodDefinition, RpcProtocol
 
 
@@ -30,7 +34,10 @@ class RpcDispatcher:
         _assert_executable(protocol)
 
     def parse_request(self, raw_request: object) -> RpcInvocation:
-        request = RpcRequestEnvelope.model_validate(raw_request)
+        try:
+            request = RpcRequestEnvelope.model_validate(raw_request)
+        except ValidationError as error:
+            raise RpcInvalidRequestError() from error
         method = self._protocol.method(request.method)
         return RpcInvocation(
             request=request,
