@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.testclient import WebSocketDenialResponse
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcBinaryInput,
     RpcBinaryOutput,
@@ -17,7 +17,7 @@ from pyrpckit import (
     RpcRejection,
     RpcService,
 )
-from pyrpckit.fastapi import FastApiSocket, create_router, serve_websocket
+from rpckit.fastapi import FastApiSocket, create_router, serve_websocket
 
 
 class EchoParams(BaseModel):

@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from pyrpckit import ProtocolDefinitionError, RpcChannel, RpcError, RpcModel, RpcServer
+from rpckit import ProtocolDefinitionError, RpcChannel, RpcError, RpcModel, RpcServer
 
 
 class SharedError(RpcError):

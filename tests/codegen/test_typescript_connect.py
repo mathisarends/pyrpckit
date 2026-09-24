@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import generate_typescript_client
-from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from rpckit.codegen import generate_typescript_client
+from rpckit.codegen.typescript import TypeScriptClientOptions
 
 
 def test_generated_client_connect_behavior_in_node(

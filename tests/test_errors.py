@@ -1,13 +1,13 @@
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from pyrpckit import (
+from rpckit import (
     ProtocolDefinitionError,
     RpcError,
     RpcInvalidParamsError,
     RpcModel,
 )
-from pyrpckit.envelopes import RpcFailure
+from rpckit.envelopes import RpcFailure
 
 
 class MissingDetails(RpcModel):

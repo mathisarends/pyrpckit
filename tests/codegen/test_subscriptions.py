@@ -7,9 +7,9 @@ from contextlib import aclosing, suppress
 from pathlib import Path
 from typing import Any
 
-from pyrpckit import RpcChannel, RpcDisconnect, RpcModel, RpcService
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
+from rpckit import RpcChannel, RpcDisconnect, RpcModel, RpcService
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.python import PythonClientOptions
 from tests.testing import InMemorySocket
 
 

@@ -42,7 +42,7 @@
         "messageEncoding": "json",
         "frameType": "text",
         "subprotocols": [
-          "pyrpckit.jsonrpc"
+          "rpckit.jsonrpc"
         ]
       },
       "variables": {
@@ -249,7 +249,7 @@
             "messageEncoding": "json",
             "frameType": "text",
             "subprotocols": [
-              "pyrpckit.jsonrpc"
+              "rpckit.jsonrpc"
             ]
           },
           "variables": {

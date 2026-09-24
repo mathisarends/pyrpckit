@@ -18,7 +18,7 @@ The handler's signature determines the stream's direction:
 ```python
 from collections.abc import AsyncIterator
 
-from pyrpckit import Inject, RpcChannel, RpcService
+from rpckit import Inject, RpcChannel, RpcService
 
 
 class FrameSource:
@@ -54,7 +54,7 @@ to send frames whenever the application produces them:
 ```python
 import asyncio
 
-from pyrpckit import RpcBinaryInput, RpcBinaryOutput
+from rpckit import RpcBinaryInput, RpcBinaryOutput
 
 
 uploads = RpcChannel("uploads")
@@ -95,7 +95,7 @@ input has ended. `RpcBinaryOutput.send()` waits while the socket applies
 backpressure. The application decides whether to buffer or drop frames, for
 example for real-time audio.
 
-Every WebSocket binary message is one opaque frame. pyrpckit adds no framing.
+Every WebSocket binary message is one opaque frame. rpckit adds no framing.
 Put sequence numbers, turn markers, and other metadata in a small header inside
 your payload, or send them with a regular RPC call.
 
@@ -133,16 +133,16 @@ The client ends its input with the text message `{"type":"end"}`. Any other
 text message, binary input after the end, or input on a server-to-client stream
 closes the stream with a protocol error (1002). If the client disconnects
 before it ends its input, the upload counts as aborted, even with the normal
-close code. pyrpckit cancels the handler, and its `finally` blocks and context
+close code. rpckit cancels the handler, and its `finally` blocks and context
 managers run. A completed upload therefore always ends with `{"type":"end"}`.
 
 Incoming frames wait in a queue that holds up to `RpcLimits.max_queue_size`
-frames. When the handler falls behind, pyrpckit stops reading from the socket.
+frames. When the handler falls behind, rpckit stops reading from the socket.
 Memory stays bounded, and the transport slows the client down.
 
 ## Exclusive ownership
 
-pyrpckit has no connect hook, so the handler claims its resources itself. An
+rpckit has no connect hook, so the handler claims its resources itself. An
 `async with` block holds the claim for exactly as long as the handler runs. The
 claim is released on return, disconnect, cancellation, or error:
 
@@ -189,7 +189,7 @@ framework route before `serve()`, as you would for authentication.
 
 ## Contract and generated clients
 
-OpenRPC has no standard binary-stream primitive, so pyrpckit writes stream
+OpenRPC has no standard binary-stream primitive, so rpckit writes stream
 metadata to `x-rpckit-binary-streams`. Both generators consume that extension
 and expose stream operations beside the regular namespace APIs. With the
 generated WebSocket transport, the client also receives a ready-to-use binary

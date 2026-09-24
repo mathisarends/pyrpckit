@@ -5,8 +5,8 @@ from typing import Annotated, Any
 
 import pytest
 
-from pyrpckit import Inject
-from pyrpckit.dependencies import (
+from rpckit import Inject
+from rpckit.dependencies import (
     _INJECT,
     ContextResolver,
     EmptyResolver,

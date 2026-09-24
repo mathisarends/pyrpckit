@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.python import PythonClientOptions
 
 PACKAGE = "connect_client"
 

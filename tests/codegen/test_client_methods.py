@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcChannel,
     RpcClientMethodFailedError,
@@ -17,9 +17,9 @@ from pyrpckit import (
     RpcDisconnect,
     RpcService,
 )
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.ir import build_ir
-from pyrpckit.codegen.python import PythonClientOptions, render_files
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.ir import build_ir
+from rpckit.codegen.python import PythonClientOptions, render_files
 from tests.conftest import (
     MediaPlayParams,
     MediaUnavailableError,

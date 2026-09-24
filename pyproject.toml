@@ -1,5 +1,5 @@
 [project]
-name = "pyrpckit"
+name = "rpckit"
 version = "0.8.0"
 description = "Decorator-driven, transport-agnostic JSON-RPC 2.0 protocols for Python"
 readme = "README.md"
@@ -16,14 +16,14 @@ dishka = ["dishka>=1.7"]
 fastapi = ["fastapi>=0.115"]
 
 [project.scripts]
-pyrpckit = "pyrpckit.codegen.cli:main"
+rpckit = "rpckit.codegen.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pyrpckit"]
+packages = ["rpckit"]
 
 [dependency-groups]
 dev = [
@@ -49,7 +49,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ruff.format]
 quote-style = "double"
 
-[tool.pyrpckit.typecheck]
+[tool.rpckit.typecheck]
 min_completeness = 0.86
 
 [tool.pytest.ini_options]
@@ -58,7 +58,7 @@ asyncio_mode = "auto"
 addopts = ["-p", "no:asyncio", "-p", "pytest_asyncio.plugin"]
 
 [tool.coverage.run]
-source = ["pyrpckit"]
+source = ["rpckit"]
 branch = true
 
 [tool.coverage.report]

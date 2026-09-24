@@ -14,7 +14,7 @@ Methods are async free functions. Their public input is either absent or one
 Pydantic model, and their return annotation describes the result.
 
 ```python
-from pyrpckit import RpcChannel, RpcModel, RpcService
+from rpckit import RpcChannel, RpcModel, RpcService
 
 
 class CreateTask(RpcModel):
@@ -67,7 +67,7 @@ system = RpcChannel("system", namespace="")
 ```
 
 Channels, operations, and namespaces must remain unambiguous across a service.
-pyrpckit rejects duplicate names and cases where an operation is also the
+rpckit rejects duplicate names and cases where an operation is also the
 prefix of another operation when the protocol is materialized.
 
 ## Mount endpoints
@@ -134,7 +134,7 @@ override is supplied.
 
 ## Use Pydantic directly
 
-`RpcModel` is pyrpckit's strict Pydantic base model. Existing Pydantic
+`RpcModel` is rpckit's strict Pydantic base model. Existing Pydantic
 `BaseModel` classes are supported too, so domain models do not need to inherit
 from `RpcModel` merely to appear in an RPC signature.
 

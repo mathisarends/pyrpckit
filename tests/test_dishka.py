@@ -8,8 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from pyrpckit import Inject, RpcChannel, RpcService
-from pyrpckit.dishka import DishkaResolver, dishka_router
+from rpckit import Inject, RpcChannel, RpcService
+from rpckit.dishka import DishkaResolver, dishka_router
 
 dishka = pytest.importorskip("dishka")
 Scope = dishka.Scope

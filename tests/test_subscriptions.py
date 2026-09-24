@@ -2,7 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from pyrpckit import RpcChannel, RpcLimits, RpcModel, RpcService
+from rpckit import RpcChannel, RpcLimits, RpcModel, RpcService
 
 from .testing import InMemorySocket
 

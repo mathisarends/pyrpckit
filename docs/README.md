@@ -1,6 +1,6 @@
 # Documentation
 
-The README explains why pyrpckit exists and gets a first service running. These
+The README explains why rpckit exists and gets a first service running. These
 guides cover the individual parts of the API in more detail:
 
 - [Services and channels](services.md) — define methods and assemble endpoints
@@ -16,6 +16,6 @@ guides cover the individual parts of the API in more detail:
 Start with services and channels if you are building a server. Start with the
 contract and client guide if the server definition already exists.
 
-The stable import surface is `pyrpckit` plus the documented integration
-modules `pyrpckit.fastapi`, `pyrpckit.dishka`, `pyrpckit.testing`, and
-`pyrpckit.codegen`. Other submodules are implementation details.
+The stable import surface is `rpckit` plus the documented integration
+modules `rpckit.fastapi`, `rpckit.dishka`, `rpckit.testing`, and
+`rpckit.codegen`. Other submodules are implementation details.

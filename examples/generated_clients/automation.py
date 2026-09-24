@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcBinaryInput,
     RpcBinaryOutput,
@@ -177,7 +177,7 @@ service.socket(
     "/browser/stream",
     channels=(screencast,),
     name="streaming",
-    subprotocol="pyrpckit.jsonrpc",
+    subprotocol="rpckit.jsonrpc",
 )
 service.stream("/browser/screencast", frames)
 service.stream("/browser/screencast/upload", upload)

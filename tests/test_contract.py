@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from pyrpckit import RpcChannel, RpcError, RpcModel, RpcService, ServerVariable
-from pyrpckit.schema import render_openrpc
-from pyrpckit.schema.export import render_contract
+from rpckit import RpcChannel, RpcError, RpcModel, RpcService, ServerVariable
+from rpckit.schema import render_openrpc
+from rpckit.schema.export import render_contract
 
 
 class Missing(RpcModel):

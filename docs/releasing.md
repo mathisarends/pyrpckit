@@ -1,4 +1,4 @@
-# Releasing pyrpckit
+# Releasing rpckit
 
 The current development version is 0.8.0. Until a release is cut, its
 changelog heading stays `Unreleased`. Never assign a release date or tag to an
@@ -14,10 +14,10 @@ do not add a separate version handshake.
 
 ## Release checklist
 
-1. Confirm `pyproject.toml`, `pyrpckit.__version__`, and the changelog heading
+1. Confirm `pyproject.toml`, `rpckit.__version__`, and the changelog heading
    name the same version. Run `uv lock` after changing package metadata.
 2. Regenerate the committed examples with
-   `uv run pyrpckit generate --config examples/generated_clients/rpcgen.toml`.
+   `uv run rpckit generate --config examples/generated_clients/rpcgen.toml`.
    Then run the same command with `--check`.
 3. Run `uv run ruff check .`, `uv run ruff format --check .`,
    `uv run python scripts/verify_types.py`, and `uv run pytest`.

@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     ProtocolDefinitionError,
     RpcBinaryInput,

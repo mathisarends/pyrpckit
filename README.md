@@ -1,4 +1,4 @@
-# pyrpckit
+# rpckit
 
 **Define your realtime API once in Python. Get the server, the contract, and
 typed clients for Python and TypeScript — none of which can drift apart.**
@@ -9,9 +9,9 @@ long-lived connection. So the JSON-RPC envelope gets hand-written, the dispatch
 table grows by hand, and the frontend client is maintained separately — until
 the two disagree in production.
 
-pyrpckit makes the Python definition the single source of truth:
+rpckit makes the Python definition the single source of truth:
 
-| You write | pyrpckit gives you |
+| You write | rpckit gives you |
 | --- | --- |
 | an async function on a channel | validated dispatch, injection, concurrency, shutdown |
 | a payload model | an OpenRPC contract as a build-time artifact |
@@ -20,7 +20,7 @@ pyrpckit makes the Python definition the single source of truth:
 | nothing else | Python and TypeScript clients, regenerated in CI |
 
 The core has no HTTP or WebSocket dependency — a FastAPI adapter ships with it,
-and any transport you already have can serve a pyrpckit service.
+and any transport you already have can serve a rpckit service.
 
 ## The idea
 
@@ -41,7 +41,7 @@ async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
 One command turns that into an OpenRPC document and clients in both languages:
 
 ```bash
-pyrpckit generate --config rpcgen.toml
+rpckit generate --config rpcgen.toml
 ```
 
 And your frontend gets the whole API fully typed — no schema written twice, no
@@ -61,9 +61,9 @@ instead of shipping.
 ## Install
 
 ```bash
-uv add pyrpckit
-uv add "pyrpckit[fastapi]"  # FastAPI adapter
-uv add "pyrpckit[codegen]"  # client generation
+uv add rpckit
+uv add "rpckit[fastapi]"  # FastAPI adapter
+uv add "rpckit[codegen]"  # client generation
 ```
 
 Python 3.12 or newer. Pydantic is the only required dependency.
@@ -74,7 +74,7 @@ Channels group related operations and provide their namespace; a service mounts
 them on a socket. Their dispatch logic can also be called directly:
 
 ```python
-from pyrpckit import Inject, RpcChannel, RpcModel, RpcService, RpcSuccess
+from rpckit import Inject, RpcChannel, RpcModel, RpcService, RpcSuccess
 
 
 class CreateTask(RpcModel):

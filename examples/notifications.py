@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from pyrpckit import Inject, RpcChannel, RpcModel, RpcService
+from rpckit import Inject, RpcChannel, RpcModel, RpcService
 
 
 class JobStarted(RpcModel):

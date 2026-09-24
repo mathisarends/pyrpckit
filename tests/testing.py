@@ -1,4 +1,4 @@
-from pyrpckit.testing import (
+from rpckit.testing import (
     InMemorySocket,
     RpcTestClient,
     RpcTestConnectionClosed,

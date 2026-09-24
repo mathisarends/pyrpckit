@@ -6,10 +6,10 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import RpcService
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
-from pyrpckit.schema import render_openrpc
+from rpckit import RpcService
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.python import PythonClientOptions
+from rpckit.schema import render_openrpc
 from tests.conftest import greeting_app, room_channel
 
 PACKAGE = "greeting_client"

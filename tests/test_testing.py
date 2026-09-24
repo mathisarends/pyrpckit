@@ -1,13 +1,13 @@
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcChannel,
     RpcClientMethodFailedError,
     RpcConnectedClient,
     RpcService,
 )
-from pyrpckit.testing import RpcTestClient, RpcTestError, RpcTestStream
+from rpckit.testing import RpcTestClient, RpcTestError, RpcTestStream
 
 from .conftest import (
     MediaPlayParams,

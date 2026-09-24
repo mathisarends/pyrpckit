@@ -5,7 +5,7 @@ subclass defines a stable application code, a JSON-RPC integer code, a default
 message, and optional typed details.
 
 ```python
-from pyrpckit import RpcError, RpcModel
+from rpckit import RpcError, RpcModel
 
 
 class MissingTaskDetails(RpcModel):
@@ -83,7 +83,7 @@ without exposing their exception text. A transport may supply an
 `error_mapper` to map selected exceptions to application errors, while logs
 retain the original failure for operators.
 
-Validation, parse, invalid-request, and unknown-method failures use pyrpckit's
+Validation, parse, invalid-request, and unknown-method failures use rpckit's
 built-in JSON-RPC errors and do not need to be declared.
 
 ## Generated client behavior

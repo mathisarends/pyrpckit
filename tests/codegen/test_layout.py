@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import render_python_client, render_typescript_client
-from pyrpckit.codegen.ir import UnsupportedSchemaError
-from pyrpckit.codegen.python import PythonClientOptions
-from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from rpckit.codegen import render_python_client, render_typescript_client
+from rpckit.codegen.ir import UnsupportedSchemaError
+from rpckit.codegen.python import PythonClientOptions
+from rpckit.codegen.typescript import TypeScriptClientOptions
 
 
 def test_nested_apis_share_top_level_namespace_modules(
@@ -132,9 +132,9 @@ def test_generated_typescript_modules_only_import_generated_modules(
         directory = name.rsplit("/", 1)[0] if "/" in name else ""
         for target in re.findall(r'from "(\.[^"]+)"', content):
             resolved = posixpath.normpath(posixpath.join(directory, target))
-            assert resolved in emitted or f"{resolved}/index" in emitted, (
-                f"{name} imports missing {target}"
-            )
+            assert (
+                resolved in emitted or f"{resolved}/index" in emitted
+            ), f"{name} imports missing {target}"
 
 
 def test_a_stream_that_shadows_a_namespace_is_rejected(

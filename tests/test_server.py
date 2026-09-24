@@ -3,7 +3,7 @@ import logging
 
 from pydantic import BaseModel
 
-from pyrpckit import (
+from rpckit import (
     RpcChannel,
     RpcError,
     RpcErrorCode,
@@ -155,7 +155,7 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
 
 async def test_unmapped_handler_failures_stay_internal(caplog) -> None:
     server = broken_app.create_server()
-    with caplog.at_level(logging.ERROR, logger="pyrpckit"):
+    with caplog.at_level(logging.ERROR, logger="rpckit"):
         response = await server.handle(
             {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
         )
@@ -207,7 +207,7 @@ async def test_a_validation_error_in_handler_is_internal(caplog) -> None:
     async def broken(params: SayParams) -> None:
         NestedParams.model_validate({"params": 1})
 
-    with caplog.at_level(logging.ERROR, logger="pyrpckit"):
+    with caplog.at_level(logging.ERROR, logger="rpckit"):
         response = await router.create_server().handle(
             {
                 "jsonrpc": "2.0",
@@ -229,7 +229,7 @@ async def test_invalid_handler_result_is_internal(caplog) -> None:
     async def broken() -> int:
         return "abc"  # type: ignore[return-value]
 
-    with caplog.at_level(logging.ERROR, logger="pyrpckit"):
+    with caplog.at_level(logging.ERROR, logger="rpckit"):
         response = await channel.create_server().handle(
             {"jsonrpc": "2.0", "id": 1, "method": "result.broken"}
         )

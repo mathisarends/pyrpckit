@@ -14,9 +14,9 @@ class BlockJinja(importlib.abc.MetaPathFinder):
         return None
 
 sys.meta_path.insert(0, BlockJinja())
-import pyrpckit
-import pyrpckit.codegen
-import pyrpckit.codegen.cli
+import rpckit
+import rpckit.codegen
+import rpckit.codegen.cli
 """
 
     result = subprocess.run(

@@ -1,4 +1,4 @@
-from pyrpckit import RpcChannel, RpcModel, RpcService
+from rpckit import RpcChannel, RpcModel, RpcService
 
 
 class StatusResult(RpcModel):

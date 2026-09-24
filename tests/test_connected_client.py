@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcChannel,
     RpcClientClosedError,

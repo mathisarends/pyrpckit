@@ -42,7 +42,7 @@ A client method is a typed declaration, not a decorated function, because the
 server has nothing to implement:
 
 ```python
-from pyrpckit import RpcChannel, RpcError, RpcModel
+from rpckit import RpcChannel, RpcError, RpcModel
 
 
 class MediaPlayParams(RpcModel):
@@ -84,7 +84,7 @@ injectable on JSON-RPC socket endpoints. Keep these handles in your own registry
 to call a client from anywhere, not only while handling one of its requests:
 
 ```python
-from pyrpckit import Inject, RpcConnectedClient
+from rpckit import Inject, RpcConnectedClient
 
 
 class RoomConnections:

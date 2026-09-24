@@ -6,9 +6,9 @@ from textwrap import dedent
 
 import pytest
 
-from pyrpckit import RpcChannel, RpcModel, RpcService
-from pyrpckit.codegen import generate_typescript_client
-from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from rpckit import RpcChannel, RpcModel, RpcService
+from rpckit.codegen import generate_typescript_client
+from rpckit.codegen.typescript import TypeScriptClientOptions
 
 
 class SessionParams(RpcModel):

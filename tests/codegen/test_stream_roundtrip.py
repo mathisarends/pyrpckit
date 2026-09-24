@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcBinaryInput,
     RpcBinaryOutput,
@@ -18,9 +18,9 @@ from pyrpckit import (
     RpcDisconnect,
     RpcService,
 )
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
-from pyrpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.python import PythonClientOptions
+from rpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES
 
 from ..testing import InMemorySocket
 

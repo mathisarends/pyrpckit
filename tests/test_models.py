@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from pyrpckit import Inject, ProtocolDefinitionError, RpcChannel, RpcModel
-from pyrpckit.schema import render_openrpc
+from rpckit import Inject, ProtocolDefinitionError, RpcChannel, RpcModel
+from rpckit.schema import render_openrpc
 
 
 class NavigateParams(RpcModel):

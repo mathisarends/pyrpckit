@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import generate_typescript_client
-from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from rpckit.codegen import generate_typescript_client
+from rpckit.codegen.typescript import TypeScriptClientOptions
 
 _RUNNER = """
 import {
@@ -29,7 +29,7 @@ const sockets: FakeStreamSocket[] = [];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// Follows the pyrpckit stream wire protocol: binary frames carry data, the
+// Follows the rpckit stream wire protocol: binary frames carry data, the
 // text message {"type":"end"} ends the input, and the server closes.
 class FakeStreamSocket {
   readyState = 1;

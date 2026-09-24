@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel
 
-from pyrpckit import RpcChannel, RpcInvalidParamsError, RpcMethodNotFoundError
-from pyrpckit.dispatch import RpcDispatcher
-from pyrpckit.protocol import RpcProtocol
+from rpckit import RpcChannel, RpcInvalidParamsError, RpcMethodNotFoundError
+from rpckit.dispatch import RpcDispatcher
+from rpckit.protocol import RpcProtocol
 
 from .conftest import (
     GreetingRpcMethod,

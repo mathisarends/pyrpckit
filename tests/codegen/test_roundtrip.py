@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import RpcServer
+from rpckit import RpcServer
 from tests.conftest import GreetingState, greeting_app
 
 

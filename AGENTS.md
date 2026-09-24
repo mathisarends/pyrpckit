@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project
 
-`pyrpckit` is a Python library, packaged for distribution on PyPI. It turns
+`rpckit` is a Python library, packaged for distribution on PyPI. It turns
 decorated channel functions and mounted service endpoints into a JSON-RPC 2.0
 protocol: definition (`channel.py`, `protocol.py`), serving (`service.py`,
 `runtime.py`, `dispatch.py`, `server.py`), contract generation (`schema/`), and
@@ -26,8 +26,8 @@ from the templates under `codegen/templates/python/runtime/`.
 
 ## Conventions
 
-- Library code lives in `pyrpckit/`; the public API is re-exported from `pyrpckit/__init__.py`.
-- Use relative imports for all public re-exports in `pyrpckit/__init__.py`.
+- Library code lives in `rpckit/`; the public API is re-exported from `rpckit/__init__.py`.
+- Use relative imports for all public re-exports in `rpckit/__init__.py`.
 - No module-level docstrings. Document a class or function only where the name is not enough.
 - The library stays transport-agnostic: no HTTP, WebSocket, or framework dependencies.
 - Generators read the OpenRPC document, never the `RpcProtocol` object, so a new target

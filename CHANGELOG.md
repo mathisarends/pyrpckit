@@ -4,11 +4,16 @@
 
 ### Migration from 0.7
 
+- Rename the PyPI distribution, Python package, CLI command, and logger from
+  `pyrpckit` to `rpckit`. Install `rpckit`, replace `pyrpckit` imports and CLI
+  calls with `rpckit`, and update logger filters. Regenerate clients because
+  generator metadata, generated headers, and the `rpckit.jsonrpc` subprotocol
+  now use the new name. Old `.pyrpckit` generator manifests are no longer read.
 - Regenerate and commit Python and TypeScript clients with this version's
   generator. Generated `connect()` now opens every declared server; pass
   `lazy=True` in Python or `lazy: true` in TypeScript to defer connections.
 - Replace `RpcPeer` with `RpcConnectedClient` and `RpcPeerClosedError` with
-  `RpcClientClosedError`. Import from `pyrpckit` or the documented public
+  `RpcClientClosedError`. Import from `rpckit` or the documented public
   integration modules.
 - Review the new 30-second request and client-method timeouts. Pass `None`
   explicitly where a call is intended to wait indefinitely.
@@ -31,7 +36,7 @@
   `x-rpc-subscriptions` in OpenRPC, and `RpcLimits.max_subscriptions`.
 - Allow configured extra Python client files and exports, refresh handshake
   headers through an async factory, and accept HTTP(S) WebSocket URL overrides.
-- Restore `pyrpckit.testing.RpcTestClient` for in-memory service tests, with
+- Restore `rpckit.testing.RpcTestClient` for in-memory service tests, with
   client-method handlers, notification timeouts, and binary stream helpers.
   Add `RpcTestStream` for stream endpoints.
 - Add `fastapi.serve_websocket()`, pre-accept hooks for socket and stream
@@ -98,7 +103,7 @@
 - **Breaking:** Rename `RpcPeer` to `RpcConnectedClient` and
   `RpcPeerClosedError` to `RpcClientClosedError`, so the server-side handle of
   a connection uses the same client/server vocabulary as client methods. The
-  module `pyrpckit.peer` is now `pyrpckit.connected_client`.
+  module `rpckit.peer` is now `rpckit.connected_client`.
 
 ## 0.7.0 - Unreleased
 

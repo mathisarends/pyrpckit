@@ -2,12 +2,12 @@
 
 `RpcConnection` is available as an injected dependency in methods and events.
 Use it to inspect connection metadata or close an accepted connection. Perform
-authentication in the hosting framework before calling pyrpckit.
+authentication in the hosting framework before calling rpckit.
 
 ```python
 from collections.abc import AsyncIterator
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcChannel,
     RpcConnection,
@@ -38,7 +38,7 @@ async def connection_path(connection: Inject[RpcConnection]) -> str:
 After acceptance, injected code can close the live connection:
 
 ```python
-from pyrpckit import RpcConnection, RpcConnectionClose
+from rpckit import RpcConnection, RpcConnectionClose
 
 
 @tasks.server.method()
@@ -126,7 +126,7 @@ state belongs to that service instance, so tests and parallel apps remain
 isolated:
 
 ```python
-from pyrpckit import RpcObserver
+from rpckit import RpcObserver
 
 
 class GatewayObserver(RpcObserver):
@@ -168,7 +168,7 @@ the number of bytes sent or received.
 Configure per-connection backpressure and message limits with `RpcLimits`:
 
 ```python
-from pyrpckit import RpcLimits
+from rpckit import RpcLimits
 
 limits = RpcLimits(
     max_concurrency=16,

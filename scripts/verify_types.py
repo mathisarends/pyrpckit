@@ -8,14 +8,14 @@ from pathlib import Path
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    minimum = config["tool"]["pyrpckit"]["typecheck"]["min_completeness"]
+    minimum = config["tool"]["rpckit"]["typecheck"]["min_completeness"]
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "pyright",
             "--verifytypes",
-            "pyrpckit",
+            "rpckit",
             "--ignoreexternal",
             "--pythonversion",
             "3.12",

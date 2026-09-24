@@ -3,8 +3,8 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import build_ir
-from pyrpckit.codegen.ir import (
+from rpckit.codegen import build_ir
+from rpckit.codegen.ir import (
     LiteralType,
     ModelDecl,
     NamedType,

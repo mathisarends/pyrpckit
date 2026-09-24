@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen.cli import main
+from rpckit.codegen.cli import main
 
 from .conftest import PACKAGE
 

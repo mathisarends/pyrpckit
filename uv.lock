@@ -506,7 +506,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pyrpckit"
+name = "rpckit"
 version = "0.8.0"
 source = { editable = "." }
 dependencies = [
