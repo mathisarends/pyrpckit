@@ -1,6 +1,12 @@
 import pytest
 
-from pyrpckit import Inject, RpcChannel, RpcClientMethodFailedError, RpcPeer, RpcService
+from pyrpckit import (
+    Inject,
+    RpcChannel,
+    RpcClientMethodFailedError,
+    RpcConnectedClient,
+    RpcService,
+)
 
 from .conftest import (
     MediaPlayParams,
@@ -17,20 +23,20 @@ control_channel = RpcChannel("control")
 
 
 @control_channel.server.method("play")
-async def play(peer: Inject[RpcPeer]) -> bool:
-    result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
+async def play(client: Inject[RpcConnectedClient]) -> bool:
+    result = await client.call(media_play, MediaPlayParams(media_uri="spotify:1"))
     return result.started
 
 
 @control_channel.server.method("ping")
-async def ping(peer: Inject[RpcPeer]) -> None:
-    await peer.call(room_ping)
+async def ping(client: Inject[RpcConnectedClient]) -> None:
+    await client.call(room_ping)
 
 
 @control_channel.server.method("probe")
-async def probe(peer: Inject[RpcPeer]) -> int:
+async def probe(client: Inject[RpcConnectedClient]) -> int:
     try:
-        await peer.call(room_ping)
+        await client.call(room_ping)
     except RpcClientMethodFailedError as error:
         return error.rpc_code
     return 0

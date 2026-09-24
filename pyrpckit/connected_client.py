@@ -56,15 +56,15 @@ class RpcClientMethodResultError(RpcClientMethodError):
         self.validation_error = error
 
 
-class RpcPeerClosedError(RpcClientMethodError):
+class RpcClientClosedError(RpcClientMethodError):
     """The connection closed before the client answered."""
 
 
-class RpcPeer:
+class RpcConnectedClient:
     """The connected client, seen from the server: it answers client methods."""
 
     def __init__(self) -> None:
-        raise TypeError("RpcPeer instances are created by pyrpckit")
+        raise TypeError("RpcConnectedClient instances are created by pyrpckit")
 
     @classmethod
     def _create(
@@ -105,7 +105,7 @@ class RpcPeer:
                 f"{self._connection.endpoint!r}"
             )
         if self._closed:
-            raise RpcPeerClosedError("The RPC connection is closed")
+            raise RpcClientClosedError("The RPC connection is closed")
         self._next_id += 1
         request_id = f"{REQUEST_ID_PREFIX}{self._next_id}"
         frame = _request_frame(request_id, definition, params)
@@ -119,7 +119,7 @@ class RpcPeer:
         try:
             async with asyncio.timeout(timeout), self._semaphore:
                 if self._closed:
-                    raise RpcPeerClosedError("The RPC connection is closed")
+                    raise RpcClientClosedError("The RPC connection is closed")
                 self._pending[request_id] = response
                 await self._send_until_closed(frame, response)
                 message = await response
@@ -169,7 +169,9 @@ class RpcPeer:
         self._closed = True
         for response in self._pending.values():
             if not response.done():
-                response.set_exception(RpcPeerClosedError("The RPC connection closed"))
+                response.set_exception(
+                    RpcClientClosedError("The RPC connection closed")
+                )
 
 
 def _request_frame(

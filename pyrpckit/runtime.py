@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from pyrpckit.codec import RpcCodec
+from pyrpckit.connected_client import RpcConnectedClient
 from pyrpckit.connection import (
     RpcConnection,
     RpcConnectionClose,
@@ -26,7 +27,6 @@ from pyrpckit.dependencies import (
 from pyrpckit.envelopes import RpcNotification
 from pyrpckit.errors import RpcParseError
 from pyrpckit.observer import RpcConnectionContext, notify_observer
-from pyrpckit.peer import RpcPeer
 from pyrpckit.server import RpcErrorMapper, RpcServer
 from pyrpckit.service import RpcEndpoint, RpcStreamEndpoint
 from pyrpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcInputEndMessage
@@ -79,12 +79,12 @@ async def serve_endpoint(
     started = time.perf_counter()
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
-    peer_closed = False
+    client_closed = False
     outgoing: asyncio.Queue[str] = asyncio.Queue(limits.max_queue_size)
-    peer = RpcPeer._create(
+    connected_client = RpcConnectedClient._create(
         connection, endpoint.protocol.client_methods, outgoing.put, limits
     )
-    values = {**values, RpcPeer: peer}
+    values = {**values, RpcConnectedClient: connected_client}
     codec = RpcCodec()
 
     def request_close(code, reason):
@@ -93,7 +93,7 @@ async def serve_endpoint(
             connection._close_code = code
             connection._close_reason = reason
             close_event.set()
-            peer._close()
+            connected_client._close()
 
     connection._on_close = request_close
     tasks: set[asyncio.Task] = set()
@@ -119,7 +119,7 @@ async def serve_endpoint(
                     semaphore.release()
 
             async def reader():
-                nonlocal peer_closed
+                nonlocal client_closed
                 try:
                     while True:
                         frame = await socket.receive()
@@ -148,14 +148,14 @@ async def serve_endpoint(
                                 codec.encode(server.failure(None, error))
                             )
                             continue
-                        if peer._resolve(message):
+                        if connected_client._resolve(message):
                             continue
                         await semaphore.acquire()
                         task = asyncio.create_task(invoke(message))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
                 except RpcDisconnect as error:
-                    peer_closed = True
+                    client_closed = True
                     request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
 
             async def events():
@@ -193,14 +193,14 @@ async def serve_endpoint(
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
         connection._close_code = RpcConnectionClose.SHUTDOWN
         connection._close_reason = ""
-        if not peer_closed:
+        if not client_closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
         raise
     finally:
-        peer._close()
-        if not peer_closed and not connection.closed:
+        connected_client._close()
+        if not client_closed and not connection.closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
@@ -250,7 +250,7 @@ async def serve_stream_endpoint(
     started = time.perf_counter()
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
-    peer_closed = False
+    client_closed = False
 
     def request_close(code, reason):
         if not close_event.is_set():
@@ -259,9 +259,9 @@ async def serve_stream_endpoint(
             connection._close_reason = reason
             close_event.set()
 
-    def peer_disconnected(error: RpcDisconnect) -> None:
-        nonlocal peer_closed
-        peer_closed = True
+    def client_disconnected(error: RpcDisconnect) -> None:
+        nonlocal client_closed
+        client_closed = True
         request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
 
     connection._on_close = request_close
@@ -301,7 +301,7 @@ async def serve_stream_endpoint(
                 except asyncio.CancelledError:
                     raise
                 except RpcDisconnect as error:
-                    peer_disconnected(error)
+                    client_disconnected(error)
                 except Exception:
                     logger.exception("RPC binary stream failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
@@ -313,7 +313,7 @@ async def serve_stream_endpoint(
                 except asyncio.CancelledError:
                     raise
                 except RpcDisconnect as error:
-                    peer_disconnected(error)
+                    client_disconnected(error)
                 except Exception:
                     logger.exception("RPC binary stream failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
@@ -354,7 +354,7 @@ async def serve_stream_endpoint(
                         else:
                             await binary_input._put(frame)
                 except RpcDisconnect as error:
-                    peer_disconnected(error)
+                    client_disconnected(error)
 
             if stream.is_generator:
                 generator = stream.function(**arguments)
@@ -375,7 +375,7 @@ async def serve_stream_endpoint(
         if generator is not None:
             with suppress(Exception):
                 await generator.aclose()
-        if not peer_closed:
+        if not client_closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True

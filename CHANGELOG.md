@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 - Unreleased
+
+### Changed
+
+- **Breaking:** Rename `RpcPeer` to `RpcConnectedClient` and
+  `RpcPeerClosedError` to `RpcClientClosedError`, so the server-side handle of
+  a connection uses the same client/server vocabulary as client methods. The
+  module `pyrpckit.peer` is now `pyrpckit.connected_client`.
+
 ## 0.7.0 - Unreleased
 
 ### Added

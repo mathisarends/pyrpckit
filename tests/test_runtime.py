@@ -66,7 +66,7 @@ async def test_request_and_connection_context() -> None:
     assert observer.closed[0].duration >= 0
 
 
-async def test_peer_close_information_is_exposed_on_the_connection() -> None:
+async def test_client_close_information_is_exposed_on_the_connection() -> None:
     connections.clear()
     observer.closed.clear()
     async with RpcTestClient(service, "/rpc") as client:

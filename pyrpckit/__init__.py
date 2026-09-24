@@ -1,5 +1,13 @@
 from .channel import RpcChannel
 from .codec import RpcCodec
+from .connected_client import (
+    RpcClientClosedError,
+    RpcClientMethodError,
+    RpcClientMethodFailedError,
+    RpcClientMethodResultError,
+    RpcClientMethodTimeoutError,
+    RpcConnectedClient,
+)
 from .connection import (
     RpcConnection,
     RpcConnectionClose,
@@ -32,14 +40,6 @@ from .observer import (
     RpcRequestContext,
     RpcResponseContext,
 )
-from .peer import (
-    RpcClientMethodError,
-    RpcClientMethodFailedError,
-    RpcClientMethodResultError,
-    RpcClientMethodTimeoutError,
-    RpcPeer,
-    RpcPeerClosedError,
-)
 from .protocol import RpcClientMethod
 from .server import RpcErrorMapper, RpcServer
 from .service import RpcEndpoint, RpcService, RpcStreamEndpoint
@@ -51,7 +51,7 @@ from .streams import (
     RpcStreamDirection,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "Inject",
@@ -59,6 +59,7 @@ __all__ = [
     "ProtocolDefinitionError",
     "RpcBinaryInput",
     "RpcBinaryOutput",
+    "RpcClientClosedError",
     "RpcClientMethod",
     "RpcClientMethodError",
     "RpcClientMethodFailedError",
@@ -66,6 +67,7 @@ __all__ = [
     "RpcClientMethodTimeoutError",
     "RpcChannel",
     "RpcCodec",
+    "RpcConnectedClient",
     "RpcConnection",
     "RpcConnectionClose",
     "RpcConnectionContext",
@@ -88,8 +90,6 @@ __all__ = [
     "RpcNotification",
     "RpcObserver",
     "RpcParseError",
-    "RpcPeer",
-    "RpcPeerClosedError",
     "RpcRejection",
     "RpcRequestId",
     "RpcRequestContext",

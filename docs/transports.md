@@ -85,7 +85,7 @@ class MySocket:
 ```
 
 `RpcHandshake` carries the request path, headers, query parameters, path
-parameters, offered subprotocols, and optional client address. Signal peer
+parameters, offered subprotocols, and optional client address. Signal client
 disconnects by raising `RpcDisconnect` from `receive()` or a send operation.
 
 `app.serve()` matches the handshake path to the declared endpoint. Pass

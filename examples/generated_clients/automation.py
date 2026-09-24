@@ -6,9 +6,9 @@ from pyrpckit import (
     RpcBinaryInput,
     RpcBinaryOutput,
     RpcChannel,
+    RpcConnectedClient,
     RpcError,
     RpcModel,
-    RpcPeer,
     RpcService,
     ServerVariable,
 )
@@ -97,8 +97,8 @@ async def create(params: CreateTaskParams) -> Task:
 
 
 @tasks.server.method(summary="Delete a task once the operator approves it.")
-async def delete(params: DeleteTaskParams, peer: Inject[RpcPeer]) -> bool:
-    decision = await peer.call(
+async def delete(params: DeleteTaskParams, client: Inject[RpcConnectedClient]) -> bool:
+    decision = await client.call(
         approve,
         ApprovalRequest(task_id=params.task_id, action="delete"),
         timeout=30.0,
