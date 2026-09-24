@@ -2,6 +2,12 @@
 
 ## 0.8.0 - Unreleased
 
+### Added
+
+- Restore `pyrpckit.testing.RpcTestClient` for in-memory service tests, with
+  client-method handlers, notification timeouts, and binary stream helpers.
+  Add `RpcTestStream` for stream endpoints.
+
 ### Fixed
 
 - Log unexpected RPC handler exceptions with the method name and traceback, and

@@ -7,6 +7,7 @@ from pyrpckit import (
     RpcConnectedClient,
     RpcService,
 )
+from pyrpckit.testing import RpcTestClient, RpcTestError, RpcTestStream
 
 from .conftest import (
     MediaPlayParams,
@@ -17,7 +18,6 @@ from .conftest import (
     room_channel,
     room_ping,
 )
-from .testing import RpcTestClient, RpcTestError
 
 control_channel = RpcChannel("control")
 
@@ -90,3 +90,21 @@ async def test_unregistered_client_methods_are_answered_with_method_not_found() 
 def test_handlers_must_name_client_methods_of_the_endpoint() -> None:
     with pytest.raises(ValueError, match="not declared"):
         RpcTestClient(service, "/rooms", client_methods={"room.missing": lambda: None})
+
+
+async def test_handler_can_be_registered_after_client_creation() -> None:
+    client = RpcTestClient(service, "/rooms")
+    client.handle(room_ping, lambda: None)
+    async with client:
+        assert await client.request("control.ping") is None
+
+
+async def test_notification_timeout() -> None:
+    async with RpcTestClient(service, "/rooms") as client:
+        with pytest.raises(TimeoutError):
+            await client.next_notification(timeout=0.01)
+
+
+def test_test_stream_requires_stream_endpoint() -> None:
+    with pytest.raises(TypeError, match="not a binary stream"):
+        RpcTestStream(service, "/rooms")
