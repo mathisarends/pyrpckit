@@ -87,7 +87,7 @@ resolver scope.
 Install the optional integration and wrap an async Dishka container:
 
 ```bash
-uv add "rpckit[dishka]"
+uv add "pyrpckit[dishka]"
 ```
 
 ```python

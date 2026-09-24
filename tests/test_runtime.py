@@ -205,6 +205,49 @@ async def test_parse_error_is_answered_and_connection_remains_usable() -> None:
     }
 
 
+async def test_requests_beyond_the_pending_limit_are_rejected() -> None:
+    pending = RpcChannel("pending")
+    release = asyncio.Event()
+
+    @pending.server.method()
+    async def wait(params: Params) -> Params:
+        await release.wait()
+        return params
+
+    pending_service = RpcService()
+    pending_service.socket("/rpc", channels=(pending,))
+    socket = InMemorySocket("/rpc")
+    task = asyncio.create_task(
+        pending_service.serve(
+            socket, limits=RpcLimits(max_concurrency=1, max_pending_requests=2)
+        )
+    )
+    await asyncio.sleep(0)
+
+    for request_id in (1, 2, 3):
+        await socket.client_send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "pending.wait",
+                    "params": {"value": str(request_id)},
+                }
+            )
+        )
+    rejected = json.loads(await asyncio.wait_for(socket.client_receive(), 1))
+    release.set()
+    answered = [
+        json.loads(await asyncio.wait_for(socket.client_receive(), 1)) for _ in range(2)
+    ]
+    await socket.client_disconnect()
+    await task
+
+    assert rejected["id"] == 3
+    assert rejected["error"]["message"] == "Too many pending requests"
+    assert sorted(item["id"] for item in answered) == [1, 2]
+
+
 async def test_writer_failure_closes_connection_and_notifies_observer() -> None:
     class FailingSocket(InMemorySocket):
         async def send(self, message: str) -> None:

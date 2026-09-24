@@ -132,9 +132,9 @@ def test_generated_typescript_modules_only_import_generated_modules(
         directory = name.rsplit("/", 1)[0] if "/" in name else ""
         for target in re.findall(r'from "(\.[^"]+)"', content):
             resolved = posixpath.normpath(posixpath.join(directory, target))
-            assert (
-                resolved in emitted or f"{resolved}/index" in emitted
-            ), f"{name} imports missing {target}"
+            assert resolved in emitted or f"{resolved}/index" in emitted, (
+                f"{name} imports missing {target}"
+            )
 
 
 def test_a_stream_that_shadows_a_namespace_is_rejected(

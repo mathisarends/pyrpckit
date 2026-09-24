@@ -102,6 +102,7 @@ class RpcLimits:
     send_timeout: float | None = 10.0
     max_batch_size: int = 32
     max_subscriptions: int = 100
+    max_pending_requests: int = 1024
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1 or self.max_queue_size < 1:
@@ -116,6 +117,8 @@ class RpcLimits:
             raise ValueError("max_batch_size must be at least 0")
         if self.max_subscriptions < 1:
             raise ValueError("max_subscriptions must be at least 1")
+        if self.max_pending_requests < 1:
+            raise ValueError("max_pending_requests must be at least 1")
 
 
 class _Headers(Mapping[str, str]):

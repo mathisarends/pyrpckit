@@ -1,10 +1,10 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+from rpckit import __version__
 from rpckit.codegen.ir import ClientIr, UnsupportedSchemaError, build_ir
 from rpckit.codegen.options import PythonClientOptions, TypeScriptClientOptions
 from rpckit.codegen.writer import MANIFEST, write_files
@@ -84,7 +84,7 @@ def _with_manifest(
         json.dumps(
             {
                 "generator": "rpckit",
-                "generatorVersion": version("rpckit"),
+                "generatorVersion": __version__,
                 "layoutVersion": LAYOUT_VERSION,
                 "language": language,
                 "contractSha256": hashlib.sha256(

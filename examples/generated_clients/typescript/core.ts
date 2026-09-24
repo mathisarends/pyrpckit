@@ -78,6 +78,7 @@ type NotificationHub = {
 
 /** Where the client gets the transport of one server from. */
 export type RpcTransportSource = {
+  readonly requestTimeoutMs?: number;
   get(server?: string): Promise<RpcTransport>;
   close(): Promise<void>;
 };
@@ -104,6 +105,7 @@ export class RpcTransportPool implements RpcTransportSource {
   readonly #failed = new WeakSet<RpcTransport>();
   readonly #everConnected = new Set<string>();
   readonly reconnect: boolean;
+  readonly requestTimeoutMs?: number;
   readonly #initialDelayMs: number;
   readonly #maxDelayMs: number;
   #closed = false;
@@ -117,12 +119,17 @@ export class RpcTransportPool implements RpcTransportSource {
     readonly reconnect?: boolean;
     readonly reconnectInitialDelayMs?: number;
     readonly reconnectMaxDelayMs?: number;
+    readonly requestTimeoutMs?: number | null;
   }) {
     this.#endpoints = new Map(
       options.endpoints.map((endpoint) => [endpoint.server, endpoint]),
     );
     this.#open = options.open;
     this.reconnect = options.reconnect ?? false;
+    this.requestTimeoutMs =
+      options.requestTimeoutMs === null
+        ? undefined
+        : (options.requestTimeoutMs ?? 30_000);
     this.#initialDelayMs = options.reconnectInitialDelayMs ?? 250;
     this.#maxDelayMs = options.reconnectMaxDelayMs ?? 5_000;
     if (this.#initialDelayMs <= 0 || this.#maxDelayMs < this.#initialDelayMs) {
@@ -332,7 +339,10 @@ export class RpcClientCore {
     const params = args[0];
     const payload = params === undefined ? undefined : withoutUndefined(params);
     for (const hook of this.#hooks) await hook.beforeRequest?.(route, payload);
-    const transport = await this.#transportFor(route.server);
+    const transport = await withTimeout(
+      this.#transportFor(route.server),
+      this.#source.requestTimeoutMs,
+    );
     const result = await transport.request(route.method, payload);
     for (const hook of [...this.#hooks].reverse()) {
       await hook.afterResponse?.(route, result);
@@ -554,6 +564,21 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
     this.#ended = true;
     for (const waiter of this.#waiters.splice(0)) waiter.reject(error);
   }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+): Promise<T> {
+  if (timeoutMs === undefined) return promise;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Could not connect within the request timeout")),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
 
 function isTransportSource(value: unknown): value is RpcTransportSource {

@@ -154,7 +154,7 @@ class RpcClientCore:
         )
         for hook in self._hooks:
             await hook.before_request(route, payload)
-        transport = await self._transport_for(route.server)
+        transport = await self._request_transport(route.server)
         result = await transport.request(route.method, payload)
         for hook in reversed(self._hooks):
             await hook.after_response(route, result)
@@ -360,6 +360,19 @@ class RpcClientCore:
             await self._source.close()
         if not self.closed.done():
             self.closed.set_result(None)
+
+    async def _request_transport(self, server: str | None) -> RpcTransport:
+        timeout = getattr(self._source, "request_timeout", None)
+        waiting = asyncio.timeout(timeout)
+        try:
+            async with waiting:
+                return await self._transport_for(server)
+        except TimeoutError:
+            if not waiting.expired():
+                raise
+            raise RpcTransportError(
+                "Could not connect within the request timeout"
+            ) from None
 
     async def _transport_for(self, server: str | None) -> RpcTransport:
         if self._closed:

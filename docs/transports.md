@@ -8,7 +8,7 @@ FastAPI adapter or implement that small protocol for another server.
 Install the optional adapter:
 
 ```bash
-uv add "rpckit[fastapi]"
+uv add "pyrpckit[fastapi]"
 ```
 
 Mount every endpoint declared on a service:

@@ -86,6 +86,7 @@ export class AutomationClient {
       reconnect: options.reconnect,
       reconnectInitialDelayMs: options.reconnectInitialDelayMs,
       reconnectMaxDelayMs: options.reconnectMaxDelayMs,
+      requestTimeoutMs: options.requestTimeoutMs,
       open: (endpoint, disconnected) =>
         WebSocketTransport.open(endpoint.url, {
           subprotocols: endpoint.subprotocols,

@@ -30,7 +30,7 @@ from rpckit.dependencies import (
 from rpckit.envelopes import RpcNotification, RpcRequestEnvelope
 from rpckit.errors import RpcError, RpcParseError
 from rpckit.observer import RpcConnectionContext, notify_observer
-from rpckit.server import RpcErrorMapper, RpcServer
+from rpckit.server import RpcErrorMapper, RpcServer, _request_id
 from rpckit.service import RpcEndpoint, RpcStreamEndpoint
 from rpckit.streams import (
     RpcBinaryInput,
@@ -208,6 +208,13 @@ async def serve_endpoint(
                 if response is not None:
                     await send_outgoing(codec.encode(response))
 
+            async def reject_pending(message):
+                logger.warning("RPC client exceeded max_pending_requests")
+                if _is_notification(message):
+                    return
+                failure = server.failure(_request_id(message), RpcPendingLimitError())
+                await send_outgoing(codec.encode(failure))
+
             async def reader():
                 nonlocal client_closed
                 try:
@@ -239,6 +246,9 @@ async def serve_endpoint(
                             )
                             continue
                         if connected_client._resolve(message):
+                            continue
+                        if len(tasks) >= limits.max_pending_requests:
+                            await reject_pending(message)
                             continue
                         task = asyncio.create_task(invoke(message))
                         tasks.add(task)
@@ -306,6 +316,15 @@ async def serve_endpoint(
                 raw_close_code=connection.raw_close_code,
             ),
         )
+
+
+class RpcPendingLimitError(RpcError):
+    code = "pending_limit"
+    message = "Too many pending requests"
+
+
+def _is_notification(message: object) -> bool:
+    return isinstance(message, dict) and "id" not in message
 
 
 async def _event_source(event, resolver, send, observer):

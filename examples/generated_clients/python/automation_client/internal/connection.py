@@ -75,6 +75,10 @@ class RpcTransportPool[ServerT: str]:
         self._closed_future: asyncio.Future[BaseException | None] | None = None
 
     @property
+    def request_timeout(self) -> float | None:
+        return self._request_timeout
+
+    @property
     def closed(self) -> asyncio.Future[BaseException | None]:
         if self._closed_future is None:
             self._closed_future = asyncio.get_running_loop().create_future()

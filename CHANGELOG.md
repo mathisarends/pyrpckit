@@ -4,9 +4,9 @@
 
 ### Migration from 0.7
 
-- Rename the PyPI distribution, Python package, CLI command, and logger from
-  `pyrpckit` to `rpckit`. Install `rpckit`, replace `pyrpckit` imports and CLI
-  calls with `rpckit`, and update logger filters. Regenerate clients because
+- Rename the Python package, CLI command, and logger from `pyrpckit` to
+  `rpckit`. The PyPI distribution stays `pyrpckit`. Replace `pyrpckit` imports
+  and CLI calls with `rpckit`, and update logger filters. Regenerate clients because
   generator metadata, generated headers, and the `rpckit.jsonrpc` subprotocol
   now use the new name. Old `.pyrpckit` generator manifests are no longer read.
 - Regenerate and commit Python and TypeScript clients with this version's
@@ -34,6 +34,9 @@
 - Add parameterized `@channel.server.subscription()` streams with per-connection
   subscribe/unsubscribe lifecycle, generated Python and TypeScript iterators,
   `x-rpc-subscriptions` in OpenRPC, and `RpcLimits.max_subscriptions`.
+- Bound running and waiting calls per connection with
+  `RpcLimits.max_pending_requests` (default 1024). Further calls are answered
+  with a `pending_limit` error instead of being queued without limit.
 - Allow configured extra Python client files and exports, refresh handshake
   headers through an async factory, and accept HTTP(S) WebSocket URL overrides.
 - Restore `rpckit.testing.RpcTestClient` for in-memory service tests, with
@@ -67,6 +70,11 @@
 
 ### Fixed
 
+- Generated Python and TypeScript requests fail with a transport error once the
+  request timeout elapses while a reconnecting client cannot reach the server,
+  instead of waiting indefinitely. Subscriptions keep waiting for the reconnect.
+- `rpckit generate` without the `codegen` extra and `import rpckit.fastapi`
+  without the `fastapi` extra report which extra to install.
 - Forward `variables` through generated `with_transports()` and
   `withTransports()` when binary streams are present, and retain the first
   notification sent immediately after a subscription is accepted.

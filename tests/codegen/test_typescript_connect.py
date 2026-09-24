@@ -219,6 +219,30 @@ def test_generated_client_connect_behavior_in_node(
               assert(reconnectAttempts === 3, "reconnect did not retry after failure");
               await retrying.close();
 
+              const offlineSockets: FakeSocket[] = [];
+              const offline = await GreetingClient.connect({
+                lazy: true,
+                reconnect: true,
+                reconnectInitialDelayMs: 1,
+                requestTimeoutMs: 20,
+                socketFactory: (url) => {
+                  if (offlineSockets.length > 0) throw new Error("server down");
+                  const socket = new FakeSocket(String(url), { text: "Hello!" });
+                  offlineSockets.push(socket);
+                  return socket;
+                },
+              });
+              await offline.greeting.say({ name: "first" });
+              offlineSockets[0].disconnect();
+              let timedOut = false;
+              try {
+                await offline.greeting.say({ name: "lost" });
+              } catch (error) {
+                timedOut = String(error).includes("request timeout");
+              }
+              assert(timedOut, "reconnecting call did not time out");
+              await offline.close();
+
               const overrideUrls: string[] = [];
               const overridden = await GreetingClient.connect({
                 host: "stage.example.com",

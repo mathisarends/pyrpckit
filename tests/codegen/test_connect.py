@@ -218,6 +218,40 @@ async def test_reconnect_opens_a_fresh_socket_after_disconnect(
         await client.close()
 
 
+async def test_reconnecting_call_fails_after_the_request_timeout(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "ok"})
+    reachable = True
+
+    async def unreachable_later(
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ) -> FakeSocket:
+        if not reachable:
+            raise OSError("server unreachable")
+        return await network(
+            url, subprotocols=subprotocols, additional_headers=additional_headers
+        )
+
+    client = await client_module.GreetingClient.connect(
+        socket_factory=unreachable_later,
+        reconnect=True,
+        reconnect_initial_delay=0.001,
+        request_timeout=0.05,
+    )
+    try:
+        reachable = False
+        network.sockets[0]._replies.put_nowait("not json")
+        await asyncio.wait_for(client.closed, 1)
+        with pytest.raises(client_module.RpcTransportError, match="request timeout"):
+            await asyncio.wait_for(client.greeting.say(name="lost"), 1)
+    finally:
+        await client.close()
+
+
 async def test_connect_forwards_headers_to_websocket_factories(
     client_module: ModuleType,
 ) -> None:

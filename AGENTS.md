@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project
 
-`rpckit` is a Python library, packaged for distribution on PyPI. It turns
+`rpckit` is a Python library, distributed on PyPI as `pyrpckit`. It turns
 decorated channel functions and mounted service endpoints into a JSON-RPC 2.0
 protocol: definition (`channel.py`, `protocol.py`), serving (`service.py`,
 `runtime.py`, `dispatch.py`, `server.py`), contract generation (`schema/`), and

@@ -177,9 +177,10 @@ limits = RpcLimits(
 )
 ```
 
-`max_concurrency` bounds in-flight calls, `max_queue_size` bounds outgoing
-responses and events, and `max_message_bytes` rejects oversized incoming
-frames. Calls on one connection may finish out of order; set concurrency to
+`max_concurrency` bounds in-flight calls, `max_pending_requests` bounds calls
+that are running or waiting for a slot (further calls are answered with a
+`pending_limit` error), `max_queue_size` bounds outgoing responses and events,
+and `max_message_bytes` rejects oversized incoming frames. Calls on one connection may finish out of order; set concurrency to
 `1` when strict arrival order is required. Pass `None` only when intentionally
 disabling the byte limit.
 

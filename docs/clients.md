@@ -8,7 +8,7 @@ other tooling.
 Install the generator extra:
 
 ```bash
-uv add "rpckit[codegen]"
+uv add "pyrpckit[codegen]"
 ```
 
 ## Build a contract

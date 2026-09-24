@@ -61,9 +61,9 @@ instead of shipping.
 ## Install
 
 ```bash
-uv add rpckit
-uv add "rpckit[fastapi]"  # FastAPI adapter
-uv add "rpckit[codegen]"  # client generation
+uv add pyrpckit
+uv add "pyrpckit[fastapi]"  # FastAPI adapter
+uv add "pyrpckit[codegen]"  # client generation
 ```
 
 Python 3.12 or newer. Pydantic is the only required dependency.

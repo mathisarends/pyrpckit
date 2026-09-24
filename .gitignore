@@ -63,3 +63,4 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+.pytest-cache-local/

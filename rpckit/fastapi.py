@@ -2,7 +2,13 @@ import asyncio
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
+try:
+    from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
+except ImportError as error:
+    raise ModuleNotFoundError(
+        "rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]",
+        name="fastapi",
+    ) from error
 
 from rpckit.connection import (
     RpcBeforeAccept,

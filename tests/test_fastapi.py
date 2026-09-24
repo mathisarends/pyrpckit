@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 
 import pytest
@@ -266,3 +268,29 @@ def test_serve_websocket_helper_serves_manual_route() -> None:
             {"jsonrpc": "2.0", "id": 1, "method": "demo.echo", "params": {"value": "x"}}
         )
         assert websocket.receive_json()["result"] == {"value": "x"}
+
+
+def test_import_without_fastapi_reports_missing_extra() -> None:
+    code = """
+import importlib.abc
+import sys
+
+class BlockFastApi(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "fastapi" or fullname.startswith("fastapi."):
+            raise ModuleNotFoundError("blocked fastapi")
+        return None
+
+sys.meta_path.insert(0, BlockFastApi())
+try:
+    import rpckit.fastapi
+except ModuleNotFoundError as error:
+    print(error.name, error, sep="|")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+
+    assert result.stdout.strip() == (
+        "fastapi|rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]"
+    )

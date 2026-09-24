@@ -23,7 +23,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     if arguments.command == "schema":
         return _schema(arguments)
-    return _generate(arguments)
+    try:
+        return _generate(arguments)
+    except ModuleNotFoundError as error:
+        if error.name != "jinja2":
+            raise
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
 
 def _schema(arguments: argparse.Namespace) -> int:

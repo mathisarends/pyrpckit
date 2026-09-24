@@ -6,7 +6,8 @@ try:
 except ModuleNotFoundError as error:
     raise ModuleNotFoundError(
         "Client generation requires the optional codegen dependencies; "
-        "install rpckit[codegen]"
+        "install pyrpckit[codegen]",
+        name="jinja2",
     ) from error
 
 
