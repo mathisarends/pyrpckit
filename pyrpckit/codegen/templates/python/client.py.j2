@@ -51,7 +51,9 @@
         request_timeout: float | None = 30.0,
         notification_queue_size: int = 100,
         notification_overflow: str = "drop_oldest",
-        headers: Mapping[str, str] | None = None,
+        headers: (
+            Mapping[str, str] | Callable[[], Awaitable[Mapping[str, str]]] | None
+        ) = None,
         socket_factory: WebSocketFactory | None = None,
 {% if binary_streams %}        stream_socket_factory: BinaryWebSocketFactory | None = None,
 {% endif %}{% if client_methods %}        handlers: Handler | Iterable[Handler] = (),
@@ -70,6 +72,9 @@
             overrides.setdefault(ServerName.{{ servers[0].name | constant }}, url)
 {% endif %}{% if client_methods %}        dispatcher = handler_dispatcher(handlers)
 {% endif %}
+        async def resolve_headers() -> Mapping[str, str] | None:
+            return await headers() if callable(headers) else headers
+
         async def open_transport(
             endpoint_url: str,
             *,
@@ -84,7 +89,7 @@
                 request_timeout=request_timeout,
                 notification_queue_size=notification_queue_size,
                 notification_overflow=notification_overflow,
-                headers=headers,
+                headers=await resolve_headers(),
                 socket_factory=socket_factory,
 {% if client_methods %}                request_handler=dispatcher,
 {% endif %}            )
@@ -92,7 +97,7 @@
         async def open_stream(endpoint: BinaryStreamEndpoint) -> BinaryStreamTransport:
             return await BinaryWebSocketStream.open(
                 endpoint,
-                headers=headers,
+                headers=await resolve_headers(),
                 socket_factory=stream_socket_factory,
             )
 {% endif %}

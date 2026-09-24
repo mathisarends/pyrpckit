@@ -75,6 +75,7 @@ export class AutomationClient {
     const variables: Record<string, string | undefined> = {
       host: options.host,
     };
+
     const pool = new RpcTransportPool({
       endpoints: [...resolveEndpoints(variables, options.servers)],
       open: (endpoint) =>

@@ -55,6 +55,8 @@ language = "python"
 output = "src/tasks_client"
 package = "tasks_client"
 with_transport = "websocket"
+extra_files = ["src/extra/authenticated.py"]
+extra_exports = ["connect_gateway"]
 
 [[clients]]
 language = "typescript"
@@ -80,7 +82,10 @@ pyrpckit generate --config rpcgen.toml --check
 ```
 
 Generated directories are owned by the generator and should not be edited by
-hand.
+hand. `extra_files` copies Python source files into the generated package by
+filename; `extra_exports` adds uniquely defined names from those files to the
+package root and manifest. This keeps custom connection helpers across
+regeneration.
 
 ## Generate from an existing document
 
@@ -130,6 +135,20 @@ async with TasksClient.connect(
 ) as client:
     ...
 ```
+
+For refreshed credentials, pass an async header factory. It runs for each
+WebSocket connection, including binary stream connections:
+
+```python
+async def auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {await tokens.current()}"}
+
+
+async with TasksClient.connect(headers=auth_headers) as client:
+    ...
+```
+
+An HTTP or HTTPS `url=` override is converted to WS or WSS for the RPC socket.
 
 When the client outlives a context manager, await the connection directly. The
 caller then owns the returned client and must close it:

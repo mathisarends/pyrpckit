@@ -11,6 +11,8 @@ class PythonClientOptions:
     api_names: Mapping[str, str] = field(default_factory=dict)
     source: str = "the OpenRPC document"
     with_transport: str | None = None
+    extra_files: Mapping[str, str] = field(default_factory=dict)
+    extra_exports: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

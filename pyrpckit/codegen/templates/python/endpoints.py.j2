@@ -81,6 +81,14 @@ def resolve_endpoints(
         resolved[server] = (
             override
             if isinstance(override, Endpoint)
-            else replace(resolved[server], url=override)
+            else replace(resolved[server], url=_websocket_url(override))
         )
     return tuple(resolved.values())
+
+
+def _websocket_url(url: str) -> str:
+    if url.startswith("https://"):
+        return "wss://" + url[8:]
+    if url.startswith("http://"):
+        return "ws://" + url[7:]
+    return url

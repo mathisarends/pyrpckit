@@ -200,12 +200,11 @@ export class RpcRemoteError extends Error {
 }
 
 export class RpcConnectionClosed extends Error {
-{% if binary_streams %}  constructor(
+  constructor(
     readonly code: number | undefined,
     readonly reason: string,
   ) {
-{% else %}  constructor(readonly code: number | undefined, readonly reason: string) {
-{% endif %}    super(`RPC connection closed (${code}): ${reason}`);
+    super(`RPC connection closed (${code}): ${reason}`);
     this.name = "RpcConnectionClosed";
   }
 }

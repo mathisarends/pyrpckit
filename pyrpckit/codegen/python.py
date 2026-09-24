@@ -121,6 +121,14 @@ def render_files(ir: ClientIr, options: PythonClientOptions) -> dict[str, str]:
         files["namespaces/__init__.py"] = _render_namespaces_init(view.nodes, options)
         for node in view.nodes:
             files[_api_file(node)] = _render_api(node, ir, options)
+    for name, content in options.extra_files.items():
+        if name != _identifier(name.removesuffix(".py")) + ".py":
+            raise UnsupportedSchemaError(f"Invalid extra Python file name: {name!r}")
+        if name in files:
+            raise UnsupportedSchemaError(
+                f"Extra file conflicts with generated file: {name}"
+            )
+        files[name] = content
     return files
 
 
@@ -557,6 +565,7 @@ def _render_client(
             "handler_dispatcher",
         )
     if options.with_transport == "websocket":
+        imports.add("collections.abc", "Awaitable", "Callable")
         imports.add(_runtime_module(options), "ClientConnection", "RpcTransportPool")
         imports.add(
             f"{options.package}.endpoints",
@@ -704,6 +713,17 @@ def _render_package_init(
         if options.with_transport == "websocket":
             imports.add(f"{options.package}.streams", "BinaryWebSocketStream")
             exported.append("BinaryWebSocketStream")
+    for name, module in options.extra_exports.items():
+        if not name.isidentifier() or module + ".py" not in options.extra_files:
+            raise UnsupportedSchemaError(
+                f"Invalid extra export: {name!r} from {module!r}"
+            )
+        if name in exported:
+            raise UnsupportedSchemaError(
+                f"Extra export conflicts with generated name: {name}"
+            )
+        imports.add(f"{options.package}.{module}", name)
+        exported.append(name)
     body = render_template(
         "python/package_init.py.j2",
         filters={"literal": _literal},

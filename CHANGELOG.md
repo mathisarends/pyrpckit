@@ -7,6 +7,8 @@
 - Add parameterized `@channel.server.subscription()` streams with per-connection
   subscribe/unsubscribe lifecycle, generated Python and TypeScript iterators,
   `x-rpc-subscriptions` in OpenRPC, and `RpcLimits.max_subscriptions`.
+- Allow configured extra Python client files and exports, refresh handshake
+  headers through an async factory, and accept HTTP(S) WebSocket URL overrides.
 - Restore `pyrpckit.testing.RpcTestClient` for in-memory service tests, with
   client-method handlers, notification timeouts, and binary stream helpers.
   Add `RpcTestStream` for stream endpoints.

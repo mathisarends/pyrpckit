@@ -4,6 +4,7 @@ import json
 import sys
 from collections.abc import Iterator
 from copy import deepcopy
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -188,6 +189,92 @@ async def test_connect_forwards_headers_to_websocket_factories(
         await client.close()
 
     assert network.headers == [{"Authorization": "Bearer secret"}]
+
+
+async def test_async_header_factory_refreshes_each_connection(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork()
+    calls = 0
+    stream_headers: list[dict[str, str] | None] = []
+
+    async def headers() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        return {"Authorization": f"Bearer {calls}"}
+
+    async def stream_factory(
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ) -> FakeSocket:
+        stream_headers.append(additional_headers)
+        return FakeSocket(url, None)
+
+    async with (
+        client_module.GreetingClient.connect(
+            socket_factory=network,
+            stream_socket_factory=stream_factory,
+            headers=headers,
+            eager=True,
+        ) as client,
+        client.greeting.frames(),
+    ):
+        pass
+    assert calls == 3
+    assert {item["Authorization"] for item in network.headers if item} == {
+        "Bearer 1",
+        "Bearer 2",
+    }
+    assert stream_headers == [{"Authorization": "Bearer 3"}]
+
+
+async def test_http_endpoint_override_is_converted_to_websocket(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "ok"})
+    async with client_module.GreetingClient.connect(
+        servers={client_module.ServerName.PRIMARY: "https://stage.example.com/rpc"},
+        socket_factory=network,
+    ) as client:
+        await client.greeting.say(name="Mathis")
+    assert network.urls == ["wss://stage.example.com/rpc"]
+
+
+async def test_single_server_http_url_is_converted(
+    document: dict[str, Any], tmp_path: Path
+) -> None:
+    package = "single_server_client"
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "primary",
+            "url": "wss://api.example.com/rpc",
+            "x-rpckit-transport": {"type": "websocket", "messageEncoding": "json"},
+        }
+    ]
+    generate_python_client(
+        deployed,
+        tmp_path / package,
+        PythonClientOptions(
+            package=package, client_name="SingleClient", with_transport="websocket"
+        ),
+    )
+    sys.path.insert(0, str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        module = importlib.import_module(package)
+        network = FakeNetwork()
+        async with module.SingleClient.connect(
+            url="https://stage.example.com/rpc", socket_factory=network
+        ):
+            assert network.urls == ["wss://stage.example.com/rpc"]
+    finally:
+        sys.path.remove(str(tmp_path))
+        for name in list(sys.modules):
+            if name == package or name.startswith(f"{package}."):
+                del sys.modules[name]
 
 
 async def test_a_single_server_can_be_pointed_somewhere_else(

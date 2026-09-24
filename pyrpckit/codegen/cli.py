@@ -1,4 +1,5 @@
 import argparse
+import ast
 import json
 import sys
 import tomllib
@@ -82,6 +83,10 @@ def _render_client(
     document: dict[str, object],
 ) -> dict[str, str]:
     if arguments.language == "python":
+        extra_files, extra_exports = _extra_python_files(
+            getattr(arguments, "extra_files", ()),
+            getattr(arguments, "extra_exports", ()),
+        )
         options = PythonClientOptions(
             package=arguments.package or arguments.output.name,
             client_name=arguments.client_name,
@@ -89,6 +94,8 @@ def _render_client(
             api_names=dict(arguments.api_name),
             source=arguments.schema.name,
             with_transport=arguments.with_transport,
+            extra_files=extra_files,
+            extra_exports=extra_exports,
         )
         return dict(render_python_client(document, options))
     else:
@@ -101,6 +108,43 @@ def _render_client(
             with_transport=arguments.with_transport,
         )
         return dict(render_typescript_client(document, options))
+
+
+def _extra_python_files(
+    paths: Sequence[Path], exports: Sequence[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    files: dict[str, str] = {}
+    owners: dict[str, str] = {}
+    for path in paths:
+        if path.suffix != ".py" or path.name in files:
+            raise ValueError(f"Invalid or duplicate extra Python file: {path}")
+        content = path.read_text(encoding="utf-8")
+        files[path.name] = content
+        for node in ast.parse(content, filename=str(path)).body:
+            names: list[str] = []
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                names = [node.name]
+            elif isinstance(node, ast.Assign):
+                names = [
+                    target.id for target in node.targets if isinstance(target, ast.Name)
+                ]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names = [node.target.id]
+            for name in names:
+                if name in owners:
+                    owners[name] = ""
+                else:
+                    owners[name] = path.stem
+    resolved: dict[str, str] = {}
+    for name in exports:
+        if not name.isidentifier() or not owners.get(name):
+            raise ValueError(
+                f"Extra export {name!r} must have one definition in extra_files"
+            )
+        if name in resolved:
+            raise ValueError(f"Duplicate extra export: {name}")
+        resolved[name] = owners[name]
+    return files, resolved
 
 
 def _report_generation(changed: Sequence[Path], *, check: bool) -> int:
@@ -157,7 +201,14 @@ def _generate_config(path: Path, *, check: bool) -> int:
             if contract_job is not None and arguments.schema == contract_job[0]
             else json.loads(arguments.schema.read_text(encoding="utf-8"))
         )
-        rendered.append((arguments, _render_client(arguments, document)))
+        try:
+            rendered.append((arguments, _render_client(arguments, document)))
+        except (OSError, SyntaxError, ValueError) as error:
+            print(
+                f"error: Invalid client extra_files or extra_exports: {error}",
+                file=sys.stderr,
+            )
+            return 2
 
     changed_contract: tuple[Path, ...] = ()
     if contract_job is not None:
@@ -220,6 +271,10 @@ def _config_arguments(
     language = client["language"]
     if language not in LANGUAGES:
         raise ValueError(f"language must be one of {LANGUAGES!r}")
+    if language != "python" and (
+        client.get("extra_files") or client.get("extra_exports")
+    ):
+        raise ValueError("extra_files and extra_exports require language='python'")
     api_names = client.get("api_names", {})
     if not isinstance(api_names, dict) or not all(
         isinstance(key, str) and isinstance(value, str)
@@ -241,7 +296,20 @@ def _config_arguments(
         api_name=list(api_names.items()),
         check=check,
         with_transport=client.get("with_transport"),
+        extra_files=tuple(
+            base / item for item in _config_string_list(client, "extra_files")
+        ),
+        extra_exports=_config_string_list(client, "extra_exports"),
     )
+
+
+def _config_string_list(client: dict[str, object], key: str) -> tuple[str, ...]:
+    value = client.get(key, ())
+    if not isinstance(value, list | tuple) or not all(
+        isinstance(item, str) and item for item in value
+    ):
+        raise TypeError(f"{key} must be a list of non-empty strings")
+    return tuple(value)
 
 
 def _config_string(client: dict[str, object], key: str) -> str:

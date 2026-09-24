@@ -39,9 +39,11 @@ export type EndpointOverrides = Partial<
   Record<ServerName, string | URL | Endpoint>
 >;
 
-const serverNames: readonly ServerName[] = [
+{% if servers | length == 1 %}const serverNames: readonly ServerName[] = [{{ servers[0].name | literal }}];
+{% else %}const serverNames: readonly ServerName[] = [
 {% for server in servers %}  {{ server.name | literal }},
 {% endfor %}];
+{% endif %}
 
 export const servers = {
 {% for server in servers %}  {{ server.name | identifier }}: {
@@ -115,7 +117,7 @@ export function resolveEndpoints(
     resolved.set(
       server,
       typeof override === "string" || override instanceof URL
-        ? { ...declared, url: override }
+        ? { ...declared, url: websocketUrl(override) }
         : {
             ...override,
             subprotocols: override.subprotocols ?? declared.subprotocols,
@@ -123,6 +125,13 @@ export function resolveEndpoints(
     );
   }
   return [...resolved.values()];
+}
+
+function websocketUrl(value: string | URL): string {
+  const url = String(value);
+  if (url.startsWith("https://")) return `wss://${url.slice(8)}`;
+  if (url.startsWith("http://")) return `ws://${url.slice(7)}`;
+  return url;
 }
 
 function resolveUrl(server: RpcServerInfo, values: ServerVariables): string {

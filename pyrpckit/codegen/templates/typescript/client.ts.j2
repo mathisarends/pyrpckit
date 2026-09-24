@@ -51,9 +51,11 @@ export class {{ client_name }} {
 {% endif %}      readonly hooks?: readonly RpcClientHook[];
     } = {},
   ): Promise<{{ client_name }}> {
-    const variables: Record<string, string | undefined> = {
+{% if variables %}    const variables: Record<string, string | undefined> = {
 {% for variable in variables %}      {{ variable.name | property }}: options.{{ variable.name | property }},
 {% endfor %}    };
+{% else %}    const variables: Record<string, string | undefined> = {};
+{% endif %}
 {% if servers | length == 1 %}    const overrides: EndpointOverrides = { ...options.servers };
     if (options.url !== undefined) {
       overrides[{{ servers[0].name | literal }}] ??= options.url;

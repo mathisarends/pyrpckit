@@ -178,7 +178,7 @@ def test_generated_client_connect_behavior_in_node(
               const overrideUrls: string[] = [];
               const overridden = await GreetingClient.connect({
                 host: "stage.example.com",
-                servers: { primary: "wss://localhost:8000/rpc" },
+                    servers: { primary: "https://localhost:8000/rpc" },
                 socketFactory: (url) => {
                   overrideUrls.push(String(url));
                   return new FakeSocket(String(url), { text: "Hello, Mathis!" });

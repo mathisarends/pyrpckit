@@ -163,7 +163,7 @@ export function resolveEndpoints(
     resolved.set(
       server,
       typeof override === "string" || override instanceof URL
-        ? { ...declared, url: override }
+        ? { ...declared, url: websocketUrl(override) }
         : {
             ...override,
             subprotocols: override.subprotocols ?? declared.subprotocols,
@@ -171,6 +171,13 @@ export function resolveEndpoints(
     );
   }
   return [...resolved.values()];
+}
+
+function websocketUrl(value: string | URL): string {
+  const url = String(value);
+  if (url.startsWith("https://")) return `wss://${url.slice(8)}`;
+  if (url.startsWith("http://")) return `ws://${url.slice(7)}`;
+  return url;
 }
 
 function resolveUrl(server: RpcServerInfo, values: ServerVariables): string {
