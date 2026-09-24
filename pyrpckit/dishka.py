@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
@@ -14,7 +16,7 @@ from pyrpckit.dependencies import RpcResolver
 class DishkaResolver:
     """Adapt a Dishka container to connection and call-scoped RPC resolution."""
 
-    def __init__(self, container: "AsyncContainer") -> None:
+    def __init__(self, container: AsyncContainer) -> None:
         self._container = container
 
     async def resolve[DependencyT](self, dependency: type[DependencyT]) -> DependencyT:
@@ -51,7 +53,7 @@ class DishkaResolver:
             yield DishkaResolver(request_container)
 
 
-def dishka_router(service: "RpcService", **options: Any) -> "APIRouter":
+def dishka_router(service: RpcService, **options: Any) -> APIRouter:
     """Serve a service with the app's root Dishka container."""
     try:
         from pyrpckit.fastapi import create_router

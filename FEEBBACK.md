@@ -32,6 +32,7 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 22 | Erledigt | `6fe1c9b` | `RpcEndpoint.create_server(observer=...)` ist ergänzt; Resolver/Context-Aufbau ist geteilt. `RpcDisconnect(close, reason)` und typisierte Close-Codes mit `OTHER`/`raw_close_code` sind konsistent; Duplikatfehler nennen die Namen. Stream-Error-Mapping kam mit Punkt 14. |
 | 23 | Erledigt | `e283cd3` | `RpcContract.to_json()` und `.write(path)` geben kanonisches UTF-8-JSON aus; CLI und `--check` verwenden denselben Serializer. |
 | 24 | Erledigt | `58b5932` | Unbekannte Client-Method-Antworten warnen; Requests werden direkt serialisiert; Namensableitung ist geteilt; Endpoint-Protokolle werden gecacht; redundanter Beispiel-`code` und der unnötige Lazy Import sind entfernt. Der `params.params`-Fehlertext ist durch Punkt 2 entfallen. |
+| Zusatz: Dishka-Annotationen | Erledigt | Commit dieses Punkts | `dishka.py` verwendet `from __future__ import annotations`; `dishka_router()` und `DishkaResolver` brauchen keine String-Annotationen mehr, obwohl optionale Typen nur unter `TYPE_CHECKING` importiert werden. |
 
 ## Überblick nach Priorität
 
