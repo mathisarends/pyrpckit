@@ -470,9 +470,9 @@ async def test_stream_error_mapper_maps_close_reason() -> None:
     service.stream(
         "/stream",
         frames,
-        error_mapper=lambda error: MissingError(message=str(error))
-        if isinstance(error, ValueError)
-        else None,
+        error_mapper=lambda error: (
+            MissingError(message=str(error)) if isinstance(error, ValueError) else None
+        ),
     )
     async with RpcTestClient(service, "/stream") as client:
         assert await client.closed() == (
