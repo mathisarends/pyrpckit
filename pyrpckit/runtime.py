@@ -107,8 +107,18 @@ async def serve_endpoint(
             )
 
             async def writer():
-                while True:
-                    await socket.send(await outgoing.get())
+                nonlocal client_closed
+                try:
+                    while True:
+                        await socket.send(await outgoing.get())
+                except asyncio.CancelledError:
+                    raise
+                except RpcDisconnect as error:
+                    client_closed = True
+                    request_close(error.code or RpcConnectionClose.NORMAL, error.reason)
+                except Exception:
+                    logger.exception("RPC writer failed")
+                    request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
             async def invoke(message):
                 try:

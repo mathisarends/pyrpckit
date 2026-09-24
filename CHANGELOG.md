@@ -15,6 +15,7 @@
   drop the oldest queued notification on overflow, preserving active requests.
   Python clients can select the previous close behavior with
   `notification_overflow="close"`; TypeScript uses `notificationOverflow`.
+- Close RPC socket connections and notify observers when the writer fails.
 
 ### Changed
 

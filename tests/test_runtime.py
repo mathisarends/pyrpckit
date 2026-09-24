@@ -138,6 +138,30 @@ async def test_parse_error_is_answered_and_connection_remains_usable() -> None:
     }
 
 
+async def test_writer_failure_closes_connection_and_notifies_observer() -> None:
+    class FailingSocket(InMemorySocket):
+        async def send(self, message: str) -> None:
+            raise RuntimeError("send failed")
+
+    observer.closed.clear()
+    socket = FailingSocket("/rpc")
+    task = asyncio.create_task(service.serve(socket))
+    await socket.client_send(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "demo.echo",
+                "params": {"value": "x"},
+            }
+        )
+    )
+    await asyncio.wait_for(task, 1)
+
+    assert socket.closed == (RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+    assert observer.closed[-1].close_code == RpcConnectionClose.INTERNAL_ERROR
+
+
 @pytest.mark.parametrize(
     ("frame", "expected"),
     [
