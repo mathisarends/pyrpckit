@@ -1,6 +1,6 @@
 # Contract and clients
 
-The service definition is the source of truth. pyrpckit exports it as OpenRPC,
+The service definition is the source of truth. rpckit exports it as OpenRPC,
 then generates clients from that document rather than from Python internals.
 The resulting artifact can therefore be reviewed, versioned, and consumed by
 other tooling.
@@ -14,7 +14,7 @@ uv add "pyrpckit[codegen]"
 ## Build a contract
 
 ```python
-from pyrpckit import ServerVariable
+from rpckit import ServerVariable
 
 contract = app.contract(
     title="Tasks API",
@@ -34,9 +34,9 @@ streams are derived from the service. `base_url` accepts either an HTTP or
 WebSocket URL (or a URL template); `http` and `https` are translated to `ws`
 and `wss`. Every supplied variable must occur in the resulting server URLs.
 
-`contract.to_openrpc()` returns the complete document, including binary stream
-extensions, for integrations that need a dictionary instead of rendered JSON.
-The built-in renderer preserves Unicode characters.
+Use `contract.write("tasks.openrpc.json")` to write canonical UTF-8 JSON, or
+`contract.to_json()` to get the same text. `contract.to_openrpc()` returns the
+complete document as a dictionary for integrations that need one.
 
 ## One configuration for contract and clients
 
@@ -55,6 +55,8 @@ language = "python"
 output = "src/tasks_client"
 package = "tasks_client"
 with_transport = "websocket"
+extra_files = ["src/extra/authenticated.py"]
+extra_exports = ["connect_gateway"]
 
 [[clients]]
 language = "typescript"
@@ -65,7 +67,7 @@ with_transport = "websocket"
 Generate everything together:
 
 ```bash
-pyrpckit generate --config rpcgen.toml
+rpckit generate --config rpcgen.toml
 ```
 
 Paths are resolved relative to the config file. Client generation reads the
@@ -76,21 +78,24 @@ Run the same command in CI with `--check`. It exits nonzero and lists stale
 files instead of writing them:
 
 ```bash
-pyrpckit generate --config rpcgen.toml --check
+rpckit generate --config rpcgen.toml --check
 ```
 
 Generated directories are owned by the generator and should not be edited by
-hand.
+hand. `extra_files` copies Python source files into the generated package by
+filename; `extra_exports` adds uniquely defined names from those files to the
+package root and manifest. This keeps custom connection helpers across
+regeneration.
 
 ## Generate from an existing document
 
 The schema and client stages can also run separately:
 
 ```bash
-pyrpckit schema my_api:contract \
+rpckit schema my_api:contract \
   --output schema/tasks.openrpc.json
 
-pyrpckit generate schema/tasks.openrpc.json \
+rpckit generate schema/tasks.openrpc.json \
   --language python \
   --output src/tasks_client \
   --package tasks_client \
@@ -100,7 +105,7 @@ pyrpckit generate schema/tasks.openrpc.json \
 Omit `with_transport` when integrating with an existing transport. Python
 clients accept an `RpcTransport`; TypeScript clients accept the corresponding
 transport interface. The OpenRPC generators are tolerant of ordinary tagged
-OpenRPC methods and additionally understand pyrpckit's typed-error and binary
+OpenRPC methods and additionally understand rpckit's typed-error and binary
 stream extensions.
 
 ## Use a generated client
@@ -130,6 +135,20 @@ async with TasksClient.connect(
 ) as client:
     ...
 ```
+
+For refreshed credentials, pass an async header factory. It runs for each
+WebSocket connection, including binary stream connections:
+
+```python
+async def auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {await tokens.current()}"}
+
+
+async with TasksClient.connect(headers=auth_headers) as client:
+    ...
+```
+
+An HTTP or HTTPS `url=` override is converted to WS or WSS for the RPC socket.
 
 When the client outlives a context manager, await the connection directly. The
 caller then owns the returned client and must close it:
@@ -168,25 +187,40 @@ owns.
 
 Contracts may route different methods to different WebSocket servers. A
 generated client still presents one namespace tree and selects the declared
-server for each call. A single-server client opens eagerly so authentication or
-network failures occur at connection time. Multi-server clients open each
-socket only when a method routed to that server is first called; concurrent
-first calls share the same connection attempt.
-
-Pass `eager=True` / `eager: true` to open every server in parallel, or false to
-force lazy behavior:
+server for each call. `connect()` opens every declared server in parallel, so
+authentication and network failures occur at connection time. Pass `lazy=True`
+or `lazy: true` to open each socket when a method routed to it is first called;
+concurrent first calls share the same connection attempt:
 
 ```python
-async with TasksClient.connect(host="stage.example.com", eager=True) as client:
+async with TasksClient.connect(host="stage.example.com", lazy=True) as client:
     ...
 ```
 
 ```ts
 const client = await TasksClient.connect({
   host: "stage.example.com",
-  eager: true,
+  lazy: true,
 });
 ```
+
+Python clients expose `client.closed`, which resolves with the cause of the
+first unexpected WebSocket disconnect, or `None` after a normal close. Pass
+`reconnect=True` to retry failed connections with bounded backoff and resume
+active subscriptions on the new socket. The delay can be adjusted with
+`reconnect_initial_delay` and `reconnect_max_delay`.
+
+```python
+async with TasksClient.connect(reconnect=True) as client:
+    cause = await client.closed
+    if cause is not None:
+        print(f"Connection lost: {cause}")
+```
+
+TypeScript clients accept `onDisconnect` to observe unexpected socket loss.
+Pass `reconnect: true` to retry failed connections with bounded backoff and
+resume active subscriptions. Adjust the delay with `reconnectInitialDelayMs`
+and `reconnectMaxDelayMs`.
 
 Top-level server variables such as `host` apply to every server and binary
 stream that declares that variable. Override only exceptional deployments with
@@ -255,8 +289,8 @@ Client hooks can observe or wrap every request through the `hooks` option on
 injectable, which keeps the generated runtime independent of a particular
 WebSocket package and makes connection behavior testable without a network.
 
-Contracts with [client methods](client-methods.md) also generate abstract handler classes
-that `connect(client_methods=...)` registers.
+Contracts with [client methods](client-methods.md) also generate abstract Python
+handler classes that `connect(handlers=...)` registers.
 
 The exact client class, method arguments, endpoint names, and server variables
 come from the document. See

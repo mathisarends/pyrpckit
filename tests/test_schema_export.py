@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pyrpckit.schema.export import (
+from rpckit.schema.export import (
     ProtocolReferenceError,
     load_contract_source,
     load_protocol,

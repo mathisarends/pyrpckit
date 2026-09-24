@@ -1,14 +1,14 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcBinaryInput,
     RpcBinaryOutput,
     RpcChannel,
+    RpcConnectedClient,
     RpcError,
     RpcModel,
-    RpcPeer,
     RpcService,
     ServerVariable,
 )
@@ -48,7 +48,6 @@ class ApprovalDecision(RpcModel):
 
 class ApprovalUnavailableError(RpcError):
     rpc_code = -32030
-    code = "approval_unavailable"
 
 
 class Tab(RpcModel):
@@ -97,8 +96,8 @@ async def create(params: CreateTaskParams) -> Task:
 
 
 @tasks.server.method(summary="Delete a task once the operator approves it.")
-async def delete(params: DeleteTaskParams, peer: Inject[RpcPeer]) -> bool:
-    decision = await peer.call(
+async def delete(params: DeleteTaskParams, client: Inject[RpcConnectedClient]) -> bool:
+    decision = await client.call(
         approve,
         ApprovalRequest(task_id=params.task_id, action="delete"),
         timeout=30.0,
@@ -178,7 +177,7 @@ service.socket(
     "/browser/stream",
     channels=(screencast,),
     name="streaming",
-    subprotocol="pyrpckit.jsonrpc",
+    subprotocol="rpckit.jsonrpc",
 )
 service.stream("/browser/screencast", frames)
 service.stream("/browser/screencast/upload", upload)

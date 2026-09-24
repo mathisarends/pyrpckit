@@ -1,9 +1,9 @@
 {
-  "generator": "pyrpckit",
-  "generatorVersion": "0.6.0",
+  "generator": "rpckit",
+  "generatorVersion": "0.8.0",
   "layoutVersion": 10,
   "language": "python",
-  "contractSha256": "975313026baa49bb112cdc0d066f3f18db5069a1b80f128829bea0f9bb34a0bf",
+  "contractSha256": "6a2ad621d80668d7f7c4e4d2e33f534c37830deb4af37a222a016e1f837a2c11",
   "files": [
     ".rpcgen/manifest.json",
     "__init__.py",

@@ -1,0 +1,150 @@
+{% from "python/macros.py.j2" import operation, notification, stream with context %}class {{ client_name }}:
+    def __init__(
+        self,
+{% if servers %}        transport: (
+            RpcTransport | Mapping[ServerName, RpcTransport] | RpcTransportSource
+        ),
+{% else %}        transport: RpcTransport | RpcTransportSource,
+{% endif %}        *,
+        close_transport: bool = True,
+        hooks: Iterable[RpcClientHook] = (),
+        notification_queue_size: int = 100,
+{% if binary_streams %}        stream_opener: BinaryStreamOpener | None = None,
+        variables: Mapping[str, str] | None = None,
+{% endif %}    ) -> None:
+        self._rpc = RpcClientCore(
+            transport,
+            close_transport=close_transport,
+            hooks=hooks,
+            notification_queue_size=notification_queue_size,
+{% if binary_streams %}            stream_opener=stream_opener,
+            variables=variables,
+{% endif %}        )
+{% for node in nodes %}        self.{{ node.segment | identifier }} = {{ node.path | api_class }}(self._rpc)
+{% endfor %}
+    @property
+    def closed(self) -> asyncio.Future[BaseException | None]:
+        return self._rpc.closed
+
+    @classmethod
+    def with_transports(
+        cls,
+        transports: {{ "RpcTransport | Mapping[ServerName, RpcTransport]" if servers else "RpcTransport" }},
+        *,
+        close_transport: bool = True,
+        hooks: Iterable[RpcClientHook] = (),
+        notification_queue_size: int = 100,
+{% if binary_streams %}        stream_opener: BinaryStreamOpener | None = None,
+        variables: Mapping[str, str] | None = None,
+{% endif %}    ) -> Self:
+        """Build a client on transports the caller owns, for tests and adapters."""
+        return cls(
+            transports,
+            close_transport=close_transport,
+            hooks=hooks,
+            notification_queue_size=notification_queue_size,
+{% if binary_streams %}            stream_opener=stream_opener,
+            variables=variables,
+{% endif %}        )
+{% if with_websocket %}
+    @classmethod
+    def connect(
+        cls,
+        *,
+{% for variable in variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
+{% endfor %}{% if servers | length == 1 %}        url: str | None = None,
+{% endif %}        servers: Mapping[ServerName, str | Endpoint] | None = None,
+        request_timeout: float | None = 30.0,
+        notification_queue_size: int = 100,
+        notification_overflow: str = "drop_oldest",
+        headers: (
+            Mapping[str, str] | Callable[[], Awaitable[Mapping[str, str]]] | None
+        ) = None,
+        socket_factory: WebSocketFactory | None = None,
+{% if binary_streams %}        stream_socket_factory: BinaryWebSocketFactory | None = None,
+{% endif %}{% if client_methods %}        handlers: Handler | Iterable[Handler] = (),
+{% endif %}        hooks: Iterable[RpcClientHook] = (),
+        lazy: bool = False,
+        reconnect: bool = False,
+        reconnect_initial_delay: float = 0.25,
+        reconnect_max_delay: float = 5.0,
+    ) -> ClientConnection[Self, ServerName]:
+{% if client_methods %}        """Connect to servers and register handlers for their requests."""
+{% else %}        """Open every declared server unless ``lazy=True`` is set."""
+{% endif %}
+{% if variables %}        variables: dict[str, str | None] = {
+{% for variable in variables %}            {{ variable.name | literal }}: {{ variable.name | identifier }},
+{% endfor %}        }
+{% else %}        variables: dict[str, str | None] = {}
+{% endif %}{% if servers | length == 1 %}        overrides = dict(servers or {})
+        if url is not None:
+            overrides.setdefault(ServerName.{{ servers[0].name | constant }}, url)
+{% endif %}{% if client_methods %}        dispatcher = handler_dispatcher(handlers)
+{% endif %}
+        async def resolve_headers() -> Mapping[str, str] | None:
+            return await headers() if callable(headers) else headers
+
+        async def open_transport(
+            endpoint_url: str,
+            *,
+            subprotocols: tuple[str, ...],
+            request_timeout: float | None,
+            notification_queue_size: int,
+            notification_overflow: str,
+        ) -> RpcTransport:
+            return await WebSocketTransport.open(
+                endpoint_url,
+                subprotocols=subprotocols,
+                request_timeout=request_timeout,
+                notification_queue_size=notification_queue_size,
+                notification_overflow=notification_overflow,
+                headers=await resolve_headers(),
+                socket_factory=socket_factory,
+{% if client_methods %}                request_handler=dispatcher,
+{% endif %}            )
+{% if binary_streams %}
+        async def open_stream(endpoint: BinaryStreamEndpoint) -> BinaryStreamTransport:
+            return await BinaryWebSocketStream.open(
+                endpoint,
+                headers=await resolve_headers(),
+                socket_factory=stream_socket_factory,
+            )
+{% endif %}
+        pool = RpcTransportPool(
+{% if servers | length == 1 %}            endpoints=resolve_endpoints(variables, overrides),
+{% else %}            endpoints=resolve_endpoints(variables, servers),
+{% endif %}            transport_factory=open_transport,
+            request_timeout=request_timeout,
+            notification_queue_size=notification_queue_size,
+            notification_overflow=notification_overflow,
+            reconnect=reconnect,
+            reconnect_initial_delay=reconnect_initial_delay,
+            reconnect_max_delay=reconnect_max_delay,
+        )
+        return ClientConnection(
+            client_factory=lambda transports: cls(
+                transports,
+                hooks=hooks,
+                notification_queue_size=notification_queue_size,
+{% if binary_streams %}                stream_opener=open_stream,
+                variables={
+                    name: value
+                    for name, value in variables.items()
+                    if value is not None
+                },
+{% endif %}            ),
+            pool=pool,
+            eager=not lazy,
+        )
+{% endif %}{% for route in operations %}
+{{ operation(route) }}{% endfor %}{% for event in notifications %}
+{{ notification(event) }}{% endfor %}{% for item in streams %}
+{{ stream(item) }}{% endfor %}
+    async def close(self) -> None:
+        await self._rpc.close()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()

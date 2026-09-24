@@ -5,7 +5,8 @@ notifications without an answer. Client methods cover the third direction: the
 server sends a request to a connected client and waits for its result or
 error.
 
-A channel groups its declarations by the side that implements them:
+A channel groups its declarations by the side that implements them. The client
+opens the connection, but either side can initiate a JSON-RPC request on it:
 
 ```python
 room_channel.server.method(...)  # client calls server, server responds
@@ -13,10 +14,20 @@ room_channel.server.event(...)  # server sends, no response
 room_channel.client.method(...)  # server calls client, client responds
 ```
 
+The two request directions have different jobs in the Python API:
+
+| Declaration | Implementation | Caller |
+| --- | --- | --- |
+| `@channel.server.method(...)` | Decorated function on the server | Generated client method |
+| `channel.client.method(...)` | Generated client handler | `RpcConnectedClient.call(...)` on the server |
+
+`channel.client.method(...)` describes the request and returns the typed token
+used by `RpcConnectedClient.call(...)`. It does not implement the client method;
+the generated client's `*Handler` class provides that implementation.
+
 Server streams are declared the same way, with `channel.server.stream(...)`.
 
-JSON-RPC 2.0 assigns the client and server roles per message rather than per
-connection, so both sides can send requests on the same socket. The Language
+Both sides can send JSON-RPC requests on the same socket. The Language
 Server Protocol relies on this pattern (`workspace/applyEdit`), and OpenAPI
 calls it `callbacks`.
 
@@ -31,7 +42,7 @@ A client method is a typed declaration, not a decorated function, because the
 server has nothing to implement:
 
 ```python
-from pyrpckit import RpcChannel, RpcError, RpcModel
+from rpckit import RpcChannel, RpcError, RpcModel
 
 
 class MediaPlayParams(RpcModel):
@@ -68,17 +79,17 @@ server methods only, because client method errors come from the client.
 
 ## Call the client
 
-`RpcPeer` represents the connected client. It is injectable wherever
-`RpcConnection` is. Keep peers in your own registry to call a client from
-anywhere, not only while handling one of its requests:
+`RpcConnectedClient` is the server's handle for one connected client. It is
+injectable on JSON-RPC socket endpoints. Keep these handles in your own registry
+to call a client from anywhere, not only while handling one of its requests:
 
 ```python
-from pyrpckit import Inject, RpcPeer
+from rpckit import Inject, RpcConnectedClient
 
 
 class RoomConnections:
     def __init__(self) -> None:
-        self.peers: dict[str, RpcPeer] = {}
+        self.clients: dict[str, RpcConnectedClient] = {}
 
 
 class HelloParams(RpcModel):
@@ -88,22 +99,22 @@ class HelloParams(RpcModel):
 @room.server.method("hello")
 async def hello(
     params: HelloParams,
-    peer: Inject[RpcPeer],
+    client: Inject[RpcConnectedClient],
     rooms: Inject[RoomConnections],
 ) -> None:
-    rooms.peers[params.room_id] = peer
+    rooms.clients[params.room_id] = client
 
 
 async def play(rooms: RoomConnections, room_id: str, uri: str) -> bool:
-    peer = rooms.peers[room_id]
-    result = await peer.call(media_play, MediaPlayParams(uri=uri), timeout=5.0)
+    client = rooms.clients[room_id]
+    result = await client.call(media_play, MediaPlayParams(uri=uri), timeout=5.0)
     return result.started
 ```
 
-`peer.call()` validates the params against the declared model and the answer
+`client.call()` validates the params against the declared model and the answer
 against the declared result model. Server-originated requests use string IDs
 (`"server:1"`, `"server:2"`, ...), and the reader routes responses to the
-peer without ever answering them. `peer.call()` fails as follows:
+connected client without ever answering them. `client.call()` fails as follows:
 
 | Situation | Raised |
 | --- | --- |
@@ -111,15 +122,15 @@ peer without ever answering them. `peer.call()` fails as follows:
 | The client answers with any other error | `RpcClientMethodFailedError` (`rpc_code`, `code`, `message`, `details`) |
 | The result does not match the declared model | `RpcClientMethodResultError` |
 | `timeout` elapses; a late response is dropped | `RpcClientMethodTimeoutError`, also a `TimeoutError` |
-| The connection closes before the answer | `RpcPeerClosedError` |
+| The connection closes before the answer | `RpcClientClosedError` |
 
 All of these except the declared errors derive from `RpcClientMethodError`. A
-peer is bound to its endpoint: calling a client method that the endpoint does
+connected client is bound to its endpoint: calling a client method that the endpoint does
 not mount
-raises `ValueError`. `peer.closed` reports whether the connection has ended,
-and `peer.connection` returns its `RpcConnection`. Remove peers from your
+raises `ValueError`. `client.closed` reports whether the connection has ended,
+and `client.connection` returns its `RpcConnection`. Remove clients from your
 registry in a connection-scoped finalizer or when a call raises
-`RpcPeerClosedError`.
+`RpcClientClosedError`.
 
 Outgoing calls respect the endpoint's `RpcLimits`: `max_concurrency` bounds
 unanswered client method calls per connection, and a request larger than
@@ -134,22 +145,22 @@ named after the client method, such as `RoomMediaPlayClientMethod`.
 
 ## Implement client methods in a generated Python client
 
-For every client method namespace, the generated client contains an abstract
-class named after the namespace path, such as `RoomMediaClientMethods`. Implement the
-classes and pass the handlers to `connect()`:
+For every client method namespace, the generated Python client contains an
+abstract handler class named after the namespace path, such as
+`RoomMediaHandler`. Implement the class and pass an instance to `connect()`:
 
 ```python
 from rooms_client import (
     MediaPlayParams,
     MediaPlayResult,
     MediaUnavailableError,
-    RoomMediaClientMethods,
+    RoomMediaHandler,
     RoomsClient,
     SpeakerDetails,
 )
 
 
-class Media(RoomMediaClientMethods):
+class Media(RoomMediaHandler):
     async def play(self, params: MediaPlayParams) -> MediaPlayResult:
         if not speaker.online:
             raise MediaUnavailableError.create(SpeakerDetails(speaker_id="s1"))
@@ -157,22 +168,22 @@ class Media(RoomMediaClientMethods):
         return MediaPlayResult(started=True)
 
 
-async with RoomsClient.connect(url=url, client_methods=Media()) as client:
+async with RoomsClient.connect(url=url, handlers=Media()) as client:
     ...
 ```
 
-`client_methods=` accepts one handler or several. One object may implement
-several namespace classes. Registration works per namespace: a client method
-whose class has no handler is answered with `-32601 Method not found`, and so is
-every request sent to a client generated without client methods. Invalid params are answered with
-`-32602`. Raise a declared error with its generated `create()` to answer with
-that error. Any other exception is logged and answered with `-32603`. Handlers
-run concurrently, so a slow handler never delays responses to the client's own
-requests.
+`handlers=` accepts one handler or an iterable of handlers. One object may
+implement several namespace classes. Registration works per namespace: a client
+method whose class has no handler is answered with `-32601 Method not found`, as
+is every request sent to a client generated without client methods. Invalid
+params are answered with `-32602`. Raise a declared error with its generated
+`create()` to answer with that error. Any other exception is logged and answered
+with `-32603`. Handlers run concurrently, so a slow handler never delays
+responses to the client's own requests.
 
 With custom transports, build the dispatcher yourself and pass it to the
 generated transport:
-`WebSocketTransport(socket, client_methods=client_method_dispatcher(Media()))`.
+`WebSocketTransport(socket, request_handler=handler_dispatcher(Media()))`.
 Generated TypeScript clients do not implement client methods yet.
 
 [Back to documentation](README.md)

@@ -1,6 +1,6 @@
 # Transports
 
-pyrpckit's core deals in an `RpcSocket` protocol, not a web framework. Use the
+rpckit's core deals in an `RpcSocket` protocol, not a web framework. Use the
 FastAPI adapter or implement that small protocol for another server.
 
 ## FastAPI
@@ -16,7 +16,7 @@ Mount every endpoint declared on a service:
 ```python
 from fastapi import FastAPI
 
-from pyrpckit.fastapi import create_router
+from rpckit.fastapi import create_router
 
 web = FastAPI()
 web.include_router(create_router(app))
@@ -69,7 +69,7 @@ Implement `RpcSocket` and pass it to `app.serve(socket)`. The protocol consists
 of a handshake property and six async operations:
 
 ```python
-from pyrpckit import RpcHandshake
+from rpckit import RpcHandshake
 
 
 class MySocket:
@@ -85,7 +85,7 @@ class MySocket:
 ```
 
 `RpcHandshake` carries the request path, headers, query parameters, path
-parameters, offered subprotocols, and optional client address. Signal peer
+parameters, offered subprotocols, and optional client address. Signal client
 disconnects by raising `RpcDisconnect` from `receive()` or a send operation.
 
 `app.serve()` matches the handshake path to the declared endpoint. Pass

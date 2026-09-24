@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 
-from pyrpckit import Inject, RpcChannel, RpcModel
+from rpckit import Inject, RpcChannel, RpcModel
 
 
 class GreetParams(RpcModel):

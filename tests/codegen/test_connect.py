@@ -4,13 +4,14 @@ import json
 import sys
 from collections.abc import Iterator
 from copy import deepcopy
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.python import PythonClientOptions
 
 PACKAGE = "connect_client"
 
@@ -117,6 +118,27 @@ def client_module(
             del sys.modules[name]
 
 
+async def test_notifications_without_listener_do_not_close_transport(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork(result={"text": "ok"})
+    transport = await client_module.WebSocketTransport.open(
+        "wss://api.example.com/rpc",
+        socket_factory=network,
+        notification_queue_size=2,
+    )
+    try:
+        socket = network.sockets[0]
+        for _ in range(1000):
+            socket._replies.put_nowait(
+                json.dumps({"jsonrpc": "2.0", "method": "greeting.changed"})
+            )
+        assert await transport.request("greeting.say") == {"text": "ok"}
+        assert not socket.closed
+    finally:
+        await transport.close()
+
+
 async def test_connect_opens_a_socket_only_for_the_server_that_is_used(
     client_module: ModuleType,
 ) -> None:
@@ -125,6 +147,7 @@ async def test_connect_opens_a_socket_only_for_the_server_that_is_used(
     async with client_module.GreetingClient.connect(
         host="stage.example.com",
         socket_factory=network,
+        lazy=True,
     ) as client:
         assert network.urls == []
 
@@ -144,12 +167,89 @@ async def test_connecting_eagerly_opens_every_declared_server(
     async with client_module.GreetingClient.connect(
         host="stage.example.com",
         socket_factory=network,
-        eager=True,
     ):
         assert sorted(network.urls) == [
             "wss://stage.example.com/rpc",
             "wss://stage.example.com/second",
         ]
+
+
+async def test_closed_signal_reports_unexpected_transport_failure(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork()
+    client = await client_module.GreetingClient.connect(socket_factory=network)
+    try:
+        assert not client.closed.done()
+        network.sockets[0]._replies.put_nowait("not json")
+        failure = await asyncio.wait_for(client.closed, 1)
+        assert isinstance(failure, client_module.RpcTransportError)
+    finally:
+        await client.close()
+
+
+async def test_closed_signal_completes_on_explicit_close(
+    client_module: ModuleType,
+) -> None:
+    client = await client_module.GreetingClient.connect(socket_factory=FakeNetwork())
+    await client.close()
+    assert await asyncio.wait_for(client.closed, 1) is None
+
+
+async def test_reconnect_opens_a_fresh_socket_after_disconnect(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "ok"})
+    client = await client_module.GreetingClient.connect(
+        socket_factory=network,
+        reconnect=True,
+        reconnect_initial_delay=0.001,
+    )
+    try:
+        assert (await client.greeting.say(name="first")).text == "ok"
+        network.sockets[0]._replies.put_nowait("not json")
+        assert isinstance(
+            await asyncio.wait_for(client.closed, 1),
+            client_module.RpcTransportError,
+        )
+        assert (await client.greeting.say(name="second")).text == "ok"
+        assert len(network.sockets) == 3
+    finally:
+        await client.close()
+
+
+async def test_reconnecting_call_fails_after_the_request_timeout(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "ok"})
+    reachable = True
+
+    async def unreachable_later(
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ) -> FakeSocket:
+        if not reachable:
+            raise OSError("server unreachable")
+        return await network(
+            url, subprotocols=subprotocols, additional_headers=additional_headers
+        )
+
+    client = await client_module.GreetingClient.connect(
+        socket_factory=unreachable_later,
+        reconnect=True,
+        reconnect_initial_delay=0.001,
+        request_timeout=0.05,
+    )
+    try:
+        reachable = False
+        network.sockets[0]._replies.put_nowait("not json")
+        await asyncio.wait_for(client.closed, 1)
+        with pytest.raises(client_module.RpcTransportError, match="request timeout"):
+            await asyncio.wait_for(client.greeting.say(name="lost"), 1)
+    finally:
+        await client.close()
 
 
 async def test_connect_forwards_headers_to_websocket_factories(
@@ -160,6 +260,7 @@ async def test_connect_forwards_headers_to_websocket_factories(
     client = await client_module.GreetingClient.connect(
         socket_factory=network,
         headers={"Authorization": "Bearer secret"},
+        lazy=True,
     )
     try:
         await client.greeting.say(name="Mathis")
@@ -167,6 +268,92 @@ async def test_connect_forwards_headers_to_websocket_factories(
         await client.close()
 
     assert network.headers == [{"Authorization": "Bearer secret"}]
+
+
+async def test_async_header_factory_refreshes_each_connection(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork()
+    calls = 0
+    stream_headers: list[dict[str, str] | None] = []
+
+    async def headers() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        return {"Authorization": f"Bearer {calls}"}
+
+    async def stream_factory(
+        url: str,
+        *,
+        subprotocols: list[str] | None,
+        additional_headers: dict[str, str] | None,
+    ) -> FakeSocket:
+        stream_headers.append(additional_headers)
+        return FakeSocket(url, None)
+
+    async with (
+        client_module.GreetingClient.connect(
+            socket_factory=network,
+            stream_socket_factory=stream_factory,
+            headers=headers,
+        ) as client,
+        client.greeting.frames(),
+    ):
+        pass
+    assert calls == 3
+    assert {item["Authorization"] for item in network.headers if item} == {
+        "Bearer 1",
+        "Bearer 2",
+    }
+    assert stream_headers == [{"Authorization": "Bearer 3"}]
+
+
+async def test_http_endpoint_override_is_converted_to_websocket(
+    client_module: ModuleType,
+) -> None:
+    network = FakeNetwork({"text": "ok"})
+    async with client_module.GreetingClient.connect(
+        servers={client_module.ServerName.PRIMARY: "https://stage.example.com/rpc"},
+        socket_factory=network,
+        lazy=True,
+    ) as client:
+        await client.greeting.say(name="Mathis")
+    assert network.urls == ["wss://stage.example.com/rpc"]
+
+
+async def test_single_server_http_url_is_converted(
+    document: dict[str, Any], tmp_path: Path
+) -> None:
+    package = "single_server_client"
+    deployed = deepcopy(document)
+    deployed["servers"] = [
+        {
+            "name": "primary",
+            "url": "wss://api.example.com/rpc",
+            "x-rpckit-transport": {"type": "websocket", "messageEncoding": "json"},
+        }
+    ]
+    generate_python_client(
+        deployed,
+        tmp_path / package,
+        PythonClientOptions(
+            package=package, client_name="SingleClient", with_transport="websocket"
+        ),
+    )
+    sys.path.insert(0, str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        module = importlib.import_module(package)
+        network = FakeNetwork()
+        async with module.SingleClient.connect(
+            url="https://stage.example.com/rpc", socket_factory=network
+        ):
+            assert network.urls == ["wss://stage.example.com/rpc"]
+    finally:
+        sys.path.remove(str(tmp_path))
+        for name in list(sys.modules):
+            if name == package or name.startswith(f"{package}."):
+                del sys.modules[name]
 
 
 async def test_a_single_server_can_be_pointed_somewhere_else(
@@ -178,6 +365,7 @@ async def test_a_single_server_can_be_pointed_somewhere_else(
         host="stage.example.com",
         servers={client_module.ServerName.PRIMARY: "wss://localhost:8000/rpc"},
         socket_factory=network,
+        lazy=True,
     ) as client:
         await client.greeting.say(name="Mathis")
 
@@ -223,6 +411,23 @@ async def test_binary_streams_reuse_the_host_the_client_connected_with(
         with pytest.raises(TypeError, match="host"):
             client.greeting.frames(host="other.example.com")
 
+    assert opened == ["wss://stage.example.com/frames"]
+
+
+async def test_with_transports_forwards_stream_variables(
+    client_module: ModuleType,
+) -> None:
+    opened: list[str] = []
+
+    async def stream_opener(endpoint: Any) -> Any:
+        opened.append(endpoint.url)
+        return FakeSocket(endpoint.url, None)
+
+    client = client_module.GreetingClient.with_transports(
+        {}, stream_opener=stream_opener, variables={"host": "stage.example.com"}
+    )
+    async with client.greeting.frames():
+        pass
     assert opened == ["wss://stage.example.com/frames"]
 
 

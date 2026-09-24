@@ -1,11 +1,16 @@
+import asyncio
+import logging
+
 from pydantic import BaseModel
 
-from pyrpckit import (
+from rpckit import (
     RpcChannel,
     RpcError,
     RpcErrorCode,
     RpcFailure,
+    RpcLimits,
     RpcServer,
+    RpcService,
     RpcSuccess,
 )
 
@@ -148,16 +153,18 @@ async def test_foreign_errors_are_translated_by_the_error_mapper() -> None:
     assert response.error.message == "Mapped: boom"
 
 
-async def test_unmapped_handler_failures_stay_internal() -> None:
+async def test_unmapped_handler_failures_stay_internal(caplog) -> None:
     server = broken_app.create_server()
-
-    response = await server.handle(
-        {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
-    )
+    with caplog.at_level(logging.ERROR, logger="rpckit"):
+        response = await server.handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}
+        )
 
     assert isinstance(response, RpcFailure)
     assert response.error.code == RpcErrorCode.INTERNAL_ERROR
     assert response.error.message == "Internal error"
+    assert "RPC method greeting.break failed" in caplog.text
+    assert "BreakageError: boom" in caplog.text
 
 
 async def test_a_non_object_payload_fails_without_an_id(
@@ -190,9 +197,7 @@ async def test_a_boolean_id_on_a_failed_request_is_not_echoed_back(
     assert response.id is None
 
 
-async def test_a_validation_error_naming_a_params_field_becomes_invalid_params() -> (
-    None
-):
+async def test_a_validation_error_in_handler_is_internal(caplog) -> None:
     class NestedParams(BaseModel):
         params: str
 
@@ -202,17 +207,125 @@ async def test_a_validation_error_naming_a_params_field_becomes_invalid_params()
     async def broken(params: SayParams) -> None:
         NestedParams.model_validate({"params": 1})
 
-    response = await router.create_server().handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "greeting.broken",
-            "params": {"name": "M"},
-        }
-    )
+    with caplog.at_level(logging.ERROR, logger="rpckit"):
+        response = await router.create_server().handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "greeting.broken",
+                "params": {"name": "M"},
+            }
+        )
 
     assert isinstance(response, RpcFailure)
-    assert response.error.code == RpcErrorCode.INVALID_PARAMS
+    assert response.error.code == RpcErrorCode.INTERNAL_ERROR
+    assert "ValidationError" in caplog.text
+
+
+async def test_invalid_handler_result_is_internal(caplog) -> None:
+    channel = RpcChannel("result")
+
+    @channel.server.method()
+    async def broken() -> int:
+        return "abc"  # type: ignore[return-value]
+
+    with caplog.at_level(logging.ERROR, logger="rpckit"):
+        response = await channel.create_server().handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "result.broken"}
+        )
+
+    assert isinstance(response, RpcFailure)
+    assert response.error.code == RpcErrorCode.INTERNAL_ERROR
+    assert "ValidationError" in caplog.text
+
+
+async def test_matching_dict_handler_result_is_accepted() -> None:
+    class Result(BaseModel):
+        value: int
+
+    channel = RpcChannel("result")
+
+    @channel.server.method()
+    async def valid() -> Result:
+        return {"value": 3}  # type: ignore[return-value]
+
+    response = await channel.create_server().handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "result.valid"}
+    )
+
+    assert isinstance(response, RpcSuccess)
+    assert response.result.value == 3
+
+
+async def test_batch_runs_concurrently_with_shared_limit() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    running = 0
+    peak = 0
+    channel = RpcChannel("batch")
+
+    @channel.server.method()
+    async def wait() -> None:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        if peak == 2:
+            started.set()
+        await release.wait()
+        running -= 1
+
+    server = channel.create_server(limits=RpcLimits(max_concurrency=2))
+    batch = [
+        {"jsonrpc": "2.0", "id": index, "method": "batch.wait"} for index in range(3)
+    ]
+    task = asyncio.create_task(server.handle(batch))
+    await asyncio.wait_for(started.wait(), 1)
+    assert peak == 2
+    release.set()
+    responses = await asyncio.wait_for(task, 1)
+    assert [item.id for item in responses] == [0, 1, 2]
+
+
+async def test_batch_size_limit_rejects_batch() -> None:
+    server = broken_app.create_server(limits=RpcLimits(max_batch_size=0))
+    response = await server.handle(
+        [{"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}]
+    )
+    assert isinstance(response, RpcFailure)
+    assert response.error.code == RpcErrorCode.INVALID_REQUEST
+
+
+async def test_declarative_error_mapping_and_strict_errors() -> None:
+    class DomainMissing(Exception):
+        pass
+
+    class MissingError(RpcError):
+        pass
+
+    channel = RpcChannel("mapped")
+
+    @channel.server.method(raises=(MissingError,))
+    async def declared() -> None:
+        raise DomainMissing("gone")
+
+    @channel.server.method()
+    async def undeclared() -> None:
+        raise DomainMissing("gone")
+
+    service = RpcService(errors={DomainMissing: MissingError}, strict_errors=True)
+    endpoint = service.socket("/mapped", channels=(channel,))
+    server = endpoint.create_server()
+    declared_response = await server.handle(
+        {"jsonrpc": "2.0", "id": 1, "method": "mapped.declared"}
+    )
+    undeclared_response = await server.handle(
+        {"jsonrpc": "2.0", "id": 2, "method": "mapped.undeclared"}
+    )
+    assert isinstance(declared_response, RpcFailure)
+    assert declared_response.error.data.code == "missing"
+    assert declared_response.error.message == "gone"
+    assert isinstance(undeclared_response, RpcFailure)
+    assert undeclared_response.error.code == RpcErrorCode.INTERNAL_ERROR
 
 
 class BreakageError(Exception):

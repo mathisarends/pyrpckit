@@ -1,6 +1,125 @@
 # Changelog
 
+## 0.8.0 - Unreleased
+
+### Migration from 0.7
+
+- Rename the Python package, CLI command, and logger from `pyrpckit` to
+  `rpckit`. The PyPI distribution stays `pyrpckit`. Replace `pyrpckit` imports
+  and CLI calls with `rpckit`, and update logger filters. Regenerate clients because
+  generator metadata, generated headers, and the `rpckit.jsonrpc` subprotocol
+  now use the new name. Old `.pyrpckit` generator manifests are no longer read.
+- Regenerate and commit Python and TypeScript clients with this version's
+  generator. Generated `connect()` now opens every declared server; pass
+  `lazy=True` in Python or `lazy: true` in TypeScript to defer connections.
+- Replace `RpcPeer` with `RpcConnectedClient` and `RpcPeerClosedError` with
+  `RpcClientClosedError`. Import from `rpckit` or the documented public
+  integration modules.
+- Review the new 30-second request and client-method timeouts. Pass `None`
+  explicitly where a call is intended to wait indefinitely.
+- Handler results are validated before sending, and Pydantic validation errors
+  raised inside handlers now become internal errors. Fix handler return values
+  and raise declared RPC errors for expected failures.
+
+### Added
+
+- Give observers a `RpcObserver` base class with optional connection, notification,
+  stream-frame, and slow-consumer callbacks; retain structural typing through
+  `RpcObserverLike`. Request contexts now include the live connection, when
+  available.
+- Expose Python `client.closed` and TypeScript `onDisconnect` for unexpected
+  WebSocket loss. Python and TypeScript clients can retry connections with
+  bounded backoff and resume active subscriptions using `reconnect=True` or
+  `reconnect: true`.
+- Add parameterized `@channel.server.subscription()` streams with per-connection
+  subscribe/unsubscribe lifecycle, generated Python and TypeScript iterators,
+  `x-rpc-subscriptions` in OpenRPC, and `RpcLimits.max_subscriptions`.
+- Bound running and waiting calls per connection with
+  `RpcLimits.max_pending_requests` (default 1024). Further calls are answered
+  with a `pending_limit` error instead of being queued without limit.
+- Allow configured extra Python client files and exports, refresh handshake
+  headers through an async factory, and accept HTTP(S) WebSocket URL overrides.
+- Restore `rpckit.testing.RpcTestClient` for in-memory service tests, with
+  client-method handlers, notification timeouts, and binary stream helpers.
+  Add `RpcTestStream` for stream endpoints.
+- Add `fastapi.serve_websocket()`, pre-accept hooks for socket and stream
+  endpoints, and 401/403 handshake rejections with optional response headers.
+- Validate typed socket path variables before accepting the handshake with
+  `RpcService.socket(..., path_model=Model)` and inject the parsed model.
+- Let binary stream handlers raise `RpcStreamClose`, map stream exceptions to
+  policy-violation closes, and serialize concurrent `RpcBinaryOutput.send()` calls.
+- Map domain exceptions declaratively with `RpcService(errors=...)`, optionally
+  enforce method `raises=` declarations with `strict_errors=True`, and warn on
+  collisions between explicitly assigned numeric RPC error codes.
+- Cache endpoint protocols, warn about unknown client-method response IDs,
+  simplify client-method serialization, and share request-name derivation.
+- Export contracts with canonical UTF-8 JSON through `RpcContract.to_json()`
+  and `RpcContract.write(path)`; CLI rendering uses the same serializer.
+- Export public signature types from the package root, type service match and
+  contract methods, and provide typed event and stream decorator overloads.
+- Check public type completeness in CI with Pyright and guard its current
+  baseline against regressions.
+- Use postponed annotations for the optional Dishka and FastAPI types in
+  `dishka_router` and `DishkaResolver`.
+- **Breaking:** Pass handlers the exact Pydantic params class they declared,
+  while retaining camel-case wire validation and serialization.
+- **Breaking:** Align `RpcDisconnect(close, reason)` with connection closing,
+  expose unknown peer codes as `RpcConnectionClose.OTHER` plus `raw_close_code`,
+  and accept `observer=` on endpoint servers. Duplicate-channel errors name
+  the colliding channels.
+
+### Fixed
+
+- Generated Python and TypeScript requests fail with a transport error once the
+  request timeout elapses while a reconnecting client cannot reach the server,
+  instead of waiting indefinitely. Subscriptions keep waiting for the reconnect.
+- `rpckit generate` without the `codegen` extra and `import rpckit.fastapi`
+  without the `fastapi` extra report which extra to install.
+- Forward `variables` through generated `with_transports()` and
+  `withTransports()` when binary streams are present, and retain the first
+  notification sent immediately after a subscription is accepted.
+- **Breaking:** Generated Python and TypeScript `connect()` now open all
+  declared servers by default. Use `lazy=True` or `lazy: true` for on-demand
+  connections; the old `eager` option is removed.
+- Log unexpected RPC handler exceptions with the method name and traceback, and
+  expose the original exception to response observers.
+- **Breaking:** Treat Pydantic validation errors raised inside handlers as
+  internal server errors. Invalid request envelopes and params retain their
+  JSON-RPC error codes.
+- **Breaking:** Validate handler results before sending them. Invalid results
+  now produce logged internal errors instead of malformed success responses.
+- Generated WebSocket clients discard notifications until a listener starts and
+  drop the oldest queued notification on overflow, preserving active requests.
+  Python clients can select the previous close behavior with
+  `notification_overflow="close"`; TypeScript uses `notificationOverflow`.
+- Close RPC socket connections and notify observers when the writer fails.
+- Close slow consumer connections when queueing or sending exceeds
+  `RpcLimits.send_timeout` (10 seconds by default).
+- Reuse Pydantic adapters for params, results, events, and JSON-RPC envelopes;
+  reuse the event codec for each event source.
+- Bound JSON-RPC batches with `RpcLimits.max_batch_size` (32 by default) and
+  execute batch items concurrently within `max_concurrency`.
+- Isolate event source failures and skip invalid event payloads so other events
+  and requests continue. `@channel.server.event(on_error="close")` restores
+  connection closure for an event source.
+
+### Changed
+
+- **Breaking:** Default RPC request and client-method timeouts to 30 seconds.
+  Configure client-method defaults with `RpcLimits.client_method_timeout`; pass
+  `None` explicitly to disable a timeout for a call.
+- **Breaking:** Rename `RpcPeer` to `RpcConnectedClient` and
+  `RpcPeerClosedError` to `RpcClientClosedError`, so the server-side handle of
+  a connection uses the same client/server vocabulary as client methods. The
+  module `rpckit.peer` is now `rpckit.connected_client`.
+
 ## 0.7.0 - Unreleased
+
+### Migration from 0.6
+
+- Move server declarations to `channel.server.method`, `.event`, and `.stream`,
+  and rename `channel.server()` / `endpoint.server()` to `create_server()`.
+- Regenerate clients for the new client-method contract and generated layout.
 
 ### Added
 
@@ -20,8 +139,8 @@
 - Describe client methods under the `x-rpc-client-methods` OpenRPC extension,
   in the same shape as `methods`.
 - Generate one abstract client method class per namespace in Python clients,
-  such as `RoomMediaClientMethods`, plus `ClientMethodHandler` and
-  `client_method_dispatcher()`. `connect(client_methods=...)` registers
+  such as `RoomMediaHandler`, plus `Handler` and
+  `handler_dispatcher()`. `connect(handlers=...)` registers
   handlers, which run concurrently. Declared errors of client methods gain
   `create()`.
 
@@ -40,7 +159,14 @@
   helpers under `tests/`.
 - Raise the generated client layout version to 10.
 
-## 0.6.0 - Unreleased
+## 0.6.0 - 2026-09-19
+
+### Migration from 0.5
+
+- Regenerate binary stream clients. Open Python streams with `async with` and
+  use `BinarySender` / `BinaryChannel` for input or bidirectional streams.
+- Move authentication checks to the hosting adapter before `serve()` and
+  configure limits and error mapping on `RpcService`.
 
 ### Added
 

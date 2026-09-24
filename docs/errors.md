@@ -5,7 +5,7 @@ subclass defines a stable application code, a JSON-RPC integer code, a default
 message, and optional typed details.
 
 ```python
-from pyrpckit import RpcError, RpcModel
+from rpckit import RpcError, RpcModel
 
 
 class MissingTaskDetails(RpcModel):
@@ -57,6 +57,25 @@ tasks = RpcChannel("tasks", raises=(PermissionDeniedError,))
 
 Method-level declarations are added to the channel-level set.
 
+Map domain exceptions at service construction when an RPC error needs no
+details model:
+
+```python
+service = RpcService(
+    errors={TaskNotFound: TaskNotFoundRpcError},
+    strict_errors=True,
+)
+```
+
+The original exception text becomes the RPC error message. `error_mapper`
+remains a fallback for mappings that need custom details. With
+`strict_errors=True`, an application error absent from the method's `raises=`
+declaration becomes an internal error and is logged.
+
+Clients should identify application errors by `error.data.code`. The numeric
+`error.code` is optional for application-specific identity; distinct errors may
+share it. The service warns when explicitly assigned numeric codes collide.
+
 ## Unexpected exceptions
 
 Undeclared implementation failures are returned as an internal JSON-RPC error
@@ -64,7 +83,7 @@ without exposing their exception text. A transport may supply an
 `error_mapper` to map selected exceptions to application errors, while logs
 retain the original failure for operators.
 
-Validation, parse, invalid-request, and unknown-method failures use pyrpckit's
+Validation, parse, invalid-request, and unknown-method failures use rpckit's
 built-in JSON-RPC errors and do not need to be declared.
 
 ## Generated client behavior

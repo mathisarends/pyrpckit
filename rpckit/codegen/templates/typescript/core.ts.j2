@@ -1,0 +1,624 @@
+import type { RpcTransport } from {{ transport_module }};
+{% if binary_streams %}import {
+  RpcStreamsUnavailableError,
+  type BinaryInputTransport,
+  type BinaryStreamEndpoint,
+  type BinaryStreamOpener,
+} from "./streams";
+{% endif %}
+
+export type { RpcTransport } from {{ transport_module }};
+
+export type JsonValue =
+  null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+declare const routeTypes: unique symbol;
+
+export type RpcRouteInfo<
+  Params extends object | undefined = object | undefined,
+  Result = unknown,
+> = {
+  readonly method: string;
+  readonly server?: string;
+  readonly [routeTypes]?: readonly [Params, Result];
+};
+
+export type RpcNotificationInfo<Payload = unknown> = RpcRouteInfo<
+  undefined,
+  Payload
+>;
+
+type RouteParams<Route extends RpcRouteInfo> =
+  Route extends RpcRouteInfo<infer Params, unknown> ? Params : never;
+
+type RouteResult<Route extends RpcRouteInfo> =
+  Route extends RpcRouteInfo<object | undefined, infer Result> ? Result : never;
+
+export function defineRoute<Params extends object | undefined, Result>(
+  route: Omit<RpcRouteInfo, typeof routeTypes>,
+): RpcRouteInfo<Params, Result> {
+  return route;
+}
+
+export function defineNotification<Payload>(
+  route: Omit<RpcRouteInfo, typeof routeTypes>,
+): RpcNotificationInfo<Payload> {
+  return route;
+}
+
+export type RpcClientHook = {
+  beforeRequest?(route: RpcRouteInfo, params?: object): void | Promise<void>;
+  afterResponse?(route: RpcRouteInfo, result: unknown): void | Promise<void>;
+};
+
+type JsonRpcNotification = {
+  readonly method: string;
+  readonly params?: unknown;
+};
+
+type Subscriber = {
+  readonly method: string;
+  readonly queue: AsyncQueue<JsonRpcNotification>;
+};
+
+/**
+ * The single notification pump of one transport and its subscribers.
+ *
+ * `ended` remembers how the pump finished so that a subscriber which arrives
+ * afterwards ends or fails immediately instead of waiting forever.
+ */
+type NotificationHub = {
+  readonly subscribers: Set<Subscriber>;
+  pumping: boolean;
+  ended?: { readonly error?: unknown };
+};
+
+/** Where the client gets the transport of one server from. */
+export type RpcTransportSource = {
+  readonly requestTimeoutMs?: number;
+  get(server?: string): Promise<RpcTransport>;
+  close(): Promise<void>;
+};
+
+type PoolEndpoint = {
+  readonly server: string;
+  readonly url: string | URL;
+  readonly subprotocols?: readonly string[];
+};
+
+/**
+ * One transport per server, opened on first use.
+ *
+ * A client that only talks to one server never opens the sockets of the
+ * others; `openAll` connects them up front instead, in parallel.
+ */
+export class RpcTransportPool implements RpcTransportSource {
+  readonly #endpoints: ReadonlyMap<string, PoolEndpoint>;
+  readonly #open: (
+    endpoint: PoolEndpoint,
+    onDisconnect: (error: unknown) => void,
+  ) => Promise<RpcTransport>;
+  readonly #transports = new Map<string, Promise<RpcTransport>>();
+  readonly #failed = new WeakSet<RpcTransport>();
+  readonly #everConnected = new Set<string>();
+  readonly reconnect: boolean;
+  readonly requestTimeoutMs?: number;
+  readonly #initialDelayMs: number;
+  readonly #maxDelayMs: number;
+  #closed = false;
+
+  constructor(options: {
+    readonly endpoints: readonly PoolEndpoint[];
+    readonly open: (
+      endpoint: PoolEndpoint,
+      onDisconnect: (error: unknown) => void,
+    ) => Promise<RpcTransport>;
+    readonly reconnect?: boolean;
+    readonly reconnectInitialDelayMs?: number;
+    readonly reconnectMaxDelayMs?: number;
+    readonly requestTimeoutMs?: number | null;
+  }) {
+    this.#endpoints = new Map(
+      options.endpoints.map((endpoint) => [endpoint.server, endpoint]),
+    );
+    this.#open = options.open;
+    this.reconnect = options.reconnect ?? false;
+    this.requestTimeoutMs =
+      options.requestTimeoutMs === null
+        ? undefined
+        : (options.requestTimeoutMs ?? 30_000);
+    this.#initialDelayMs = options.reconnectInitialDelayMs ?? 250;
+    this.#maxDelayMs = options.reconnectMaxDelayMs ?? 5_000;
+    if (this.#initialDelayMs <= 0 || this.#maxDelayMs < this.#initialDelayMs) {
+      throw new Error("Invalid reconnect backoff delays");
+    }
+  }
+
+  get(server?: string): Promise<RpcTransport> {
+    if (this.#closed)
+      return Promise.reject(new Error("The RPC client is closed"));
+    const name = this.#serverName(server);
+    let transport = this.#transports.get(name);
+    if (transport === undefined) {
+      transport = this.#connect(name, () => {
+        if (this.#transports.get(name) === transport)
+          this.#transports.delete(name);
+      });
+      this.#transports.set(name, transport);
+      void transport.catch(() => {
+        if (this.#transports.get(name) === transport)
+          this.#transports.delete(name);
+      });
+    }
+    return transport;
+  }
+
+  isDisconnected(transport: RpcTransport): boolean {
+    return this.#failed.has(transport);
+  }
+
+  async #connect(
+    name: string,
+    disconnected: () => void,
+  ): Promise<RpcTransport> {
+    const endpoint = this.#endpoints.get(name) as PoolEndpoint;
+    let delay = this.#initialDelayMs;
+    while (!this.#closed) {
+      let opened: RpcTransport | undefined;
+      try {
+        opened = await this.#open(endpoint, () => {
+          if (opened !== undefined) this.#failed.add(opened);
+          disconnected();
+        });
+        this.#everConnected.add(name);
+        return opened;
+      } catch (error) {
+        if (!this.reconnect || !this.#everConnected.has(name)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, this.#maxDelayMs);
+      }
+    }
+    throw new Error("The RPC client is closed");
+  }
+
+  async openAll(): Promise<void> {
+    const names = [...this.#endpoints.keys()];
+    try {
+      await Promise.all(names.map((name) => this.get(name)));
+    } catch (error) {
+      await this.close();
+      throw error;
+    }
+  }
+
+  async close(): Promise<void> {
+    this.#closed = true;
+    const opened = [...this.#transports.values()];
+    this.#transports.clear();
+    const settled = await Promise.allSettled(opened);
+    await Promise.all(
+      settled.map((result) =>
+        result.status === "fulfilled" ? result.value.close() : undefined,
+      ),
+    );
+  }
+
+  #serverName(server?: string): string {
+    if (server !== undefined) {
+      if (this.#endpoints.has(server)) return server;
+      throw new Error(`No endpoint is configured for server ${server}`);
+    }
+    if (this.#endpoints.size === 1) return [...this.#endpoints.keys()][0];
+    throw new Error(
+      "The route has no server and cannot be dispatched across multiple transports",
+    );
+  }
+}
+
+class StaticTransports implements RpcTransportSource {
+  readonly #single?: RpcTransport;
+  readonly #transports?: Readonly<Record<string, RpcTransport>>;
+
+  constructor(
+    transport: RpcTransport | Readonly<Record<string, RpcTransport>>,
+  ) {
+    if (isTransport(transport)) this.#single = transport;
+    else this.#transports = transport;
+  }
+
+  get(server?: string): Promise<RpcTransport> {
+    if (this.#single !== undefined) return Promise.resolve(this.#single);
+    if (server !== undefined) {
+      const transport = this.#transports?.[server];
+      if (transport !== undefined) return Promise.resolve(transport);
+      return Promise.reject(
+        new Error(`No transport is configured for server ${server}`),
+      );
+    }
+    const transports = Object.values(this.#transports ?? {});
+    if (transports.length === 1) return Promise.resolve(transports[0]);
+    return Promise.reject(
+      new Error(
+        "The route has no server and cannot be dispatched across multiple transports",
+      ),
+    );
+  }
+
+  async close(): Promise<void> {
+    const transports = this.#single
+      ? [this.#single]
+      : [...new Set(Object.values(this.#transports ?? {}))];
+    await Promise.all(transports.map((transport) => transport.close()));
+  }
+}
+
+export class RpcRemoteError extends Error {
+  constructor(
+    readonly rpcCode: number,
+    readonly code: string,
+    message: string,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = "RpcRemoteError";
+  }
+}
+
+export class RpcConnectionClosed extends Error {
+  constructor(
+    readonly code: number | undefined,
+    readonly reason: string,
+  ) {
+    super(`RPC connection closed (${code}): ${reason}`);
+    this.name = "RpcConnectionClosed";
+  }
+}
+
+export class RpcClientCore {
+  readonly #source: RpcTransportSource;
+  readonly #closeTransport: boolean;
+{% if binary_streams %}  readonly streamOpener?: BinaryStreamOpener;
+  readonly variables: Readonly<Record<string, string>>;
+{% endif %}
+  readonly #hooks: readonly RpcClientHook[];
+  readonly #hubs = new WeakMap<RpcTransport, NotificationHub>();
+  #closed = false;
+
+  constructor(
+    transport:
+      | RpcTransport
+      | Readonly<Record<string, RpcTransport>>
+      | RpcTransportSource,
+    options?: {
+      readonly closeTransport?: boolean;
+      readonly hooks?: readonly RpcClientHook[];
+{% if binary_streams %}      readonly streamOpener?: BinaryStreamOpener;
+      readonly variables?: Readonly<Record<string, string>>;
+{% endif %}    },
+  ) {
+    this.#source = isTransportSource(transport)
+      ? transport
+      : new StaticTransports(transport);
+    this.#closeTransport = options?.closeTransport ?? true;
+    this.#hooks = options?.hooks ?? [];
+{% if binary_streams %}    this.streamOpener = options?.streamOpener;
+    this.variables = options?.variables ?? {};
+{% endif %}  }
+{% if binary_streams %}
+
+  async openStream<Connection>(
+    endpoint: BinaryStreamEndpoint,
+    connect: (transport: BinaryInputTransport) => Connection,
+  ): Promise<Connection> {
+    if (this.streamOpener === undefined) {
+      throw new RpcStreamsUnavailableError(
+        "No binary stream opener configured; pass streamOpener",
+      );
+    }
+    const transport = await this.streamOpener(endpoint);
+    if (
+      endpoint.direction !== "server-to-client" &&
+      (transport.send === undefined || transport.endInput === undefined)
+    ) {
+      await transport.close();
+      throw new RpcStreamsUnavailableError(
+        `The binary stream ${endpoint.name} sends frames, but the stream opener returned a transport without send() and endInput()`,
+      );
+    }
+    return connect(transport as BinaryInputTransport);
+  }
+{% endif %}
+
+  async request<Route extends RpcRouteInfo>(
+    route: Route,
+    ...args: RouteParams<Route> extends undefined
+      ? []
+      : [params: RouteParams<Route>]
+  ): Promise<RouteResult<Route>> {
+    const params = args[0];
+    const payload = params === undefined ? undefined : withoutUndefined(params);
+    for (const hook of this.#hooks) await hook.beforeRequest?.(route, payload);
+    const transport = await withTimeout(
+      this.#transportFor(route.server),
+      this.#source.requestTimeoutMs,
+    );
+    const result = await transport.request(route.method, payload);
+    for (const hook of [...this.#hooks].reverse()) {
+      await hook.afterResponse?.(route, result);
+    }
+    return result as RouteResult<Route>;
+  }
+
+  notifications<Payload>(
+    route: RpcNotificationInfo<Payload>,
+  ): AsyncIterable<Payload> {
+    return this.#notificationValues(route);
+  }
+
+  subscribeRemote<Payload>(
+    route: RpcNotificationInfo<Payload>,
+    params?: object,
+  ): AsyncIterable<Payload> {
+    return this.#remoteValues(route, params);
+  }
+
+  async *#remoteValues<Payload>(
+    route: RpcNotificationInfo<Payload>,
+    params?: object,
+  ): AsyncIterable<Payload> {
+    while (true) {
+      const transport = await this.#transportFor(route.server);
+      const subscriber: Subscriber = {
+        method: route.method,
+        queue: new AsyncQueue<JsonRpcNotification>(100),
+      };
+      let hub = this.#hubs.get(transport);
+      if (hub === undefined) {
+        hub = { subscribers: new Set(), pumping: false };
+        this.#hubs.set(transport, hub);
+      }
+      if (hub.ended !== undefined) {
+        throw new Error("The notification stream is closed");
+      }
+      hub.subscribers.add(subscriber);
+      if (!hub.pumping) {
+        transport.startNotifications?.();
+        hub.pumping = true;
+        void this.#pump(transport, hub);
+      }
+      let subscriptionId: string | undefined;
+      try {
+        const result = await transport.request(
+          `${route.method}.subscribe`,
+          params === undefined ? undefined : withoutUndefined(params),
+        );
+        if (
+          typeof result !== "object" ||
+          result === null ||
+          !("subscriptionId" in result) ||
+          typeof result.subscriptionId !== "string"
+        ) {
+          throw new Error("Invalid subscription response");
+        }
+        subscriptionId = result.subscriptionId;
+        for await (const message of subscriber.queue) {
+          const values = message.params;
+          if (
+            typeof values !== "object" ||
+            values === null ||
+            !("subscriptionId" in values) ||
+            values.subscriptionId !== subscriptionId
+          )
+            continue;
+          if ("complete" in values && values.complete === true) return;
+          if ("error" in values) throw new Error(String(values.error));
+          if (!("payload" in values)) {
+            throw new Error("Subscription notification has no payload");
+          }
+          yield values.payload as Payload;
+        }
+        return;
+      } catch (error) {
+        if (
+          !(this.#source instanceof RpcTransportPool) ||
+          !this.#source.reconnect ||
+          this.#closed ||
+          !this.#source.isDisconnected(transport)
+        ) {
+          throw error;
+        }
+      } finally {
+        hub.subscribers.delete(subscriber);
+        if (subscriptionId !== undefined) {
+          try {
+            await transport.request(`${route.method}.unsubscribe`, {
+              subscriptionId,
+            });
+          } catch {
+            /* the connection may already be closed */
+          }
+        }
+      }
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    if (!this.#closeTransport) return;
+    await this.#source.close();
+  }
+
+  async *#notificationValues<Payload>(
+    route: RpcNotificationInfo<Payload>,
+  ): AsyncIterable<Payload> {
+    const transport = await this.#transportFor(route.server);
+    const subscriber: Subscriber = {
+      method: route.method,
+      queue: new AsyncQueue<JsonRpcNotification>(100),
+    };
+    let hub = this.#hubs.get(transport);
+    if (hub === undefined) {
+      hub = { subscribers: new Set(), pumping: false };
+      this.#hubs.set(transport, hub);
+    }
+    if (hub.ended !== undefined) {
+      if ("error" in hub.ended) subscriber.queue.fail(hub.ended.error);
+      else subscriber.queue.end();
+    } else {
+      hub.subscribers.add(subscriber);
+      if (!hub.pumping) {
+        hub.pumping = true;
+        void this.#pump(transport, hub);
+      }
+    }
+    try {
+      for await (const message of subscriber.queue) {
+        yield message.params as Payload;
+      }
+    } finally {
+      hub.subscribers.delete(subscriber);
+    }
+  }
+
+  async #pump(transport: RpcTransport, hub: NotificationHub): Promise<void> {
+    try {
+      for await (const message of transport.notifications()) {
+        if (!isNotification(message)) {
+          throw new Error(
+            "The transport returned an invalid JSON-RPC notification",
+          );
+        }
+        for (const subscriber of hub.subscribers) {
+          if (subscriber.method === message.method)
+            subscriber.queue.push(message);
+        }
+      }
+      hub.ended = {};
+      for (const subscriber of hub.subscribers) subscriber.queue.end();
+    } catch (error) {
+      hub.ended = { error };
+      for (const subscriber of hub.subscribers) subscriber.queue.fail(error);
+    }
+  }
+
+  #transportFor(server?: string): Promise<RpcTransport> {
+    if (this.#closed) throw new Error("The RPC client is closed");
+    return this.#source.get(server);
+  }
+}
+
+class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
+  readonly #capacity: number;
+  readonly #values: Value[] = [];
+  readonly #waiters: Array<{
+    readonly resolve: (result: IteratorResult<Value>) => void;
+    readonly reject: (error: unknown) => void;
+  }> = [];
+  #ended = false;
+  #overflowWarned = false;
+
+  constructor(capacity: number) {
+    this.#capacity = capacity;
+  }
+
+  [Symbol.asyncIterator](): AsyncIterableIterator<Value> {
+    return this;
+  }
+
+  next(): Promise<IteratorResult<Value>> {
+    const value = this.#values.shift();
+    if (value !== undefined) return Promise.resolve({ value, done: false });
+    if (this.#ended) return Promise.resolve({ value: undefined, done: true });
+    return new Promise((resolve, reject) => {
+      this.#waiters.push({ resolve, reject });
+    });
+  }
+
+  push(value: Value): void {
+    const waiter = this.#waiters.shift();
+    if (waiter !== undefined) waiter.resolve({ value, done: false });
+    else {
+      if (this.#values.length === this.#capacity) {
+        this.#values.shift();
+        if (!this.#overflowWarned) {
+          console.warn(
+            "Notification subscriber queue overflowed; dropping oldest notifications",
+          );
+          this.#overflowWarned = true;
+        }
+      }
+      this.#values.push(value);
+    }
+  }
+
+  end(): void {
+    this.#ended = true;
+    for (const waiter of this.#waiters.splice(0)) {
+      waiter.resolve({ value: undefined, done: true });
+    }
+  }
+
+  fail(error: unknown): void {
+    this.#ended = true;
+    for (const waiter of this.#waiters.splice(0)) waiter.reject(error);
+  }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+): Promise<T> {
+  if (timeoutMs === undefined) return promise;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Could not connect within the request timeout")),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
+function isTransportSource(value: unknown): value is RpcTransportSource {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "get" in value &&
+    typeof value.get === "function" &&
+    !("request" in value)
+  );
+}
+
+function isTransport(value: unknown): value is RpcTransport {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "request" in value &&
+    typeof value.request === "function"
+  );
+}
+
+function isNotification(value: unknown): value is JsonRpcNotification {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "method" in value &&
+    typeof value.method === "string"
+  );
+}
+
+function withoutUndefined(value: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, normalizeValue(item)]),
+  );
+}
+
+function normalizeValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeValue);
+  if (value !== null && typeof value === "object")
+    return withoutUndefined(value);
+  return value;
+}

@@ -42,7 +42,7 @@
         "messageEncoding": "json",
         "frameType": "text",
         "subprotocols": [
-          "pyrpckit.jsonrpc"
+          "rpckit.jsonrpc"
         ]
       },
       "variables": {
@@ -249,7 +249,7 @@
             "messageEncoding": "json",
             "frameType": "text",
             "subprotocols": [
-              "pyrpckit.jsonrpc"
+              "rpckit.jsonrpc"
             ]
           },
           "variables": {
@@ -788,6 +788,7 @@
       "summary": "Stream task updates."
     }
   ],
+  "x-rpc-subscriptions": [],
   "x-rpc-notification-types": [],
   "x-rpc-client-methods": [
     {

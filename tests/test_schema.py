@@ -1,8 +1,8 @@
 import json
 
-from pyrpckit import RpcService
-from pyrpckit.protocol import RpcProtocol
-from pyrpckit.schema import render_openrpc
+from rpckit import RpcService
+from rpckit.protocol import RpcProtocol
+from rpckit.schema import render_openrpc
 
 from .conftest import GreetingNotificationMethod, GreetingRpcMethod, room_channel
 

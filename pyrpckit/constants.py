@@ -1,1 +1,0 @@
-LOGGER_NAME = "pyrpckit"

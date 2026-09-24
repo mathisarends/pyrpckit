@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter
 
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.python import PythonClientOptions
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.python import PythonClientOptions
 
 
 class StubTransport:

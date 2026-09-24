@@ -1,6 +1,6 @@
 import pytest
 
-from pyrpckit import RpcCodec, RpcParseError, RpcSuccess
+from rpckit import RpcCodec, RpcParseError, RpcSuccess
 
 
 @pytest.mark.parametrize(

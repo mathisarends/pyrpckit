@@ -1,11 +1,11 @@
 # Dependency injection
 
 Application objects do not belong in the public request schema. Mark them with
-`Inject[T]`; pyrpckit resolves them by their concrete type and passes them to
+`Inject[T]`; rpckit resolves them by their concrete type and passes them to
 the handler.
 
 ```python
-from pyrpckit import Inject, RpcChannel, RpcModel
+from rpckit import Inject, RpcChannel, RpcModel
 
 
 class CreateTask(RpcModel):
@@ -64,7 +64,7 @@ or `create_server()`. A synchronous or asynchronous callable taking the
 requested type is accepted as a lightweight alternative.
 
 Context values take precedence over the resolver. `RpcConnection` and, on
-socket endpoints, `RpcPeer` are also made available by type for the lifetime of
+socket endpoints, `RpcConnectedClient` are also made available by type for the lifetime of
 that connection.
 
 ## Resource scopes
@@ -77,7 +77,7 @@ which makes request-scoped cleanup possible:
 channel = RpcChannel("tasks", resolver_scope=call_scope)
 ```
 
-After acceptance, pyrpckit optionally enters the resolver's
+After acceptance, rpckit optionally enters the resolver's
 `enter_connection()` context for the socket lifetime. Event sources live in
 that connection scope; binary streams additionally enter their channel's
 resolver scope.
@@ -91,32 +91,32 @@ uv add "pyrpckit[dishka]"
 ```
 
 ```python
-from pyrpckit.dishka import DishkaResolver
+from rpckit.dishka import DishkaResolver
 
 resolver = DishkaResolver(container)
 ```
 
 The adapter maps a connection to Dishka's `SESSION` scope and each RPC call to
-a child scope. Supply it anywhere a pyrpckit resolver is accepted. For FastAPI,
+a child scope. Supply it anywhere a rpckit resolver is accepted. For FastAPI,
 prefer the router integration, which reads the root container when each socket
 connects:
 
 ```python
-from pyrpckit.dishka import dishka_router
+from rpckit.dishka import dishka_router
 
 web.include_router(dishka_router(app))
 ```
 
 The integration reads `web.state.dishka_container`; pass the APP container to
 `DishkaResolver` when constructing one manually. A SESSION container from
-`websocket.state` is rejected because pyrpckit opens that scope itself and adds
-`RpcConnection` and `RpcPeer` to its context.
+`websocket.state` is rejected because rpckit opens that scope itself and adds
+`RpcConnection` and `RpcConnectedClient` to its context.
 
 Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
-container for every WebSocket, including RPC sockets. pyrpckit does not use
+container for every WebSocket, including RPC sockets. rpckit does not use
 that container: RPC handlers resolve from the SESSION scope opened per
 connection above, so session-scoped values are never shared between the two.
-Keep RPC dependencies in the pyrpckit scope and do not rely on
+Keep RPC dependencies in the rpckit scope and do not rely on
 `websocket.state.dishka_container` in RPC code.
 
 [Back to documentation](README.md)

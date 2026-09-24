@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import generate_typescript_client
-from pyrpckit.codegen.typescript import TypeScriptClientOptions
+from rpckit.codegen import generate_typescript_client
+from rpckit.codegen.typescript import TypeScriptClientOptions
 
 
 def test_generated_client_connect_behavior_in_node(
@@ -112,6 +112,11 @@ def test_generated_client_connect_behavior_in_node(
                 this.readyState = 3;
               }
 
+              disconnect(): void {
+                this.readyState = 3;
+                this.#emit("close", { data: undefined });
+              }
+
               #emit(type: string, event: { readonly data: unknown }): void {
                 for (const listener of this.#listeners.get(type) ?? []) {
                   listener(event);
@@ -146,6 +151,7 @@ def test_generated_client_connect_behavior_in_node(
               const lazyUrls: string[] = [];
               const lazy = await GreetingClient.connect({
                 host: "stage.example.com",
+                lazy: true,
                 socketFactory: (url) => {
                   lazyUrls.push(String(url));
                   return new FakeSocket(String(url), { text: "Hello, Mathis!" });
@@ -162,7 +168,6 @@ def test_generated_client_connect_behavior_in_node(
               const eagerUrls: string[] = [];
               const eager = await GreetingClient.connect({
                 host: "stage.example.com",
-                eager: true,
                 socketFactory: (url) => {
                   eagerUrls.push(String(url));
                   return new FakeSocket(String(url));
@@ -175,10 +180,74 @@ def test_generated_client_connect_behavior_in_node(
               );
               await eager.close();
 
+              let disconnected = 0;
+              const sockets: FakeSocket[] = [];
+              const observed = await GreetingClient.connect({
+                socketFactory: (url) => {
+                  const socket = new FakeSocket(String(url));
+                  sockets.push(socket);
+                  return socket;
+                },
+                onDisconnect: () => { disconnected += 1; },
+              });
+              sockets[0].disconnect();
+              assert(disconnected === 1, "disconnect callback was not called");
+              await observed.close();
+              assert(disconnected === 1, "explicit close called onDisconnect");
+
+              const reconnectSockets: FakeSocket[] = [];
+              let reconnectAttempts = 0;
+              const retrying = await GreetingClient.connect({
+                lazy: true,
+                reconnect: true,
+                reconnectInitialDelayMs: 1,
+                socketFactory: (url) => {
+                  reconnectAttempts += 1;
+                  if (reconnectAttempts === 2) throw new Error("temporary outage");
+                  const socket = new FakeSocket(String(url), { text: "Hello!" });
+                  reconnectSockets.push(socket);
+                  return socket;
+                },
+              });
+              await retrying.greeting.say({ name: "first" });
+              reconnectSockets[0].disconnect();
+              await retrying.greeting.say({ name: "second" });
+              assert(
+                reconnectSockets.length === 2,
+                "reconnect did not open a new socket",
+              );
+              assert(reconnectAttempts === 3, "reconnect did not retry after failure");
+              await retrying.close();
+
+              const offlineSockets: FakeSocket[] = [];
+              const offline = await GreetingClient.connect({
+                lazy: true,
+                reconnect: true,
+                reconnectInitialDelayMs: 1,
+                requestTimeoutMs: 20,
+                socketFactory: (url) => {
+                  if (offlineSockets.length > 0) throw new Error("server down");
+                  const socket = new FakeSocket(String(url), { text: "Hello!" });
+                  offlineSockets.push(socket);
+                  return socket;
+                },
+              });
+              await offline.greeting.say({ name: "first" });
+              offlineSockets[0].disconnect();
+              let timedOut = false;
+              try {
+                await offline.greeting.say({ name: "lost" });
+              } catch (error) {
+                timedOut = String(error).includes("request timeout");
+              }
+              assert(timedOut, "reconnecting call did not time out");
+              await offline.close();
+
               const overrideUrls: string[] = [];
               const overridden = await GreetingClient.connect({
                 host: "stage.example.com",
-                servers: { primary: "wss://localhost:8000/rpc" },
+                lazy: true,
+                servers: { primary: "https://localhost:8000/rpc" },
                 socketFactory: (url) => {
                   overrideUrls.push(String(url));
                   return new FakeSocket(String(url), { text: "Hello, Mathis!" });

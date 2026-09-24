@@ -1,0 +1,378 @@
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Iterable, Mapping
+from contextlib import suppress
+from types import MappingProxyType
+from typing import Any, Protocol, cast
+
+from pydantic import BaseModel, ValidationError
+
+from .errors import (
+    RpcNotificationValidationError,
+    RpcResponseValidationError,
+    RpcTransportError,
+)
+from .metadata import JsonValue, RpcNotificationInfo, RpcRouteInfo
+from .transport import RpcTransport
+
+_STREAM_ENDED = object()
+
+
+class _Subscriber:
+    """One live notification iterator."""
+
+    def __init__(self, method: str | None, queue_size: int) -> None:
+        self.method = method
+        self.queue: asyncio.Queue[object] = asyncio.Queue(queue_size)
+        self.overflow_warned = False
+
+
+class _NotificationHub:
+    """The single notification pump of one transport and its subscribers.
+
+    ``terminal`` remembers how the pump finished so that a subscriber which
+    arrives afterwards ends or fails immediately instead of waiting forever.
+    """
+
+    def __init__(self, transport: RpcTransport) -> None:
+        self.transport = transport
+        self.subscribers: list[_Subscriber] = []
+        self.task: asyncio.Task[None] | None = None
+        self.terminal: object | None = None
+
+
+class RpcTransportSource(Protocol):
+    """Where the client gets the transport of one server from."""
+
+    async def get(self, server: str | None) -> RpcTransport: ...
+
+    async def close(self) -> None: ...
+
+
+class _StaticTransports:
+    """The transports a caller passed in, keyed by server."""
+
+    def __init__[ServerT: str](
+        self,
+        transports: RpcTransport | Mapping[ServerT, RpcTransport],
+    ) -> None:
+        self._single = None if isinstance(transports, Mapping) else transports
+        self._transports = (
+            {str(server): transport for server, transport in transports.items()}
+            if isinstance(transports, Mapping)
+            else {}
+        )
+
+    async def get(self, server: str | None) -> RpcTransport:
+        if self._single is not None:
+            return self._single
+        if server is not None:
+            try:
+                return self._transports[server]
+            except KeyError as error:
+                raise RpcTransportError(
+                    f"No transport is configured for server {server!r}"
+                ) from error
+        if len(self._transports) == 1:
+            return next(iter(self._transports.values()))
+        raise RpcTransportError(
+            "The route has no server and cannot be dispatched across "
+            "multiple transports"
+        )
+
+    async def close(self) -> None:
+        transports = (
+            (self._single,)
+            if self._single is not None
+            else tuple(dict.fromkeys(self._transports.values()))
+        )
+        await asyncio.gather(*(transport.close() for transport in transports))
+
+
+class RpcClientHook(Protocol):
+    async def before_request(
+        self,
+        route: RpcRouteInfo[Any, Any],
+        params: JsonValue,
+    ) -> None: ...
+
+    async def after_response(
+        self,
+        route: RpcRouteInfo[Any, Any],
+        result: JsonValue,
+    ) -> None: ...
+
+
+class RpcClientCore:
+    def __init__[ServerT: str](
+        self,
+        transports: RpcTransport | Mapping[ServerT, RpcTransport] | RpcTransportSource,
+        *,
+        close_transport: bool = True,
+        hooks: Iterable[RpcClientHook] = (),
+        stream_opener: Any = None,
+        variables: Mapping[str, str] | None = None,
+        notification_queue_size: int = 100,
+    ) -> None:
+        if notification_queue_size <= 0:
+            raise ValueError("notification_queue_size must be positive")
+        if isinstance(transports, Mapping) or hasattr(transports, "request"):
+            static = cast(RpcTransport | Mapping[ServerT, RpcTransport], transports)
+            self._source = _StaticTransports(static)
+        else:
+            self._source = transports
+        self._close_transport = close_transport
+        self._hooks = tuple(hooks)
+        self.stream_opener = stream_opener
+        self.variables = MappingProxyType(dict(variables or {}))
+        self._closed = False
+        self._hubs: dict[int, _NotificationHub] = {}
+        self._notification_queue_size = notification_queue_size
+        self._closed_future: asyncio.Future[BaseException | None] | None = None
+
+    @property
+    def closed(self) -> asyncio.Future[BaseException | None]:
+        source_closed = getattr(self._source, "closed", None)
+        if isinstance(source_closed, asyncio.Future):
+            return source_closed
+        if self._closed_future is None:
+            self._closed_future = asyncio.get_running_loop().create_future()
+        return self._closed_future
+
+    async def request[ParamsT: BaseModel, ResultT](
+        self,
+        route: RpcRouteInfo[ParamsT | None, ResultT],
+        *,
+        params: ParamsT | None = None,
+    ) -> ResultT:
+        payload = (
+            None
+            if params is None
+            else params.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        )
+        for hook in self._hooks:
+            await hook.before_request(route, payload)
+        transport = await self._request_transport(route.server)
+        result = await transport.request(route.method, payload)
+        for hook in reversed(self._hooks):
+            await hook.after_response(route, result)
+        try:
+            return route.result_adapter.validate_python(result)
+        except ValidationError as error:
+            raise RpcResponseValidationError(route.method, error) from error
+
+    def notifications(
+        self,
+        method: str | None = None,
+        *,
+        server: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        return self._notifications(method, server)
+
+    def subscribe[PayloadT](
+        self,
+        notification: RpcNotificationInfo[PayloadT],
+    ) -> AsyncIterator[PayloadT]:
+        return self._subscribe(notification)
+
+    def subscribe_remote[PayloadT](
+        self,
+        notification: RpcNotificationInfo[PayloadT],
+        *,
+        params: BaseModel | None = None,
+    ) -> AsyncIterator[PayloadT]:
+        return self._subscribe_remote(notification, params)
+
+    async def _subscribe_remote[PayloadT](
+        self,
+        notification: RpcNotificationInfo[PayloadT],
+        params: BaseModel | None,
+    ) -> AsyncIterator[PayloadT]:
+        payload = (
+            None
+            if params is None
+            else params.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        )
+        while True:
+            transport = await self._transport_for(notification.server)
+            hub = self._hubs.get(id(transport))
+            if hub is None:
+                hub = _NotificationHub(transport)
+                self._hubs[id(transport)] = hub
+            subscriber = _Subscriber(notification.method, self._notification_queue_size)
+            if hub.terminal is not None:
+                raise RpcTransportError("The notification stream is closed")
+            hub.subscribers.append(subscriber)
+            if hub.task is None:
+                start_notifications = getattr(transport, "start_notifications", None)
+                if start_notifications is not None:
+                    start_notifications()
+                hub.task = asyncio.create_task(self._pump_notifications(hub))
+            subscription_id: str | None = None
+            try:
+                result = await transport.request(
+                    f"{notification.method}.subscribe", payload
+                )
+                if not isinstance(result, dict) or not isinstance(
+                    result.get("subscriptionId"), str
+                ):
+                    raise RpcTransportError("Invalid subscription response")
+                subscription_id = result["subscriptionId"]
+                while True:
+                    item = await subscriber.queue.get()
+                    if item is _STREAM_ENDED:
+                        return
+                    if isinstance(item, BaseException):
+                        raise RpcTransportError(
+                            "The notification stream failed"
+                        ) from item
+                    assert isinstance(item, dict)
+                    values = item.get("params")
+                    if (
+                        not isinstance(values, dict)
+                        or values.get("subscriptionId") != subscription_id
+                    ):
+                        continue
+                    if values.get("complete") is True:
+                        return
+                    if "error" in values:
+                        raise RpcTransportError(str(values["error"]))
+                    if "payload" not in values:
+                        raise RpcTransportError(
+                            "Subscription notification has no payload"
+                        )
+                    try:
+                        yield notification.payload_adapter.validate_python(
+                            values["payload"]
+                        )
+                    except ValidationError as error:
+                        raise RpcNotificationValidationError(
+                            notification.method, error
+                        ) from error
+            except Exception:
+                closed = getattr(transport, "closed", None)
+                if not (
+                    getattr(self._source, "reconnect", False)
+                    and not self._closed
+                    and isinstance(closed, asyncio.Future)
+                    and closed.done()
+                    and closed.result() is not None
+                ):
+                    raise
+            finally:
+                if subscriber in hub.subscribers:
+                    hub.subscribers.remove(subscriber)
+                if hub.terminal is not None:
+                    self._hubs.pop(id(transport), None)
+                if subscription_id is not None:
+                    with suppress(Exception):
+                        await transport.request(
+                            f"{notification.method}.unsubscribe",
+                            {"subscriptionId": subscription_id},
+                        )
+
+    async def _subscribe[PayloadT](
+        self,
+        notification: RpcNotificationInfo[PayloadT],
+    ) -> AsyncIterator[PayloadT]:
+        async for message in self.notifications(
+            notification.method,
+            server=notification.server,
+        ):
+            try:
+                envelope = notification.message_adapter.validate_python(message)
+            except ValidationError as error:
+                raise RpcNotificationValidationError(
+                    notification.method,
+                    error,
+                ) from error
+            yield envelope.params
+
+    async def _notifications(
+        self,
+        method: str | None,
+        server: str | None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        transport = await self._transport_for(server)
+        hub = self._hubs.get(id(transport))
+        if hub is None:
+            hub = _NotificationHub(transport)
+            self._hubs[id(transport)] = hub
+        subscriber = _Subscriber(method, self._notification_queue_size)
+        if hub.terminal is not None:
+            subscriber.queue.put_nowait(hub.terminal)
+        else:
+            hub.subscribers.append(subscriber)
+            if hub.task is None:
+                hub.task = asyncio.create_task(self._pump_notifications(hub))
+        try:
+            while True:
+                item = await subscriber.queue.get()
+                if item is _STREAM_ENDED:
+                    return
+                if isinstance(item, BaseException):
+                    raise RpcTransportError("The notification stream failed") from item
+                assert isinstance(item, dict)
+                yield item
+        finally:
+            if subscriber in hub.subscribers:
+                hub.subscribers.remove(subscriber)
+
+    async def _pump_notifications(self, hub: _NotificationHub) -> None:
+        terminal: object = _STREAM_ENDED
+        try:
+            async for message in hub.transport.notifications():
+                message_method = message.get("method")
+                for subscriber in tuple(hub.subscribers):
+                    if subscriber.method in (None, message_method):
+                        if subscriber.queue.full():
+                            subscriber.queue.get_nowait()
+                            if not subscriber.overflow_warned:
+                                logging.getLogger(__name__).warning(
+                                    "Notification subscriber queue overflowed; "
+                                    "dropping oldest notifications"
+                                )
+                                subscriber.overflow_warned = True
+                        subscriber.queue.put_nowait(message)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as error:
+            terminal = error
+        finally:
+            hub.terminal = terminal
+            for subscriber in tuple(hub.subscribers):
+                if subscriber.queue.full():
+                    subscriber.queue.get_nowait()
+                subscriber.queue.put_nowait(terminal)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        tasks = tuple(hub.task for hub in self._hubs.values() if hub.task is not None)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if self._close_transport:
+            await self._source.close()
+        if not self.closed.done():
+            self.closed.set_result(None)
+
+    async def _request_transport(self, server: str | None) -> RpcTransport:
+        timeout = getattr(self._source, "request_timeout", None)
+        waiting = asyncio.timeout(timeout)
+        try:
+            async with waiting:
+                return await self._transport_for(server)
+        except TimeoutError:
+            if not waiting.expired():
+                raise
+            raise RpcTransportError(
+                "Could not connect within the request timeout"
+            ) from None
+
+    async def _transport_for(self, server: str | None) -> RpcTransport:
+        if self._closed:
+            raise RpcTransportError("The RPC client is closed")
+        return await self._source.get(server)

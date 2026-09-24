@@ -1,6 +1,6 @@
 import pytest
 
-from pyrpckit import ProtocolDefinitionError, RpcChannel, RpcLimits, RpcService
+from rpckit import ProtocolDefinitionError, RpcChannel, RpcLimits, RpcService
 
 
 def test_endpoint_matching_and_static_priority() -> None:

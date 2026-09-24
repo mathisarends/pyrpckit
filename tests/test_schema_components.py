@@ -1,9 +1,9 @@
 import pytest
 from pydantic import create_model
 
-from pyrpckit import ProtocolDefinitionError, RpcChannel
-from pyrpckit.schema import render_openrpc
-from pyrpckit.schema.components import type_name
+from rpckit import ProtocolDefinitionError, RpcChannel
+from rpckit.schema import render_openrpc
+from rpckit.schema.components import type_name
 
 
 def test_type_name_requires_an_annotation_with_a_stable_name() -> None:

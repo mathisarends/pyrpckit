@@ -5,8 +5,8 @@ from typing import Literal
 import pytest
 from pydantic import BaseModel
 
-from pyrpckit import Inject, RpcChannel, RpcError
-from pyrpckit.protocol import RpcProtocol
+from rpckit import Inject, RpcChannel, RpcError
+from rpckit.protocol import RpcProtocol
 
 
 class GreetingRpcMethod(StrEnum):

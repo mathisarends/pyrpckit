@@ -1,6 +1,13 @@
 import pytest
 
-from pyrpckit import Inject, RpcChannel, RpcClientMethodFailedError, RpcPeer, RpcService
+from rpckit import (
+    Inject,
+    RpcChannel,
+    RpcClientMethodFailedError,
+    RpcConnectedClient,
+    RpcService,
+)
+from rpckit.testing import RpcTestClient, RpcTestError, RpcTestStream
 
 from .conftest import (
     MediaPlayParams,
@@ -11,26 +18,25 @@ from .conftest import (
     room_channel,
     room_ping,
 )
-from .testing import RpcTestClient, RpcTestError
 
 control_channel = RpcChannel("control")
 
 
 @control_channel.server.method("play")
-async def play(peer: Inject[RpcPeer]) -> bool:
-    result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
+async def play(client: Inject[RpcConnectedClient]) -> bool:
+    result = await client.call(media_play, MediaPlayParams(media_uri="spotify:1"))
     return result.started
 
 
 @control_channel.server.method("ping")
-async def ping(peer: Inject[RpcPeer]) -> None:
-    await peer.call(room_ping)
+async def ping(client: Inject[RpcConnectedClient]) -> None:
+    await client.call(room_ping)
 
 
 @control_channel.server.method("probe")
-async def probe(peer: Inject[RpcPeer]) -> int:
+async def probe(client: Inject[RpcConnectedClient]) -> int:
     try:
-        await peer.call(room_ping)
+        await client.call(room_ping)
     except RpcClientMethodFailedError as error:
         return error.rpc_code
     return 0
@@ -84,3 +90,21 @@ async def test_unregistered_client_methods_are_answered_with_method_not_found() 
 def test_handlers_must_name_client_methods_of_the_endpoint() -> None:
     with pytest.raises(ValueError, match="not declared"):
         RpcTestClient(service, "/rooms", client_methods={"room.missing": lambda: None})
+
+
+async def test_handler_can_be_registered_after_client_creation() -> None:
+    client = RpcTestClient(service, "/rooms")
+    client.handle(room_ping, lambda: None)
+    async with client:
+        assert await client.request("control.ping") is None
+
+
+async def test_notification_timeout() -> None:
+    async with RpcTestClient(service, "/rooms") as client:
+        with pytest.raises(TimeoutError):
+            await client.next_notification(timeout=0.01)
+
+
+def test_test_stream_requires_stream_endpoint() -> None:
+    with pytest.raises(TypeError, match="not a binary stream"):
+        RpcTestStream(service, "/rooms")

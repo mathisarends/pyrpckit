@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen.cli import main
+from rpckit.codegen.cli import main
 
 from .conftest import PACKAGE
 
@@ -178,6 +178,39 @@ def test_generate_config_builds_independent_sibling_clients(
     assert main(["generate", "--config", str(config)]) == 0
     assert (tmp_path / "generated" / "greeting_python" / "client.py").exists()
     assert (tmp_path / "generated" / "greeting-typescript" / "client.ts").exists()
+    assert main(["generate", "--config", str(config), "--check"]) == 0
+
+
+def test_config_includes_extra_python_file_and_export(
+    schema: Path, tmp_path: Path
+) -> None:
+    extra = tmp_path / "src" / "extra" / "authenticated.py"
+    extra.parent.mkdir(parents=True)
+    extra.write_text(
+        "def connect_gateway():\n    return 'connected'\n", encoding="utf-8"
+    )
+    config = tmp_path / "rpcgen.toml"
+    config.write_text(
+        "version = 1\n\n[[clients]]\n"
+        'schema = "greeting.openrpc.json"\n'
+        'language = "python"\n'
+        'output = "greeting_client"\n'
+        'extra_files = ["src/extra/authenticated.py"]\n'
+        'extra_exports = ["connect_gateway"]\n',
+        encoding="utf-8",
+    )
+    assert main(["generate", "--config", str(config)]) == 0
+    output = tmp_path / "greeting_client"
+    assert (output / "authenticated.py").read_text(encoding="utf-8") == (
+        extra.read_text(encoding="utf-8")
+    )
+    assert "from .authenticated import connect_gateway" in (
+        output / "__init__.py"
+    ).read_text(encoding="utf-8")
+    manifest = json.loads(
+        (output / ".rpcgen/manifest.json").read_text(encoding="utf-8")
+    )
+    assert "authenticated.py" in manifest["files"]
     assert main(["generate", "--config", str(config), "--check"]) == 0
 
 

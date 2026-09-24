@@ -1,7 +1,7 @@
 import json
 
-from pyrpckit import RpcChannel, RpcModel, RpcService
-from pyrpckit.schema import render_openrpc
+from rpckit import RpcChannel, RpcModel, RpcService
+from rpckit.schema import render_openrpc
 
 
 class SearchParams(RpcModel):

@@ -1,6 +1,6 @@
 # Examples
 
-These examples show the pyrpckit API directly, without a web framework, generated
+These examples show the rpckit API directly, without a web framework, generated
 client, or application structure. Each file is standalone and executable.
 
 - [`basic.py`](basic.py) declares a typed method, serves one raw JSON-RPC request,
@@ -27,7 +27,7 @@ client, or application structure. Each file is standalone and executable.
   [`rpcgen.toml`](generated_clients/rpcgen.toml):
 
   ```bash
-  uv run python -m pyrpckit.codegen.cli generate \
+  uv run python -m rpckit.codegen.cli generate \
     --config examples/generated_clients/rpcgen.toml
   ```
 

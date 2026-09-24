@@ -1,17 +1,21 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
+    ProtocolDefinitionError,
     RpcChannel,
     RpcConnection,
     RpcConnectionClose,
+    RpcDisconnect,
     RpcErrorCode,
     RpcLimits,
     RpcModel,
+    RpcObserver,
     RpcRejection,
     RpcService,
 )
@@ -27,13 +31,21 @@ channel = RpcChannel("demo")
 connections = []
 
 
-class Observer:
+class Observer(RpcObserver):
     def __init__(self) -> None:
         self.closed = []
+        self.opened = []
+        self.started = []
+        self.slow = []
 
-    async def request_started(self, context) -> None: ...
+    async def request_started(self, context) -> None:
+        self.started.append(context)
 
-    async def request_finished(self, context) -> None: ...
+    async def connection_opened(self, connection) -> None:
+        self.opened.append(connection)
+
+    async def slow_consumer_closed(self, connection) -> None:
+        self.slow.append(connection)
 
     async def connection_closed(self, context) -> None:
         self.closed.append(context)
@@ -55,6 +67,8 @@ service.socket("/rpc", channels=(channel,))
 async def test_request_and_connection_context() -> None:
     connections.clear()
     observer.closed.clear()
+    observer.opened.clear()
+    observer.started.clear()
     async with RpcTestClient(service, "/rpc", headers={"Authorization": "x"}) as client:
         assert await client.request("demo.echo", {"value": "yes"}) == {"value": "yes"}
     assert connections[0].headers["authorization"] == "x"
@@ -64,16 +78,19 @@ async def test_request_and_connection_context() -> None:
     assert observer.closed[0].connection is connections[0]
     assert observer.closed[0].close_code == RpcConnectionClose.NORMAL
     assert observer.closed[0].duration >= 0
+    assert observer.opened == connections
+    assert observer.started[0].connection is connections[0]
 
 
-async def test_peer_close_information_is_exposed_on_the_connection() -> None:
+async def test_client_close_information_is_exposed_on_the_connection() -> None:
     connections.clear()
     observer.closed.clear()
     async with RpcTestClient(service, "/rpc") as client:
         await client.request("demo.echo", {"value": "yes"})
         await client.socket.client_disconnect(1001, "Going away")
 
-    assert connections[0].close_code == 1001
+    assert connections[0].close_code == RpcConnectionClose.SHUTDOWN
+    assert connections[0].raw_close_code == 1001
     assert connections[0].close_reason == "Going away"
     assert observer.closed[0].close_reason == "Going away"
 
@@ -81,17 +98,27 @@ async def test_peer_close_information_is_exposed_on_the_connection() -> None:
 async def test_binary_stream() -> None:
     streams = RpcChannel("streams")
 
+    class StreamObserver(RpcObserver):
+        def __init__(self) -> None:
+            self.sent: list[int] = []
+
+        async def stream_frame_sent(self, connection: RpcConnection, size: int) -> None:
+            assert connection.path == "/frames"
+            self.sent.append(size)
+
     @streams.server.stream()
     async def frames() -> AsyncIterator[bytes]:
         yield b"one"
 
-    rpc = RpcService()
+    stream_observer = StreamObserver()
+    rpc = RpcService(observer=stream_observer)
     rpc.stream("/frames", frames)
     async with RpcTestClient(rpc, "/frames") as client:
         assert await client.next_frame() == b"one"
         while client.socket.closed is None:
             await asyncio.sleep(0)
         assert client.socket.closed == (RpcConnectionClose.NORMAL, "")
+    assert stream_observer.sent == [3]
 
 
 async def test_unsupported_subprotocol_is_rejected_before_acceptance() -> None:
@@ -106,6 +133,46 @@ async def test_unsupported_subprotocol_is_rejected_before_acceptance() -> None:
         RpcRejection.PROTOCOL_ERROR,
         "Unsupported subprotocol",
     )
+
+
+async def test_socket_path_model_is_validated_and_injected() -> None:
+    class RoomPath(RpcModel):
+        room_id: UUID
+
+    room = RpcChannel("room")
+
+    @room.server.method()
+    async def get(path: Inject[RoomPath]) -> str:
+        return str(path.room_id)
+
+    rpc = RpcService()
+    rpc.socket("/rooms/{room_id}", channels=(room,), path_model=RoomPath)
+    value = "bc1560c4-68c2-471f-b2f7-2ef3e6cc87bd"
+
+    async with RpcTestClient(rpc, f"/rooms/{value}") as client:
+        assert await client.request("room.get") == value
+
+    async with RpcTestClient(rpc, "/rooms/invalid") as client:
+        await client.closed()
+        assert client.socket.rejection == (
+            RpcRejection.NOT_FOUND,
+            "Invalid path variable",
+        )
+
+
+def test_socket_path_model_fields_must_match_template() -> None:
+    class WrongPath(RpcModel):
+        other: UUID
+
+    rpc = RpcService()
+    with pytest.raises(ProtocolDefinitionError, match="must match path variables"):
+        rpc.socket("/rooms/{room_id}", channels=(channel,), path_model=WrongPath)
+
+
+def test_unknown_peer_close_code_is_preserved_separately() -> None:
+    error = RpcDisconnect(4321, "custom")
+    assert error.code == RpcConnectionClose.OTHER
+    assert error.raw_close_code == 4321
 
 
 async def test_parse_error_is_answered_and_connection_remains_usable() -> None:
@@ -138,6 +205,101 @@ async def test_parse_error_is_answered_and_connection_remains_usable() -> None:
     }
 
 
+async def test_requests_beyond_the_pending_limit_are_rejected() -> None:
+    pending = RpcChannel("pending")
+    release = asyncio.Event()
+
+    @pending.server.method()
+    async def wait(params: Params) -> Params:
+        await release.wait()
+        return params
+
+    pending_service = RpcService()
+    pending_service.socket("/rpc", channels=(pending,))
+    socket = InMemorySocket("/rpc")
+    task = asyncio.create_task(
+        pending_service.serve(
+            socket, limits=RpcLimits(max_concurrency=1, max_pending_requests=2)
+        )
+    )
+    await asyncio.sleep(0)
+
+    for request_id in (1, 2, 3):
+        await socket.client_send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "pending.wait",
+                    "params": {"value": str(request_id)},
+                }
+            )
+        )
+    rejected = json.loads(await asyncio.wait_for(socket.client_receive(), 1))
+    release.set()
+    answered = [
+        json.loads(await asyncio.wait_for(socket.client_receive(), 1)) for _ in range(2)
+    ]
+    await socket.client_disconnect()
+    await task
+
+    assert rejected["id"] == 3
+    assert rejected["error"]["message"] == "Too many pending requests"
+    assert sorted(item["id"] for item in answered) == [1, 2]
+
+
+async def test_writer_failure_closes_connection_and_notifies_observer() -> None:
+    class FailingSocket(InMemorySocket):
+        async def send(self, message: str) -> None:
+            raise RuntimeError("send failed")
+
+    observer.closed.clear()
+    socket = FailingSocket("/rpc")
+    task = asyncio.create_task(service.serve(socket))
+    await socket.client_send(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "demo.echo",
+                "params": {"value": "x"},
+            }
+        )
+    )
+    await asyncio.wait_for(task, 1)
+
+    assert socket.closed == (RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+    assert observer.closed[-1].close_code == RpcConnectionClose.INTERNAL_ERROR
+
+
+async def test_slow_socket_send_closes_with_policy_violation() -> None:
+    observer.slow.clear()
+
+    class SlowSocket(InMemorySocket):
+        async def send(self, message: str) -> None:
+            await asyncio.Event().wait()
+
+    socket = SlowSocket("/rpc")
+    task = asyncio.create_task(
+        service.serve(socket, limits=RpcLimits(send_timeout=0.01))
+    )
+    await socket.client_send(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "demo.echo",
+                "params": {"value": "x"},
+            }
+        )
+    )
+    await asyncio.wait_for(task, 1)
+
+    assert socket.closed == (RpcConnectionClose.POLICY_VIOLATION, "Client too slow")
+    assert len(observer.slow) == 1
+    assert observer.slow[0] is observer.closed[-1].connection
+
+
 @pytest.mark.parametrize(
     ("frame", "expected"),
     [
@@ -167,7 +329,15 @@ async def test_server_events_are_sent_as_typed_notifications() -> None:
         yield Params(value="ready")
         await asyncio.Event().wait()
 
-    rpc = RpcService()
+    class EventObserver(RpcObserver):
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, int]] = []
+
+        async def notification_sent(self, name: str, size: int) -> None:
+            self.sent.append((name, size))
+
+    event_observer = EventObserver()
+    rpc = RpcService(observer=event_observer)
     rpc.socket("/events", channels=(events,))
 
     async with RpcTestClient(rpc, "/events", context=ready) as client:
@@ -175,12 +345,36 @@ async def test_server_events_are_sent_as_typed_notifications() -> None:
         notification = await client.next_notification()
 
     assert notification == ("events.changed", {"value": "ready"})
+    assert event_observer.sent[0][0] == "events.changed"
+    assert event_observer.sent[0][1] > 0
 
 
-async def test_invalid_server_event_closes_with_internal_error() -> None:
+async def test_invalid_server_event_does_not_close_connection() -> None:
     events = RpcChannel("events")
+    ready = asyncio.Event()
 
     @events.server.event(payload=Params)
+    async def changed() -> AsyncIterator[Params]:
+        yield {}  # type: ignore[misc]
+
+    @events.server.event(payload=Params)
+    async def healthy() -> AsyncIterator[Params]:
+        await ready.wait()
+        yield Params(value="still running")
+
+    rpc = RpcService()
+    rpc.socket("/events", channels=(events,))
+
+    async with RpcTestClient(rpc, "/events") as client:
+        ready.set()
+        notification = await asyncio.wait_for(client.next_notification(), 1)
+        assert notification == ("events.healthy", {"value": "still running"})
+
+
+async def test_event_can_opt_in_to_closing_on_error() -> None:
+    events = RpcChannel("events")
+
+    @events.server.event(payload=Params, on_error="close")
     async def changed() -> AsyncIterator[Params]:
         yield {}  # type: ignore[misc]
 
@@ -188,7 +382,7 @@ async def test_invalid_server_event_closes_with_internal_error() -> None:
     rpc.socket("/events", channels=(events,))
 
     async with RpcTestClient(rpc, "/events") as client:
-        await client.closed()
+        await asyncio.wait_for(client.closed(), 1)
 
     assert client.socket.closed == (
         RpcConnectionClose.INTERNAL_ERROR,

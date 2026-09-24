@@ -9,17 +9,17 @@ from typing import Any
 
 import pytest
 
-from pyrpckit import (
+from rpckit import (
     Inject,
     RpcChannel,
     RpcClientMethodFailedError,
+    RpcConnectedClient,
     RpcDisconnect,
-    RpcPeer,
     RpcService,
 )
-from pyrpckit.codegen import generate_python_client
-from pyrpckit.codegen.ir import build_ir
-from pyrpckit.codegen.python import PythonClientOptions, render_files
+from rpckit.codegen import generate_python_client
+from rpckit.codegen.ir import build_ir
+from rpckit.codegen.python import PythonClientOptions, render_files
 from tests.conftest import (
     MediaPlayParams,
     MediaUnavailableError,
@@ -36,9 +36,9 @@ control_channel = RpcChannel("control")
 
 
 @control_channel.server.method("play")
-async def play(peer: Inject[RpcPeer]) -> str:
+async def play(client: Inject[RpcConnectedClient]) -> str:
     try:
-        result = await peer.call(media_play, MediaPlayParams(media_uri="spotify:1"))
+        result = await client.call(media_play, MediaPlayParams(media_uri="spotify:1"))
     except MediaUnavailableError as error:
         return f"unavailable:{error.details.speaker_id}:{error.message}"
     except RpcClientMethodFailedError as error:
@@ -47,9 +47,9 @@ async def play(peer: Inject[RpcPeer]) -> str:
 
 
 @control_channel.server.method("ping")
-async def ping(peer: Inject[RpcPeer]) -> str:
+async def ping(client: Inject[RpcConnectedClient]) -> str:
     try:
-        await peer.call(room_ping)
+        await client.call(room_ping)
     except RpcClientMethodFailedError as error:
         return f"remote:{error.rpc_code}"
     return "pong"

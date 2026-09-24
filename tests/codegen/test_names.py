@@ -3,10 +3,10 @@ from typing import Any
 
 import pytest
 
-from pyrpckit.codegen import render_python_client
-from pyrpckit.codegen.ir import UnsupportedSchemaError
-from pyrpckit.codegen.names import camel_case, pascal_case, snake_case
-from pyrpckit.codegen.python import PythonClientOptions
+from rpckit.codegen import render_python_client
+from rpckit.codegen.ir import UnsupportedSchemaError
+from rpckit.codegen.names import camel_case, pascal_case, snake_case
+from rpckit.codegen.python import PythonClientOptions
 
 
 def test_identifier_styles_handle_acronyms_stably() -> None:
