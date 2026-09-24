@@ -36,6 +36,7 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 23 | Erledigt | `e283cd3` | `RpcContract.to_json()` und `.write(path)` geben kanonisches UTF-8-JSON aus; CLI und `--check` verwenden denselben Serializer. |
 | 24 | Erledigt | `58b5932` | Unbekannte Client-Method-Antworten warnen; Requests werden direkt serialisiert; Namensableitung ist geteilt; Endpoint-Protokolle werden gecacht; redundanter Beispiel-`code` und der unnötige Lazy Import sind entfernt. Der `params.params`-Fehlertext ist durch Punkt 2 entfallen. |
 | Zusatz: Dishka-Annotationen | Erledigt | Commit dieses Punkts | `dishka.py` verwendet `from __future__ import annotations`; `dishka_router()` und `DishkaResolver` brauchen keine String-Annotationen mehr, obwohl optionale Typen nur unter `TYPE_CHECKING` importiert werden. |
+| Zusatz: Endpoint-Filter | Erledigt | Commit dieses Punkts | `RpcEndpoint.protocol` verwendet eine lokale Referenz auf das Service-Protokoll und sprechende Namen für Methoden, Notifications und Subscriptions; die Filterlogik bleibt unverändert. |
 
 ## Überblick nach Priorität
 

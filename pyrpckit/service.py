@@ -43,23 +43,30 @@ class RpcEndpoint:
         if self._protocol is not None:
             return self._protocol
         self.service.freeze()
+        service_protocol = self.service.protocol
         methods = tuple(
-            m for m in self.service.protocol.methods if m.server == self.name
+            method for method in service_protocol.methods if method.server == self.name
         )
         notifications = tuple(
-            n for n in self.service.protocol.notifications if n.server == self.name
+            notification
+            for notification in service_protocol.notifications
+            if notification.server == self.name
         )
         subscriptions = tuple(
-            s for s in self.service.protocol.subscriptions if s.server == self.name
+            subscription
+            for subscription in service_protocol.subscriptions
+            if subscription.server == self.name
         )
         client_methods = tuple(
-            c for c in self.service.protocol.client_methods if c.server == self.name
+            client_method
+            for client_method in service_protocol.client_methods
+            if client_method.server == self.name
         )
         protocol = RpcProtocol(
             methods=methods,
             notifications=notifications,
             subscriptions=subscriptions,
-            notification_types=self.service.protocol.notification_types,
+            notification_types=service_protocol.notification_types,
             client_methods=client_methods,
             version=self.service.version,
         )
