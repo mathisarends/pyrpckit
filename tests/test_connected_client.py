@@ -217,6 +217,21 @@ async def test_a_timeout_raises_and_drops_the_late_response() -> None:
         assert await session.receive() == {"jsonrpc": "2.0", "id": 2, "result": False}
 
 
+async def test_client_method_uses_limit_timeout_unless_disabled() -> None:
+    async with Session(RpcLimits(client_method_timeout=0.01)) as session:
+        with pytest.raises(RpcClientMethodTimeoutError) as error:
+            await session.client.call(room_ping)
+        assert error.value.timeout == 0.01
+        await session.receive()
+
+        call = asyncio.create_task(session.client.call(room_ping, timeout=None))
+        request = await session.receive()
+        await asyncio.sleep(0.02)
+        assert not call.done()
+        await session.send({"jsonrpc": "2.0", "id": request["id"], "result": None})
+        assert await call is None
+
+
 async def test_pending_calls_fail_when_the_connection_closes() -> None:
     session = Session()
     await session.__aenter__()

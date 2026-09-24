@@ -15,6 +15,7 @@ from pyrpckit.protocol import RpcClientMethod
 logger = logging.getLogger(LOGGER_NAME)
 
 REQUEST_ID_PREFIX = "server:"
+_DEFAULT_TIMEOUT = object()
 
 
 class RpcClientMethodError(Exception):
@@ -97,7 +98,7 @@ class RpcConnectedClient:
         client_method: RpcClientMethod[ParamsT, ResultT],
         params: ParamsT | None = None,
         *,
-        timeout: float | None = None,
+        timeout: float | None | object = _DEFAULT_TIMEOUT,
     ) -> ResultT:
         """Call a method implemented by this client and validate its answer."""
         definition = self._client_methods.get(client_method.name)
@@ -118,15 +119,22 @@ class RpcConnectedClient:
                 f"max_message_bytes ({limit})"
             )
         response = asyncio.get_running_loop().create_future()
+        effective_timeout = (
+            self._limits.client_method_timeout
+            if timeout is _DEFAULT_TIMEOUT
+            else timeout
+        )
         try:
-            async with asyncio.timeout(timeout), self._semaphore:
+            async with asyncio.timeout(effective_timeout), self._semaphore:
                 if self._closed:
                     raise RpcClientClosedError("The RPC connection is closed")
                 self._pending[request_id] = response
                 await self._send_until_closed(frame, response)
                 message = await response
         except TimeoutError as error:
-            raise RpcClientMethodTimeoutError(definition.name, timeout) from error
+            raise RpcClientMethodTimeoutError(
+                definition.name, effective_timeout
+            ) from error
         finally:
             self._pending.pop(request_id, None)
         return _result(definition, message)

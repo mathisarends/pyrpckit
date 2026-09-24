@@ -13,7 +13,7 @@ export type WebSocketFactory = (
 
 export type WebSocketOptions = {
   readonly subprotocols?: readonly string[];
-  readonly requestTimeoutMs?: number;
+  readonly requestTimeoutMs?: number | null;
   readonly notificationQueueSize?: number;
   readonly notificationOverflow?: "drop_oldest" | "close";
   readonly socketFactory?: WebSocketFactory;
@@ -52,7 +52,10 @@ export class WebSocketTransport implements RpcTransport {
 
   private constructor(socket: WebSocketSocket, options: WebSocketOptions) {
     this.#socket = socket;
-    this.#requestTimeoutMs = options.requestTimeoutMs;
+    this.#requestTimeoutMs =
+      options.requestTimeoutMs === null
+        ? undefined
+        : (options.requestTimeoutMs ?? 30_000);
     this.#notifications = new AsyncQueue(
       options.notificationQueueSize ?? 100,
       options.notificationOverflow ?? "drop_oldest",

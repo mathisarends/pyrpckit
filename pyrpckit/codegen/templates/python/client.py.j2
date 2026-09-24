@@ -48,7 +48,7 @@
 {% for variable in variables %}        {{ variable.name | identifier }}: {{ variable | variable_annotation }} | None = None,
 {% endfor %}{% if servers | length == 1 %}        url: str | None = None,
 {% endif %}        servers: Mapping[ServerName, str | Endpoint] | None = None,
-        request_timeout: float | None = None,
+        request_timeout: float | None = 30.0,
         notification_queue_size: int = 100,
         notification_overflow: str = "drop_oldest",
         headers: Mapping[str, str] | None = None,

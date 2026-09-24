@@ -22,6 +22,9 @@
 
 ### Changed
 
+- **Breaking:** Default RPC request and client-method timeouts to 30 seconds.
+  Configure client-method defaults with `RpcLimits.client_method_timeout`; pass
+  `None` explicitly to disable a timeout for a call.
 - **Breaking:** Rename `RpcPeer` to `RpcConnectedClient` and
   `RpcPeerClosedError` to `RpcClientClosedError`, so the server-side handle of
   a connection uses the same client/server vocabulary as client methods. The

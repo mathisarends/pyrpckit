@@ -46,7 +46,7 @@ class RpcTransportPool[ServerT: str]:
         *,
         endpoints: Iterable[_ConnectionEndpoint[ServerT]],
         transport_factory: _TransportFactory,
-        request_timeout: float | None = None,
+        request_timeout: float | None = 30.0,
         notification_queue_size: int = 100,
         notification_overflow: str = "drop_oldest",
     ) -> None:
