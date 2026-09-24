@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from pyrpckit import (
     RpcError,
     RpcErrorCode,
     RpcFailure,
+    RpcLimits,
     RpcServer,
     RpcSuccess,
 )
@@ -252,6 +254,44 @@ async def test_matching_dict_handler_result_is_accepted() -> None:
 
     assert isinstance(response, RpcSuccess)
     assert response.result.value == 3
+
+
+async def test_batch_runs_concurrently_with_shared_limit() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    running = 0
+    peak = 0
+    channel = RpcChannel("batch")
+
+    @channel.server.method()
+    async def wait() -> None:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        if peak == 2:
+            started.set()
+        await release.wait()
+        running -= 1
+
+    server = channel.create_server(limits=RpcLimits(max_concurrency=2))
+    batch = [
+        {"jsonrpc": "2.0", "id": index, "method": "batch.wait"} for index in range(3)
+    ]
+    task = asyncio.create_task(server.handle(batch))
+    await asyncio.wait_for(started.wait(), 1)
+    assert peak == 2
+    release.set()
+    responses = await asyncio.wait_for(task, 1)
+    assert [item.id for item in responses] == [0, 1, 2]
+
+
+async def test_batch_size_limit_rejects_batch() -> None:
+    server = broken_app.create_server(limits=RpcLimits(max_batch_size=0))
+    response = await server.handle(
+        [{"jsonrpc": "2.0", "id": 1, "method": "greeting.break"}]
+    )
+    assert isinstance(response, RpcFailure)
+    assert response.error.code == RpcErrorCode.INVALID_REQUEST
 
 
 class BreakageError(Exception):

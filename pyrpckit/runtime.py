@@ -114,6 +114,7 @@ async def serve_endpoint(
                 resolver=scoped,
                 error_mapper=error_mapper,
                 observer=endpoint.observer,
+                limits=limits,
             )
 
             async def writer():
@@ -138,12 +139,9 @@ async def serve_endpoint(
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
             async def invoke(message):
-                try:
-                    response = await server.handle(message)
-                    if response is not None:
-                        await send_outgoing(codec.encode(response))
-                finally:
-                    semaphore.release()
+                response = await server.handle(message)
+                if response is not None:
+                    await send_outgoing(codec.encode(response))
 
             async def reader():
                 nonlocal client_closed
@@ -177,7 +175,6 @@ async def serve_endpoint(
                             continue
                         if connected_client._resolve(message):
                             continue
-                        await semaphore.acquire()
                         task = asyncio.create_task(invoke(message))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
@@ -199,7 +196,6 @@ async def serve_endpoint(
                     logger.exception("RPC event source failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
-            semaphore = asyncio.Semaphore(limits.max_concurrency)
             background = [
                 asyncio.create_task(writer()),
                 asyncio.create_task(reader()),

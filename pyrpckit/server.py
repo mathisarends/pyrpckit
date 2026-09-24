@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import time
 from collections.abc import Callable
 
 from pyrpckit.codec import RpcCodec
+from pyrpckit.connection import RpcLimits
 from pyrpckit.constants import LOGGER_NAME
 from pyrpckit.dependencies import RpcResolver
 from pyrpckit.dispatch import RpcDispatcher
@@ -42,6 +44,7 @@ class RpcServer:
         resolver: RpcResolver | None = None,
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserver | None = None,
+        limits: RpcLimits | None = None,
     ) -> "RpcServer":
         server = cls.__new__(cls)
         server._protocol = protocol
@@ -49,6 +52,8 @@ class RpcServer:
         server._error_mapper = error_mapper
         server._observer = observer
         server._codec = RpcCodec()
+        server._limits = limits or RpcLimits()
+        server._semaphore = asyncio.Semaphore(server._limits.max_concurrency)
         return server
 
     @property
@@ -58,11 +63,17 @@ class RpcServer:
     async def handle(self, raw_request: object) -> RpcResponseMessage:
         """Serve one decoded request or batch."""
         if isinstance(raw_request, list):
-            if not raw_request:
+            if not raw_request or len(raw_request) > self._limits.max_batch_size:
                 return self.failure(None, RpcInvalidRequestError())
-            responses = [await self._handle_one(item) for item in raw_request]
+            responses = await asyncio.gather(
+                *(self._handle_one_bounded(item) for item in raw_request)
+            )
             return [response for response in responses if response is not None] or None
-        return await self._handle_one(raw_request)
+        return await self._handle_one_bounded(raw_request)
+
+    async def _handle_one_bounded(self, raw_request: object) -> RpcResponse | None:
+        async with self._semaphore:
+            return await self._handle_one(raw_request)
 
     async def handle_json(self, message: str | bytes | bytearray) -> str | None:
         """Decode, serve, and encode one JSON-RPC message."""

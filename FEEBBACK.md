@@ -19,7 +19,8 @@ Breaking: ob sich öffentliches Verhalten oder API ändert.
 | 6 | Erledigt | `5826666` | Fehlerhafte Event-Payloads werden geloggt und übersprungen; ein ausgefallener Generator beendet nur seine Quelle. `on_error="close"` ist als Opt-in verfügbar. |
 | 7 | Erledigt | `69a258f` | Requests generierter Clients und serverseitige Client-Methods bekommen 30 s Standard-Timeout; `RpcLimits.client_method_timeout` konfiguriert letztere, explizites `None` deaktiviert sie. |
 | 8 | Erledigt | `0193456` | `RpcLimits.send_timeout` begrenzt Queue-Wartezeit und Socket-Send; langsame Clients werden mit `POLICY_VIOLATION` und `Client too slow` geschlossen. |
-| 9 | Erledigt | Commit dieses Punktes | Ein gecachter Adapter wird für Params, Resultate, Events und Envelope-Serialisierung wiederverwendet; der Event-Codec wird pro Quelle erzeugt. Ein zeitabhängiger Mikro-Benchmark bleibt weg, da er als CI-Test keine verlässliche Regression misst. |
+| 9 | Erledigt | `b53b59e` | Ein gecachter Adapter wird für Params, Resultate, Events und Envelope-Serialisierung wiederverwendet; der Event-Codec wird pro Quelle erzeugt. Ein zeitabhängiger Mikro-Benchmark bleibt weg, da er als CI-Test keine verlässliche Regression misst. |
+| 10 | Erledigt | Commit dieses Punktes | `max_batch_size` begrenzt Batches; Items laufen parallel und teilen sich die `max_concurrency`-Semaphore mit einzelnen Requests. |
 
 ## Überblick nach Priorität
 

@@ -20,6 +20,8 @@
   `RpcLimits.send_timeout` (10 seconds by default).
 - Reuse Pydantic adapters for params, results, events, and JSON-RPC envelopes;
   reuse the event codec for each event source.
+- Bound JSON-RPC batches with `RpcLimits.max_batch_size` (32 by default) and
+  execute batch items concurrently within `max_concurrency`.
 - Isolate event source failures and skip invalid event payloads so other events
   and requests continue. `@channel.server.event(on_error="close")` restores
   connection closure for an event source.

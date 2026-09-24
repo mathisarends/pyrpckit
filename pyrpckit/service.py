@@ -80,6 +80,7 @@ class RpcEndpoint:
         context: object | Mapping[type[Any], object] | None = None,
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        limits: RpcLimits | None = None,
     ) -> RpcServer:
         from pyrpckit.dependencies import ContextResolver, as_resolver, context_values
 
@@ -92,6 +93,7 @@ class RpcEndpoint:
             resolver=resolved,
             error_mapper=error_mapper or self.error_mapper,
             observer=self.observer,
+            limits=limits or self.limits,
         )
 
 

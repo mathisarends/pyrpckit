@@ -8,6 +8,7 @@ from typing import Any, overload
 
 from pydantic import BaseModel
 
+from pyrpckit.connection import RpcLimits
 from pyrpckit.dependencies import (
     RpcResolverLike,
     RpcResolverScope,
@@ -178,6 +179,7 @@ class RpcChannel:
         resolver: RpcResolverLike | None = None,
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserver | None = None,
+        limits: RpcLimits | None = None,
     ) -> RpcServer:
         from pyrpckit.dependencies import ContextResolver, context_values
 
@@ -190,6 +192,7 @@ class RpcChannel:
             resolver=resolved,
             error_mapper=error_mapper,
             observer=observer,
+            limits=limits,
         )
 
     def _reserve(self, name: str) -> None:
