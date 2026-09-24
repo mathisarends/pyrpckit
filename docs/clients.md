@@ -218,8 +218,9 @@ async with TasksClient.connect(reconnect=True) as client:
 ```
 
 TypeScript clients accept `onDisconnect` to observe unexpected socket loss.
-The callback receives the socket error; callers can create a new client when
-needed.
+Pass `reconnect: true` to retry failed connections with bounded backoff and
+resume active subscriptions. Adjust the delay with `reconnectInitialDelayMs`
+and `reconnectMaxDelayMs`.
 
 Top-level server variables such as `host` apply to every server and binary
 stream that declares that variable. Override only exceptional deployments with

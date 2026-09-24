@@ -69,6 +69,9 @@ export class AutomationClient {
       readonly notificationOverflow?: "drop_oldest" | "close";
       readonly socketFactory?: WebSocketFactory;
       readonly onDisconnect?: (error: unknown) => void;
+      readonly reconnect?: boolean;
+      readonly reconnectInitialDelayMs?: number;
+      readonly reconnectMaxDelayMs?: number;
       readonly streamSocketFactory?: BinaryWebSocketFactory;
       readonly streamQueueSize?: number;
       readonly hooks?: readonly RpcClientHook[];
@@ -80,14 +83,20 @@ export class AutomationClient {
 
     const pool = new RpcTransportPool({
       endpoints: [...resolveEndpoints(variables, options.servers)],
-      open: (endpoint) =>
+      reconnect: options.reconnect,
+      reconnectInitialDelayMs: options.reconnectInitialDelayMs,
+      reconnectMaxDelayMs: options.reconnectMaxDelayMs,
+      open: (endpoint, disconnected) =>
         WebSocketTransport.open(endpoint.url, {
           subprotocols: endpoint.subprotocols,
           requestTimeoutMs: options.requestTimeoutMs,
           notificationQueueSize: options.notificationQueueSize,
           notificationOverflow: options.notificationOverflow,
           socketFactory: options.socketFactory,
-          onDisconnect: options.onDisconnect,
+          onDisconnect: (error) => {
+            disconnected(error);
+            options.onDisconnect?.(error);
+          },
         }),
     });
     if (!options.lazy) await pool.openAll();

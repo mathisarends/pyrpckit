@@ -92,6 +92,81 @@ def test_generated_typescript_subscription(tmp_path: Path) -> None:
               }
               if (!unsubscribed) throw new Error("unsubscribe was not sent");
               await client.close();
+
+              type Listener = (...args: any[]) => void;
+              class FakeSocket {
+                readyState = 1;
+                readonly #listeners = new Map<string, Listener[]>();
+                constructor(readonly generation: number) {}
+
+                addEventListener(
+                  type: "open" | "close" | "error", listener: () => void,
+                ): void;
+                addEventListener(
+                  type: "message",
+                  listener: (event: { readonly data: unknown }) => void,
+                ): void;
+                addEventListener(type: string, listener: Listener): void {
+                  const listeners = this.#listeners.get(type) ?? [];
+                  listeners.push(listener);
+                  this.#listeners.set(type, listeners);
+                }
+
+                send(raw: string): void {
+                  const request = JSON.parse(raw) as { id: number; method: string };
+                  this.#emit("message", { data: JSON.stringify({
+                    jsonrpc: "2.0", id: request.id,
+                    result: request.method.endsWith(".subscribe")
+                      ? { subscriptionId: "1" } : null,
+                  }) });
+                  if (request.method.endsWith(".subscribe")) {
+                    this.#emit("message", { data: JSON.stringify({
+                      jsonrpc: "2.0", method: "session.events",
+                      params: {
+                        subscriptionId: "1",
+                        payload: { value: String(this.generation) },
+                      },
+                    }) });
+                  }
+                }
+
+                close(): void { this.readyState = 3; }
+                disconnect(): void {
+                  this.readyState = 3;
+                  this.#emit("close", {});
+                }
+                #emit(type: string, event: object): void {
+                  for (const listener of this.#listeners.get(type) ?? []) {
+                    listener(event);
+                  }
+                }
+              }
+
+              const sockets: FakeSocket[] = [];
+              const reconnecting = await SessionClient.connect({
+                reconnect: true,
+                reconnectInitialDelayMs: 1,
+                socketFactory: () => {
+                  const socket = new FakeSocket(sockets.length + 1);
+                  sockets.push(socket);
+                  return socket;
+                },
+              });
+              const events = reconnecting.session.events({ sessionId: "abc" })[
+                Symbol.asyncIterator
+              ]();
+              if ((await events.next()).value?.value !== "1") {
+                throw new Error("first event missing");
+              }
+              sockets[0].disconnect();
+              if ((await events.next()).value?.value !== "2") {
+                throw new Error("reconnected event missing");
+              }
+              await events.return?.();
+              await reconnecting.close();
+              if (sockets.length !== 2) {
+                throw new Error("subscription was not reconnected");
+              }
             }
             void main();
             """

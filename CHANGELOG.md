@@ -23,8 +23,9 @@
   `RpcObserverLike`. Request contexts now include the live connection, when
   available.
 - Expose Python `client.closed` and TypeScript `onDisconnect` for unexpected
-  WebSocket loss. Python clients can retry connections with bounded backoff and
-  resume active subscriptions using `connect(reconnect=True)`.
+  WebSocket loss. Python and TypeScript clients can retry connections with
+  bounded backoff and resume active subscriptions using `reconnect=True` or
+  `reconnect: true`.
 - Add parameterized `@channel.server.subscription()` streams with per-connection
   subscribe/unsubscribe lifecycle, generated Python and TypeScript iterators,
   `x-rpc-subscriptions` in OpenRPC, and `RpcLimits.max_subscriptions`.

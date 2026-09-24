@@ -48,6 +48,9 @@ export class {{ client_name }} {
       readonly notificationOverflow?: "drop_oldest" | "close";
       readonly socketFactory?: WebSocketFactory;
       readonly onDisconnect?: (error: unknown) => void;
+      readonly reconnect?: boolean;
+      readonly reconnectInitialDelayMs?: number;
+      readonly reconnectMaxDelayMs?: number;
 {% if binary_streams %}      readonly streamSocketFactory?: BinaryWebSocketFactory;
       readonly streamQueueSize?: number;
 {% endif %}      readonly hooks?: readonly RpcClientHook[];
@@ -64,14 +67,20 @@ export class {{ client_name }} {
     }
 {% endif %}    const pool = new RpcTransportPool({
       endpoints: [...resolveEndpoints(variables, {{ "overrides" if servers | length == 1 else "options.servers" }})],
-      open: (endpoint) =>
+      reconnect: options.reconnect,
+      reconnectInitialDelayMs: options.reconnectInitialDelayMs,
+      reconnectMaxDelayMs: options.reconnectMaxDelayMs,
+      open: (endpoint, disconnected) =>
         WebSocketTransport.open(endpoint.url, {
           subprotocols: endpoint.subprotocols,
           requestTimeoutMs: options.requestTimeoutMs,
           notificationQueueSize: options.notificationQueueSize,
           notificationOverflow: options.notificationOverflow,
           socketFactory: options.socketFactory,
-          onDisconnect: options.onDisconnect,
+          onDisconnect: (error) => {
+            disconnected(error);
+            options.onDisconnect?.(error);
+          },
         }),
     });
     if (!options.lazy) await pool.openAll();

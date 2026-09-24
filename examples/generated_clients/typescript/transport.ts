@@ -7,6 +7,7 @@ import { errorFromResponse } from "./errors";
 export type RpcTransport = {
   request(method: string, params?: object): Promise<unknown>;
   notifications(): AsyncIterable<unknown>;
+  startNotifications?(): void;
   close(): Promise<void>;
 };
 
@@ -116,6 +117,10 @@ export class WebSocketTransport implements RpcTransport {
     return this.#notifications;
   }
 
+  startNotifications(): void {
+    this.#notifications.listen();
+  }
+
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
@@ -201,13 +206,17 @@ class AsyncQueue<Value> implements AsyncIterableIterator<Value> {
   }
 
   next(): Promise<IteratorResult<Value>> {
-    this.#listening = true;
+    this.listen();
     const value = this.#values.shift();
     if (value !== undefined) return Promise.resolve({ value, done: false });
     if (this.#failure !== undefined) return Promise.reject(this.#failure);
     return new Promise((resolve, reject) =>
       this.#waiters.push({ resolve, reject }),
     );
+  }
+
+  listen(): void {
+    this.#listening = true;
   }
 
   push(value: Value): void {

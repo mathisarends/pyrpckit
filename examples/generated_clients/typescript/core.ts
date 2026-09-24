@@ -96,28 +96,85 @@ type PoolEndpoint = {
  */
 export class RpcTransportPool implements RpcTransportSource {
   readonly #endpoints: ReadonlyMap<string, PoolEndpoint>;
-  readonly #open: (endpoint: PoolEndpoint) => Promise<RpcTransport>;
+  readonly #open: (
+    endpoint: PoolEndpoint,
+    onDisconnect: (error: unknown) => void,
+  ) => Promise<RpcTransport>;
   readonly #transports = new Map<string, Promise<RpcTransport>>();
+  readonly #failed = new WeakSet<RpcTransport>();
+  readonly #everConnected = new Set<string>();
+  readonly reconnect: boolean;
+  readonly #initialDelayMs: number;
+  readonly #maxDelayMs: number;
+  #closed = false;
 
   constructor(options: {
     readonly endpoints: readonly PoolEndpoint[];
-    readonly open: (endpoint: PoolEndpoint) => Promise<RpcTransport>;
+    readonly open: (
+      endpoint: PoolEndpoint,
+      onDisconnect: (error: unknown) => void,
+    ) => Promise<RpcTransport>;
+    readonly reconnect?: boolean;
+    readonly reconnectInitialDelayMs?: number;
+    readonly reconnectMaxDelayMs?: number;
   }) {
     this.#endpoints = new Map(
       options.endpoints.map((endpoint) => [endpoint.server, endpoint]),
     );
     this.#open = options.open;
+    this.reconnect = options.reconnect ?? false;
+    this.#initialDelayMs = options.reconnectInitialDelayMs ?? 250;
+    this.#maxDelayMs = options.reconnectMaxDelayMs ?? 5_000;
+    if (this.#initialDelayMs <= 0 || this.#maxDelayMs < this.#initialDelayMs) {
+      throw new Error("Invalid reconnect backoff delays");
+    }
   }
 
   get(server?: string): Promise<RpcTransport> {
+    if (this.#closed)
+      return Promise.reject(new Error("The RPC client is closed"));
     const name = this.#serverName(server);
     let transport = this.#transports.get(name);
     if (transport === undefined) {
-      transport = this.#open(this.#endpoints.get(name) as PoolEndpoint);
+      transport = this.#connect(name, () => {
+        if (this.#transports.get(name) === transport)
+          this.#transports.delete(name);
+      });
       this.#transports.set(name, transport);
-      void transport.catch(() => this.#transports.delete(name));
+      void transport.catch(() => {
+        if (this.#transports.get(name) === transport)
+          this.#transports.delete(name);
+      });
     }
     return transport;
+  }
+
+  isDisconnected(transport: RpcTransport): boolean {
+    return this.#failed.has(transport);
+  }
+
+  async #connect(
+    name: string,
+    disconnected: () => void,
+  ): Promise<RpcTransport> {
+    const endpoint = this.#endpoints.get(name) as PoolEndpoint;
+    let delay = this.#initialDelayMs;
+    while (!this.#closed) {
+      let opened: RpcTransport | undefined;
+      try {
+        opened = await this.#open(endpoint, () => {
+          if (opened !== undefined) this.#failed.add(opened);
+          disconnected();
+        });
+        this.#everConnected.add(name);
+        return opened;
+      } catch (error) {
+        if (!this.reconnect || !this.#everConnected.has(name)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, this.#maxDelayMs);
+      }
+    }
+    throw new Error("The RPC client is closed");
   }
 
   async openAll(): Promise<void> {
@@ -131,6 +188,7 @@ export class RpcTransportPool implements RpcTransportSource {
   }
 
   async close(): Promise<void> {
+    this.#closed = true;
     const opened = [...this.#transports.values()];
     this.#transports.clear();
     const settled = await Promise.allSettled(opened);
@@ -299,64 +357,77 @@ export class RpcClientCore {
     route: RpcNotificationInfo<Payload>,
     params?: object,
   ): AsyncIterable<Payload> {
-    const transport = await this.#transportFor(route.server);
-    const subscriber: Subscriber = {
-      method: route.method,
-      queue: new AsyncQueue<JsonRpcNotification>(100),
-    };
-    let hub = this.#hubs.get(transport);
-    if (hub === undefined) {
-      hub = { subscribers: new Set(), pumping: false };
-      this.#hubs.set(transport, hub);
-    }
-    if (hub.ended !== undefined) {
-      throw new Error("The notification stream is closed");
-    }
-    hub.subscribers.add(subscriber);
-    if (!hub.pumping) {
-      hub.pumping = true;
-      void this.#pump(transport, hub);
-    }
-    let subscriptionId: string | undefined;
-    try {
-      const result = await transport.request(
-        `${route.method}.subscribe`,
-        params === undefined ? undefined : withoutUndefined(params),
-      );
-      if (
-        typeof result !== "object" ||
-        result === null ||
-        !("subscriptionId" in result) ||
-        typeof result.subscriptionId !== "string"
-      ) {
-        throw new Error("Invalid subscription response");
+    while (true) {
+      const transport = await this.#transportFor(route.server);
+      const subscriber: Subscriber = {
+        method: route.method,
+        queue: new AsyncQueue<JsonRpcNotification>(100),
+      };
+      let hub = this.#hubs.get(transport);
+      if (hub === undefined) {
+        hub = { subscribers: new Set(), pumping: false };
+        this.#hubs.set(transport, hub);
       }
-      subscriptionId = result.subscriptionId;
-      for await (const message of subscriber.queue) {
-        const values = message.params;
+      if (hub.ended !== undefined) {
+        throw new Error("The notification stream is closed");
+      }
+      hub.subscribers.add(subscriber);
+      if (!hub.pumping) {
+        transport.startNotifications?.();
+        hub.pumping = true;
+        void this.#pump(transport, hub);
+      }
+      let subscriptionId: string | undefined;
+      try {
+        const result = await transport.request(
+          `${route.method}.subscribe`,
+          params === undefined ? undefined : withoutUndefined(params),
+        );
         if (
-          typeof values !== "object" ||
-          values === null ||
-          !("subscriptionId" in values) ||
-          values.subscriptionId !== subscriptionId
-        )
-          continue;
-        if ("complete" in values && values.complete === true) return;
-        if ("error" in values) throw new Error(String(values.error));
-        if (!("payload" in values)) {
-          throw new Error("Subscription notification has no payload");
+          typeof result !== "object" ||
+          result === null ||
+          !("subscriptionId" in result) ||
+          typeof result.subscriptionId !== "string"
+        ) {
+          throw new Error("Invalid subscription response");
         }
-        yield values.payload as Payload;
-      }
-    } finally {
-      hub.subscribers.delete(subscriber);
-      if (subscriptionId !== undefined) {
-        try {
-          await transport.request(`${route.method}.unsubscribe`, {
-            subscriptionId,
-          });
-        } catch {
-          /* the connection may already be closed */
+        subscriptionId = result.subscriptionId;
+        for await (const message of subscriber.queue) {
+          const values = message.params;
+          if (
+            typeof values !== "object" ||
+            values === null ||
+            !("subscriptionId" in values) ||
+            values.subscriptionId !== subscriptionId
+          )
+            continue;
+          if ("complete" in values && values.complete === true) return;
+          if ("error" in values) throw new Error(String(values.error));
+          if (!("payload" in values)) {
+            throw new Error("Subscription notification has no payload");
+          }
+          yield values.payload as Payload;
+        }
+        return;
+      } catch (error) {
+        if (
+          !(this.#source instanceof RpcTransportPool) ||
+          !this.#source.reconnect ||
+          this.#closed ||
+          !this.#source.isDisconnected(transport)
+        ) {
+          throw error;
+        }
+      } finally {
+        hub.subscribers.delete(subscriber);
+        if (subscriptionId !== undefined) {
+          try {
+            await transport.request(`${route.method}.unsubscribe`, {
+              subscriptionId,
+            });
+          } catch {
+            /* the connection may already be closed */
+          }
         }
       }
     }

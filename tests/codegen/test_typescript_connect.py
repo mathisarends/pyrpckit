@@ -195,6 +195,30 @@ def test_generated_client_connect_behavior_in_node(
               await observed.close();
               assert(disconnected === 1, "explicit close called onDisconnect");
 
+              const reconnectSockets: FakeSocket[] = [];
+              let reconnectAttempts = 0;
+              const retrying = await GreetingClient.connect({
+                lazy: true,
+                reconnect: true,
+                reconnectInitialDelayMs: 1,
+                socketFactory: (url) => {
+                  reconnectAttempts += 1;
+                  if (reconnectAttempts === 2) throw new Error("temporary outage");
+                  const socket = new FakeSocket(String(url), { text: "Hello!" });
+                  reconnectSockets.push(socket);
+                  return socket;
+                },
+              });
+              await retrying.greeting.say({ name: "first" });
+              reconnectSockets[0].disconnect();
+              await retrying.greeting.say({ name: "second" });
+              assert(
+                reconnectSockets.length === 2,
+                "reconnect did not open a new socket",
+              );
+              assert(reconnectAttempts === 3, "reconnect did not retry after failure");
+              await retrying.close();
+
               const overrideUrls: string[] = [];
               const overridden = await GreetingClient.connect({
                 host: "stage.example.com",
