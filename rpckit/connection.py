@@ -169,19 +169,50 @@ class RpcConnection:
         self._on_close = None
         return self
 
-    endpoint = property(lambda self: self._endpoint)
-    path = property(lambda self: self._handshake.path)
-    path_params = property(lambda self: self._path_params)
-    query_params = property(
-        lambda self: MappingProxyType(dict(self._handshake.query_params))
-    )
-    headers = property(lambda self: _Headers(self._handshake.headers))
-    subprotocols = property(lambda self: self._handshake.subprotocols)
-    client = property(lambda self: self._handshake.client)
-    closed = property(lambda self: self._closed)
-    close_code = property(lambda self: self._close_code)
-    close_reason = property(lambda self: self._close_reason)
-    raw_close_code = property(lambda self: self._raw_close_code)
+    @property
+    def endpoint(self) -> str:
+        return self._endpoint
+
+    @property
+    def path(self) -> str:
+        return self._handshake.path
+
+    @property
+    def path_params(self) -> Mapping[str, str]:
+        return self._path_params
+
+    @property
+    def query_params(self) -> Mapping[str, str]:
+        return MappingProxyType(dict(self._handshake.query_params))
+
+    @property
+    def headers(self) -> Mapping[str, str]:
+        """Handshake headers with case-insensitive lookup."""
+        return _Headers(self._handshake.headers)
+
+    @property
+    def subprotocols(self) -> tuple[str, ...]:
+        return self._handshake.subprotocols
+
+    @property
+    def client(self) -> tuple[str, int] | None:
+        return self._handshake.client
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    @property
+    def close_code(self) -> RpcConnectionClose | None:
+        return self._close_code
+
+    @property
+    def close_reason(self) -> str:
+        return self._close_reason
+
+    @property
+    def raw_close_code(self) -> int | None:
+        return self._raw_close_code
 
     async def close(
         self, close: RpcConnectionClose = RpcConnectionClose.NORMAL, *, reason: str = ""

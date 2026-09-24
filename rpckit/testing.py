@@ -65,7 +65,9 @@ class InMemorySocket:
         self.rejection: tuple[RpcRejection, str] | None = None
         self.closed: tuple[RpcConnectionClose, str] | None = None
 
-    handshake = property(lambda self: self._handshake)
+    @property
+    def handshake(self) -> RpcHandshake:
+        return self._handshake
 
     async def accept(self, subprotocol: str | None = None) -> None:
         self.accepted = True

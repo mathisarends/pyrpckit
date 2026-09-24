@@ -90,8 +90,13 @@ class RpcConnectedClient:
         self._closed = False
         return self
 
-    connection = property(lambda self: self._connection)
-    closed = property(lambda self: self._closed)
+    @property
+    def connection(self) -> RpcConnection:
+        return self._connection
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     async def call[ParamsT: BaseModel | None, ResultT](
         self,

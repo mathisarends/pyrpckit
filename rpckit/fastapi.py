@@ -48,7 +48,9 @@ class FastApiSocket:
             client=None if client is None else (client.host, client.port),
         )
 
-    handshake = property(lambda self: self._handshake)
+    @property
+    def handshake(self) -> RpcHandshake:
+        return self._handshake
 
     async def accept(self, subprotocol: str | None = None) -> None:
         await self._websocket.accept(subprotocol=subprotocol)

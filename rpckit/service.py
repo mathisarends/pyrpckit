@@ -195,11 +195,25 @@ class RpcService:
         self._mounted_streams: set[FunctionType] = set()
         self._protocol: RpcProtocol | None = None
 
-    version = property(lambda self: self._version)
-    endpoints = property(lambda self: tuple(self._endpoints))
-    protocol = property(lambda self: self.freeze())
-    errors = property(lambda self: self._errors)
-    strict_errors = property(lambda self: self._strict_errors)
+    @property
+    def version(self) -> int:
+        return self._version
+
+    @property
+    def endpoints(self) -> tuple[RpcEndpoint | RpcStreamEndpoint, ...]:
+        return tuple(self._endpoints)
+
+    @property
+    def protocol(self) -> RpcProtocol:
+        return self.freeze()
+
+    @property
+    def errors(self) -> Mapping[type[Exception], type[RpcError]]:
+        return self._errors
+
+    @property
+    def strict_errors(self) -> bool:
+        return self._strict_errors
 
     def socket(
         self,

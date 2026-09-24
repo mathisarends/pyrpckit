@@ -83,17 +83,49 @@ class RpcChannel:
         self._server = RpcServerSide(self)
         self._client = RpcClientSide(self)
 
-    name = property(lambda self: self._name)
-    namespace = property(lambda self: self._namespace)
-    raises = property(lambda self: self._raises)
-    resolver_scope = property(lambda self: self._resolver_scope)
-    routes = property(lambda self: tuple(self._routes))
-    events = property(lambda self: tuple(self._events))
-    subscriptions = property(lambda self: tuple(self._subscriptions))
-    streams = property(lambda self: tuple(self._streams))
-    client_methods = property(lambda self: tuple(self._client_methods))
-    children = property(lambda self: tuple(self._children))
-    protocol = property(lambda self: self.freeze())
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def namespace(self) -> str:
+        return self._namespace
+
+    @property
+    def raises(self) -> tuple[type[RpcError], ...]:
+        return self._raises
+
+    @property
+    def resolver_scope(self) -> RpcResolverScope:
+        return self._resolver_scope
+
+    @property
+    def routes(self) -> tuple[RpcRoute, ...]:
+        return tuple(self._routes)
+
+    @property
+    def events(self) -> tuple[RpcNotificationDefinition, ...]:
+        return tuple(self._events)
+
+    @property
+    def subscriptions(self) -> tuple[RpcSubscriptionDefinition, ...]:
+        return tuple(self._subscriptions)
+
+    @property
+    def streams(self) -> tuple[RpcStreamDefinition, ...]:
+        return tuple(self._streams)
+
+    @property
+    def client_methods(self) -> tuple[RpcClientMethod[Any, Any], ...]:
+        return tuple(self._client_methods)
+
+    @property
+    def children(self) -> tuple["RpcChannel", ...]:
+        return tuple(self._children)
+
+    @property
+    def protocol(self) -> RpcProtocol:
+        return self.freeze()
 
     @property
     def server(self) -> "RpcServerSide":

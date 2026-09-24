@@ -50,7 +50,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 quote-style = "double"
 
 [tool.rpckit.typecheck]
-min_completeness = 0.86
+min_completeness = 0.92
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
