@@ -5,8 +5,9 @@ from collections.abc import Mapping
 from contextlib import suppress
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
+from pyrpckit._adapter import adapter
 from pyrpckit.codec import RpcCodec
 from pyrpckit.connected_client import RpcConnectedClient
 from pyrpckit.connection import (
@@ -248,11 +249,11 @@ async def _event_source(event, resolver, send):
             parameter.name: await resolver.resolve(parameter.dependency)
             for parameter in event.injected_parameters
         }
-        adapter = TypeAdapter(event.payload)
+        payload_adapter = adapter(event.payload)
         codec = RpcCodec()
         async for payload in event.function(**arguments):
             try:
-                value = adapter.validate_python(payload)
+                value = payload_adapter.validate_python(payload)
                 message = codec.encode(
                     RpcNotification._with_payload_annotation(
                         event.name, value, event.payload

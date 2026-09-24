@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ValidationError
 
+from pyrpckit._adapter import adapter
 from pyrpckit.dependencies import EmptyResolver, RpcResolver
 from pyrpckit.envelopes import RpcRequestEnvelope
 from pyrpckit.errors import (
@@ -64,9 +65,10 @@ class RpcDispatcher:
                     )
                 arguments[method.params_parameter] = invocation.params
             result = await function(**arguments)
-            return TypeAdapter(method.result).validate_python(
+            validated = adapter(method.result).validate_python(
                 result, from_attributes=True
             )
+            return result if isinstance(result, BaseModel) else validated
 
 
 def _validated_params(
@@ -80,7 +82,7 @@ def _validated_params(
             )
         return None
     try:
-        return TypeAdapter(method.params).validate_python(raw_params)
+        return adapter(method.params).validate_python(raw_params)
     except ValidationError as error:
         raise RpcInvalidParamsError.from_validation_error(error) from error
 

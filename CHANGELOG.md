@@ -18,6 +18,8 @@
 - Close RPC socket connections and notify observers when the writer fails.
 - Close slow consumer connections when queueing or sending exceeds
   `RpcLimits.send_timeout` (10 seconds by default).
+- Reuse Pydantic adapters for params, results, events, and JSON-RPC envelopes;
+  reuse the event codec for each event source.
 - Isolate event source failures and skip invalid event payloads so other events
   and requests continue. `@channel.server.event(on_error="close")` restores
   connection closure for an event source.

@@ -5,10 +5,10 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
-    TypeAdapter,
     field_serializer,
 )
 
+from pyrpckit._adapter import adapter
 from pyrpckit.errors import RpcError
 
 JSONRPC_VERSION = "2.0"
@@ -48,7 +48,7 @@ class RpcErrorPayload(RpcSchema):
     def _serialize_details(self, details: Any, info: Any) -> Any:
         if details is None or self._details_annotation is None:
             return details
-        return TypeAdapter(self._details_annotation).dump_python(
+        return adapter(self._details_annotation).dump_python(
             details, mode=info.mode, by_alias=True
         )
 
@@ -74,7 +74,7 @@ class RpcSuccess(RpcSchema):
     def _serialize_result(self, result: Any, info: Any) -> Any:
         if self._result_annotation is None:
             return result
-        return TypeAdapter(self._result_annotation).dump_python(
+        return adapter(self._result_annotation).dump_python(
             result,
             mode=info.mode,
             by_alias=True,
@@ -119,7 +119,7 @@ class RpcNotification(RpcSchema):
     def _serialize_params(self, params: Any, info: Any) -> Any:
         if self._payload_annotation is None:
             return params
-        return TypeAdapter(self._payload_annotation).dump_python(
+        return adapter(self._payload_annotation).dump_python(
             params,
             mode=info.mode,
             by_alias=True,
