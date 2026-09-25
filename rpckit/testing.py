@@ -15,6 +15,7 @@ from rpckit.connection import (
     RpcHandshake,
     RpcLimits,
     RpcRejection,
+    RpcRejections,
 )
 from rpckit.dependencies import RpcResolverLike
 from rpckit.envelopes import RpcFailure, RpcSuccess
@@ -140,6 +141,7 @@ class RpcTestClient:
         context: object | Mapping[type[Any], object] | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
+        rejections: RpcRejections | None = None,
         client_methods: Mapping[str | RpcClientMethod[Any, Any], RpcClientMethodHandler]
         | None = None,
     ) -> None:
@@ -149,6 +151,7 @@ class RpcTestClient:
         self.context = context
         self.error_mapper = error_mapper
         self.limits = limits
+        self.rejections = rejections
         self._task: asyncio.Task | None = None
         self._reader: asyncio.Task | None = None
         self._id = 0
@@ -195,6 +198,7 @@ class RpcTestClient:
                 context=self.context,
                 error_mapper=self.error_mapper,
                 limits=self.limits,
+                rejections=self.rejections,
             )
         )
         if not self._stream:

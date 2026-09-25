@@ -46,6 +46,40 @@ async def sign_out(connection: Inject[RpcConnection]) -> None:
     await connection.close(RpcConnectionClose.NORMAL, reason="Signed out")
 ```
 
+## Map failures to rejections
+
+`rejections=` turns domain failures into connection-level refusals. It takes a
+mapping from exception types to `RpcRejection` values, using the exception text
+as reason, or a callable that returns an `RpcReject` or `None`:
+
+```python
+from rpckit import RpcReject, RpcRejection
+
+rejections = {
+    TaskNotFound: RpcRejection.NOT_FOUND,
+    TaskAccessDenied: RpcRejection.FORBIDDEN,
+}
+
+
+def reject(error: Exception) -> RpcReject | None:
+    if isinstance(error, TaskAccessDenied):
+        return RpcReject(RpcRejection.FORBIDDEN, "Access denied")
+    return None
+```
+
+Pass it to `serve()`, `create_router()`, `serve_websocket()`, or
+`RpcTestClient`. The connection state decides what a rejection becomes:
+
+| Failure | Result |
+|---|---|
+| `before_accept` hook, before the handshake | Handshake rejected (with the FastAPI adapter, an HTTP status such as 403 or 404) |
+| Binary stream handler, after the handshake | Close with 1008 (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`), 1002, 1013, or 1011 |
+| Event source, after the handshake | Same close codes, regardless of the event's `on_error` |
+| JSON-RPC method | Unaffected; methods answer with JSON-RPC errors |
+
+Raising `RpcReject` directly has the same effect without a mapping. Failures
+the mapping does not cover keep their previous behavior.
+
 ## Push typed events
 
 An event is an async generator. Each yielded Pydantic value becomes a JSON-RPC

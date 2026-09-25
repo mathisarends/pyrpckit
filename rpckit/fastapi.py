@@ -17,6 +17,7 @@ from rpckit.connection import (
     RpcHandshake,
     RpcLimits,
     RpcRejection,
+    RpcRejections,
 )
 from rpckit.dependencies import RpcResolverLike
 from rpckit.server import RpcErrorMapper
@@ -110,6 +111,7 @@ def create_router(
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
+    rejections: RpcRejections | None = None,
 ) -> APIRouter:
     if resolver is not None and resolver_factory is not None:
         raise ValueError("resolver and resolver_factory are mutually exclusive")
@@ -124,6 +126,7 @@ def create_router(
             error_mapper=error_mapper,
             limits=limits,
             before_accept=before_accept,
+            rejections=rejections,
         )
         router.add_api_websocket_route(endpoint.path, handler, name=endpoint.name)
     return router
@@ -138,6 +141,7 @@ def _create_handler(
     error_mapper: RpcErrorMapper | None,
     limits: RpcLimits | None,
     before_accept: RpcBeforeAccept | None,
+    rejections: RpcRejections | None,
 ):
     async def handler(websocket: WebSocket) -> None:
         connection_resolver = (
@@ -151,6 +155,7 @@ def _create_handler(
             error_mapper=error_mapper,
             limits=limits,
             before_accept=before_accept,
+            rejections=rejections,
         )
 
     return handler
@@ -165,6 +170,7 @@ async def serve_websocket(
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
+    rejections: RpcRejections | None = None,
 ) -> None:
     socket = FastApiSocket(websocket)
     try:
@@ -176,6 +182,7 @@ async def serve_websocket(
                 error_mapper=error_mapper,
                 limits=limits,
                 before_accept=before_accept,
+                rejections=rejections,
             )
         else:
             await endpoint.serve(
@@ -185,6 +192,7 @@ async def serve_websocket(
                 limits=limits,
                 before_accept=before_accept,
                 error_mapper=error_mapper,
+                rejections=rejections,
             )
     except asyncio.CancelledError:
         # Starlette cancels its WebSocket task after websocket.disconnect.

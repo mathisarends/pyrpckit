@@ -17,6 +17,8 @@ from .connection import (
     RpcLimits,
     RpcReject,
     RpcRejection,
+    RpcRejectionMapper,
+    RpcRejections,
     RpcSocket,
 )
 from .constants import LOGGER_NAME
@@ -103,6 +105,8 @@ __all__ = [
     "RpcObserverLike",
     "RpcParseError",
     "RpcRejection",
+    "RpcRejectionMapper",
+    "RpcRejections",
     "RpcReject",
     "RpcRequestId",
     "RpcRequestContext",

@@ -16,6 +16,7 @@ from rpckit import (
     RpcError,
     RpcInputEnded,
     RpcLimits,
+    RpcReject,
     RpcRejection,
     RpcService,
     RpcStreamClose,
@@ -478,6 +479,74 @@ async def test_stream_error_mapper_maps_close_reason() -> None:
         assert await client.closed() == (
             RpcConnectionClose.POLICY_VIOLATION,
             "missing: missing",
+        )
+
+
+class AccessRevoked(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("rejections", "expected"),
+    [
+        (
+            {AccessRevoked: RpcRejection.FORBIDDEN},
+            (RpcConnectionClose.POLICY_VIOLATION, "revoked"),
+        ),
+        (
+            lambda error: RpcReject(RpcRejection.UNAVAILABLE, "later"),
+            (RpcConnectionClose.TRY_AGAIN_LATER, "later"),
+        ),
+        (
+            lambda error: None,
+            (RpcConnectionClose.INTERNAL_ERROR, "Internal error"),
+        ),
+    ],
+)
+async def test_stream_failures_close_with_mapped_rejections(
+    rejections, expected
+) -> None:
+    channel = RpcChannel("media")
+
+    @channel.server.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        yield b"first"
+        raise AccessRevoked("revoked")
+
+    async with RpcTestClient(
+        _service(frames), "/stream", rejections=rejections
+    ) as client:
+        assert await client.next_frame() == b"first"
+        assert await client.closed() == expected
+
+
+async def test_stream_raising_a_rejection_closes_with_its_code() -> None:
+    channel = RpcChannel("media")
+
+    @channel.server.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        raise RpcReject(RpcRejection.NOT_FOUND, "gone")
+        yield b"never"
+
+    async with RpcTestClient(_service(frames), "/stream") as client:
+        assert await client.closed() == (RpcConnectionClose.POLICY_VIOLATION, "gone")
+
+
+async def test_failing_rejection_mapper_closes_with_internal_error() -> None:
+    channel = RpcChannel("media")
+
+    @channel.server.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        raise AccessRevoked()
+        yield b"never"
+
+    def broken(error: Exception) -> RpcReject | None:
+        raise RuntimeError("mapper bug")
+
+    async with RpcTestClient(_service(frames), "/stream", rejections=broken) as client:
+        assert await client.closed() == (
+            RpcConnectionClose.INTERNAL_ERROR,
+            "Internal error",
         )
 
 

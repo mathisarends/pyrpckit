@@ -10,7 +10,13 @@ from urllib.parse import unquote
 from pydantic import BaseModel
 
 from rpckit.channel import RpcChannel, request_name
-from rpckit.connection import RpcBeforeAccept, RpcLimits, RpcRejection, RpcSocket
+from rpckit.connection import (
+    RpcBeforeAccept,
+    RpcLimits,
+    RpcRejection,
+    RpcRejections,
+    RpcSocket,
+)
 from rpckit.contract import RpcContract, ServerVariable
 from rpckit.dependencies import RpcResolverLike, resolver_with_context
 from rpckit.errors import ProtocolDefinitionError, RpcError, declared_error
@@ -85,6 +91,7 @@ class RpcEndpoint:
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
         before_accept: RpcBeforeAccept | None = None,
+        rejections: RpcRejections | None = None,
     ) -> None:
         from rpckit.runtime import serve_endpoint
 
@@ -96,6 +103,7 @@ class RpcEndpoint:
             error_mapper=error_mapper or self.error_mapper,
             limits=limits or self.limits,
             before_accept=before_accept or self.before_accept,
+            rejections=rejections,
         )
 
     def create_server(
@@ -144,6 +152,7 @@ class RpcStreamEndpoint:
         limits: RpcLimits | None = None,
         before_accept: RpcBeforeAccept | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        rejections: RpcRejections | None = None,
     ) -> None:
         from rpckit.runtime import serve_stream_endpoint
 
@@ -155,6 +164,7 @@ class RpcStreamEndpoint:
             limits=limits or self.limits,
             before_accept=before_accept or self.before_accept,
             error_mapper=error_mapper or self.error_mapper,
+            rejections=rejections,
         )
 
 
@@ -452,6 +462,7 @@ class RpcService:
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
         root_path: str = "",
+        rejections: RpcRejections | None = None,
     ) -> None:
         path = socket.handshake.path
         if root_path and path.startswith(root_path):
@@ -468,6 +479,7 @@ class RpcService:
                 context=context,
                 error_mapper=error_mapper,
                 limits=limits,
+                rejections=rejections,
             )
         else:
             await endpoint.serve(
@@ -476,6 +488,7 @@ class RpcService:
                 context=context,
                 limits=limits,
                 error_mapper=error_mapper,
+                rejections=rejections,
             )
 
     def contract(
