@@ -112,6 +112,11 @@ The integration reads `web.state.dishka_container`; pass the APP container to
 `websocket.state` is rejected because rpckit opens that scope itself and adds
 `RpcConnection` and `RpcConnectedClient` to its context.
 
+To mount single endpoints with FastAPI dependencies, `dishka_websockets(router)`
+returns an [`RpcWebSockets`](transports.md#mount-endpoints-with-fastapi-dependencies)
+backed by the same resolver. Values from `provide=` join the connection's
+context, so Dishka providers can receive them through `from_context`.
+
 Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
 container for every WebSocket, including RPC sockets. rpckit does not use
 that container: RPC handlers resolve from the SESSION scope opened per

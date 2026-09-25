@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from dishka import AsyncContainer
     from fastapi import APIRouter
 
+    from rpckit.fastapi import RpcWebSockets
     from rpckit.service import RpcService
 
 from rpckit.dependencies import RpcResolver
@@ -64,6 +65,24 @@ def dishka_router(service: RpcService, **options: Any) -> APIRouter:
 
     return create_router(
         service,
+        resolver_factory=lambda websocket: DishkaResolver(
+            websocket.app.state.dishka_container
+        ),
+        **options,
+    )
+
+
+def dishka_websockets(router: APIRouter, **options: Any) -> RpcWebSockets:
+    """Mount endpoints on ``router`` with the app's root Dishka container."""
+    try:
+        from rpckit.fastapi import RpcWebSockets
+    except ImportError as error:
+        raise ModuleNotFoundError(
+            "dishka_websockets requires the 'fastapi' extra"
+        ) from error
+
+    return RpcWebSockets(
+        router,
         resolver_factory=lambda websocket: DishkaResolver(
             websocket.app.state.dishka_container
         ),

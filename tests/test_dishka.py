@@ -2,14 +2,14 @@ import builtins
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from rpckit import Inject, RpcChannel, RpcService
-from rpckit.dishka import DishkaResolver, dishka_router
+from rpckit.dishka import DishkaResolver, dishka_router, dishka_websockets
 
 dishka = pytest.importorskip("dishka")
 Scope = dishka.Scope
@@ -121,3 +121,47 @@ def test_dishka_router_reads_the_app_container_at_connection_time() -> None:
         assert websocket.receive_json()["result"] is True
 
     assert root.calls[0]["scope"] is Scope.SESSION
+
+
+def test_dishka_websockets_expose_provided_values_to_dishka_providers() -> None:
+    @dataclass(frozen=True)
+    class Owner:
+        id: int
+
+    @dataclass(frozen=True)
+    class Streamer:
+        owner: Owner
+
+    class Provider(dishka.Provider):
+        owner = dishka.from_context(Owner, scope=Scope.SESSION)
+
+        @dishka.provide(scope=Scope.SESSION)
+        def streamer(self, owner: Owner) -> Streamer:
+            return Streamer(owner)
+
+    async def resolve_owner(owner_id: int) -> Owner:
+        return Owner(owner_id)
+
+    channel = RpcChannel("demo")
+
+    @channel.server.method()
+    async def owner(streamer: Inject[Streamer]) -> int:
+        return streamer.owner.id
+
+    rpc = RpcService()
+    rpc.socket("/owners/{owner_id}/rpc", channels=(channel,), name="owners")
+    router = APIRouter(prefix="/owners")
+    dishka_websockets(router).mount(
+        rpc.endpoint("owners"),
+        provide=[Annotated[Owner, Depends(resolve_owner)]],
+    )
+    app = FastAPI()
+    app.state.dishka_container = dishka.make_async_container(Provider())
+    app.include_router(router)
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/owners/7/rpc") as websocket,
+    ):
+        websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.owner"})
+        assert websocket.receive_json()["result"] == 7
