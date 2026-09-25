@@ -72,9 +72,9 @@ def dishka_router(service: RpcService, **options: Any) -> APIRouter:
 
 
 class Dishka:
-    """Resolve ``RpcWebSockets`` dependencies with the app's root Dishka container.
+    """Resolve ``RpcRoutes`` dependencies with the app's root Dishka container.
 
-    Functions in ``provide=`` may declare ``FromDishka[T]`` parameters without
+    The context function may declare ``FromDishka[T]`` parameters without
     ``@inject``; they resolve from the container of Dishka's FastAPI
     middleware, so call ``setup_dishka()`` on the app.
     """

@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import sys
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -25,7 +26,7 @@ from rpckit import (
 )
 from rpckit.fastapi import (
     FastApiSocket,
-    RpcWebSockets,
+    RpcRoutes,
     create_router,
     serve_websocket,
 )
@@ -323,32 +324,40 @@ class Actor:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    @classmethod
-    def guest(cls) -> "Actor":
-        return cls("guest")
+
+@dataclass(frozen=True)
+class JobSession:
+    job: Job
+    actor: Actor
 
 
 KNOWN_JOB = UUID(int=1)
 
 
-async def resolve_job(job_id: UUID) -> Job:
+async def get_actor() -> Actor:
+    return Actor("ada")
+
+
+async def open_job_session(
+    job_id: UUID, actor: Annotated[Actor, Depends(get_actor)]
+) -> JobSession:
     if job_id != KNOWN_JOB:
         raise JobNotFound("Job not found")
-    return Job(job_id)
+    return JobSession(Job(job_id), actor)
 
 
 def create_job_service(released: list[bool] | None = None) -> RpcService:
     events = RpcChannel("jobs")
 
     @events.server.method()
-    async def describe(job: Inject[Job], actor: Inject[Actor]) -> str:
-        return f"{actor.name}:{job.id}"
+    async def describe(session: Inject[JobSession]) -> str:
+        return f"{session.actor.name}:{session.job.id}"
 
     output = RpcChannel("output")
 
     @output.server.stream()
     async def frames(
-        job: Inject[Job], source: Inject[JobOutput]
+        session: Inject[JobSession], source: Inject[JobOutput]
     ) -> AsyncIterator[bytes]:
         try:
             for frame in source.frames:
@@ -361,14 +370,16 @@ def create_job_service(released: list[bool] | None = None) -> RpcService:
     failing = RpcChannel("failing")
 
     @failing.server.stream()
-    async def broken(job: Inject[Job]) -> AsyncIterator[bytes]:
+    async def broken(session: Inject[JobSession]) -> AsyncIterator[bytes]:
         yield b"first"
         raise JobNotFound("Job was deleted")
 
     service = RpcService()
-    service.socket("/jobs/{job_id}/events", channels=(events,), name="events")
-    service.stream("/jobs/{job_id}/output", frames, name="output")
-    service.stream("/jobs/{job_id}/broken", broken, name="broken")
+    service.socket(
+        "/jobs/{job_id}/events", channels=(events,), name="events", context=JobSession
+    )
+    service.stream("/jobs/{job_id}/output", frames, name="output", context=JobSession)
+    service.stream("/jobs/{job_id}/broken", broken, name="broken", context=JobSession)
     return service
 
 
@@ -376,26 +387,22 @@ def create_job_app(
     service: RpcService,
     *,
     rejections: RpcRejections | None = None,
-    output_frames: tuple[bytes, ...] = (b"one", b"two"),
 ) -> FastAPI:
-    async def get_output() -> JobOutput:
-        return JobOutput(list(output_frames))
-
-    async def get_actor() -> Actor:
-        return Actor("ada")
+    async def resolve(dependency: type) -> JobOutput:
+        return JobOutput([b"one", b"two"])
 
     router = APIRouter(prefix="/jobs")
-    sockets = RpcWebSockets(router, provide=[get_actor], rejections=rejections)
-    sockets.mount(
-        service.endpoint("events"), service.endpoint("broken"), provide=[resolve_job]
+    routes = RpcRoutes(
+        router, context=open_job_session, resolver=resolve, rejections=rejections
     )
-    sockets.mount(service.endpoint("output"), provide=[resolve_job, get_output])
+    for name in ("events", "output", "broken"):
+        routes.mount(service.endpoint(name))
     web = FastAPI()
     web.include_router(router)
     return web
 
 
-def test_rpc_websockets_supply_fastapi_dependencies_to_json_rpc_handlers() -> None:
+def test_rpc_routes_supply_the_context_to_json_rpc_handlers() -> None:
     web = create_job_app(create_job_service())
 
     with (
@@ -406,7 +413,7 @@ def test_rpc_websockets_supply_fastapi_dependencies_to_json_rpc_handlers() -> No
         assert websocket.receive_json()["result"] == f"ada:{KNOWN_JOB}"
 
 
-def test_rpc_websockets_serve_binary_streams_and_release_them_on_disconnect() -> None:
+def test_rpc_routes_serve_binary_streams_and_release_them_on_disconnect() -> None:
     released: list[bool] = []
     web = create_job_app(create_job_service(released))
 
@@ -426,9 +433,7 @@ def test_rpc_websockets_serve_binary_streams_and_release_them_on_disconnect() ->
         lambda error: RpcReject(RpcRejection.NOT_FOUND, "Job not found"),
     ],
 )
-def test_rpc_websockets_reject_dependency_failures_before_accepting(
-    rejections,
-) -> None:
+def test_rpc_routes_reject_context_failures_before_accepting(rejections) -> None:
     web = create_job_app(create_job_service(), rejections=rejections)
 
     with (
@@ -441,17 +446,17 @@ def test_rpc_websockets_reject_dependency_failures_before_accepting(
     assert denied.value.text == "Job not found"
 
 
-def test_rpc_websockets_reject_raised_rejections_with_their_headers() -> None:
-    async def authenticate() -> Actor:
+def test_rpc_routes_reject_raised_rejections_with_their_headers() -> None:
+    async def authenticate(job_id: UUID) -> JobSession:
         raise RpcReject(
             RpcRejection.UNAUTHORIZED,
             "Sign in",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    router = APIRouter()
-    RpcWebSockets(router).mount(
-        create_service().endpoint("rpc"), provide=[authenticate]
+    router = APIRouter(prefix="/jobs")
+    RpcRoutes(router, context=authenticate).mount(
+        create_job_service().endpoint("events")
     )
     web = FastAPI()
     web.include_router(router)
@@ -459,14 +464,14 @@ def test_rpc_websockets_reject_raised_rejections_with_their_headers() -> None:
     with (
         TestClient(web) as client,
         pytest.raises(WebSocketDenialResponse) as denied,
-        client.websocket_connect("/rpc"),
+        client.websocket_connect(f"/jobs/{KNOWN_JOB}/events"),
     ):
         pass
     assert denied.value.status_code == 401
     assert denied.value.headers["www-authenticate"] == "Bearer"
 
 
-def test_rpc_websockets_preserve_unmapped_dependency_failures() -> None:
+def test_rpc_routes_preserve_unmapped_context_failures() -> None:
     web = create_job_app(create_job_service())
 
     with (
@@ -477,7 +482,7 @@ def test_rpc_websockets_preserve_unmapped_dependency_failures() -> None:
         pass
 
 
-def test_rpc_websockets_close_accepted_streams_with_mapped_rejections() -> None:
+def test_rpc_routes_close_accepted_streams_with_mapped_rejections() -> None:
     web = create_job_app(
         create_job_service(), rejections={JobNotFound: RpcRejection.NOT_FOUND}
     )
@@ -494,54 +499,16 @@ def test_rpc_websockets_close_accepted_streams_with_mapped_rejections() -> None:
         }
 
 
-def test_rpc_websockets_key_provided_values_by_return_annotation() -> None:
-    class ArchivedJob(Job):
+def test_rpc_routes_key_a_subclass_context_by_the_declared_type() -> None:
+    class GuestJobSession(JobSession):
         pass
 
-    calls: list[UUID] = []
-
-    async def open_job(
-        job_id: UUID, actor: Annotated[Actor, Depends(Actor.guest)]
-    ) -> Job:
-        calls.append(job_id)
-        return ArchivedJob(job_id)
-
-    service = create_job_service()
-    router = APIRouter(prefix="/jobs")
-    RpcWebSockets(router, provide=[Actor.guest]).mount(
-        service.endpoint("events"), service.endpoint("broken"), provide=[open_job]
-    )
-    web = FastAPI()
-    web.include_router(router)
-
-    with TestClient(web) as client:
-        with client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket:
-            websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "jobs.describe"})
-            assert websocket.receive_json()["result"] == f"guest:{KNOWN_JOB}"
-        with client.websocket_connect(f"/jobs/{KNOWN_JOB}/broken") as websocket:
-            assert websocket.receive_bytes() == b"first"
-    assert calls == [KNOWN_JOB, KNOWN_JOB]
-
-
-def test_rpc_websockets_use_a_fastapi_resolver_per_connection() -> None:
-    resolved: list[WebSocket] = []
-    prepared: list[str] = []
-
-    class Resolver:
-        def for_websocket(self, websocket: WebSocket):
-            async def resolve(dependency: type) -> Actor:
-                resolved.append(websocket)
-                return Actor("resolver")
-
-            return resolve
-
-        def dependency(self, function):
-            prepared.append(function.__name__)
-            return function
+    async def open_guest_session(job_id: UUID) -> GuestJobSession:
+        return GuestJobSession(Job(job_id), Actor("guest"))
 
     router = APIRouter(prefix="/jobs")
-    RpcWebSockets(router, resolver=Resolver()).mount(
-        create_job_service().endpoint("events"), provide=[resolve_job]
+    RpcRoutes(router, context=open_guest_session).mount(
+        create_job_service().endpoint("events")
     )
     web = FastAPI()
     web.include_router(router)
@@ -551,47 +518,89 @@ def test_rpc_websockets_use_a_fastapi_resolver_per_connection() -> None:
         client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket,
     ):
         websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "jobs.describe"})
-        assert websocket.receive_json()["result"] == f"resolver:{KNOWN_JOB}"
+        assert websocket.receive_json()["result"] == f"guest:{KNOWN_JOB}"
+
+
+def test_rpc_routes_without_context_mount_endpoints_without_context() -> None:
+    router = APIRouter()
+    RpcRoutes(router).mount(create_service().endpoint("rpc"))
+    web = FastAPI()
+    web.include_router(router)
+
+    with TestClient(web) as client, client.websocket_connect("/rpc") as websocket:
+        websocket.send_json(
+            {"jsonrpc": "2.0", "id": 1, "method": "demo.echo", "params": {"value": "x"}}
+        )
+        assert websocket.receive_json()["result"] == {"value": "x"}
+
+
+def test_rpc_routes_use_a_fastapi_resolver_per_connection() -> None:
+    resolved: list[WebSocket] = []
+    prepared: list[str] = []
+
+    class Resolver:
+        def for_websocket(self, websocket: WebSocket):
+            async def resolve(dependency: type) -> JobOutput:
+                resolved.append(websocket)
+                return JobOutput([b"resolved"])
+
+            return resolve
+
+        def dependency(self, function):
+            prepared.append(function.__name__)
+            return function
+
+    router = APIRouter(prefix="/jobs")
+    RpcRoutes(router, context=open_job_session, resolver=Resolver()).mount(
+        create_job_service().endpoint("output")
+    )
+    web = FastAPI()
+    web.include_router(router)
+
+    with (
+        TestClient(web) as client,
+        client.websocket_connect(f"/jobs/{KNOWN_JOB}/output") as websocket,
+    ):
+        assert websocket.receive_bytes() == b"resolved"
     assert len(resolved) == 1
-    assert prepared == ["resolve_job"]
+    assert prepared == ["open_job_session"]
 
 
-async def untyped_job(job_id: UUID):
-    return Job(job_id)
+async def untyped_session(job_id: UUID):
+    return None
 
 
-async def any_job(job_id: UUID) -> Any:
-    return Job(job_id)
+async def any_session(job_id: UUID) -> Any:
+    return None
 
 
-async def other_job(job_id: UUID) -> Job:
-    return Job(job_id)
+async def open_actor(job_id: UUID) -> Actor:
+    return Actor("ada")
 
 
-def test_rpc_websockets_reject_invalid_mounts() -> None:
+def test_rpc_routes_reject_invalid_mounts() -> None:
     service = create_job_service()
-    sockets = RpcWebSockets(APIRouter(prefix="/job"))
+    routes = RpcRoutes(APIRouter(prefix="/job"), context=open_job_session)
 
     with pytest.raises(ValueError, match="outside the router prefix"):
-        sockets.mount(service.endpoint("events"))
-    with pytest.raises(TypeError, match="at least one endpoint"):
-        sockets.mount()
-    with pytest.raises(TypeError, match="expects functions"):
-        RpcWebSockets(
-            APIRouter(),
-            provide=[Annotated[Job, Depends(resolve_job)]],  # type: ignore[list-item]
-        )
-    with pytest.raises(TypeError, match="expects functions"):
-        RpcWebSockets(APIRouter(), provide=[Job])
-    for provider in (untyped_job, any_job):
+        routes.mount(service.endpoint("events"))
+    for context in (untyped_session, any_session):
         with pytest.raises(TypeError, match="needs a concrete class"):
-            RpcWebSockets(APIRouter(), provide=[provider])
-    with pytest.raises(TypeError, match="Job is provided more than once"):
-        RpcWebSockets(APIRouter(), provide=[resolve_job, other_job])
+            RpcRoutes(APIRouter(), context=context)
+    with pytest.raises(TypeError, match="expects an async function"):
+        RpcRoutes(APIRouter(), context=JobSession)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="declares context none, but these routes"):
+        RpcRoutes(APIRouter(), context=open_actor).mount(
+            create_service().endpoint("rpc")  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="declares context JobSession, but these"):
+        RpcRoutes(APIRouter(prefix="/jobs")).mount(service.endpoint("events"))
+    with pytest.raises(TypeError, match="JobSession, but these routes provide Actor"):
+        RpcRoutes(APIRouter(prefix="/jobs"), context=open_actor).mount(
+            service.endpoint("events")
+        )
 
-    sockets = RpcWebSockets(APIRouter(prefix="/jobs"), provide=[resolve_job])
-    with pytest.raises(TypeError, match="Job is provided more than once"):
-        sockets.mount(service.endpoint("events"), provide=[resolve_job])
-    sockets.mount(service.endpoint("events"))
+    routes = RpcRoutes(APIRouter(prefix="/jobs"), context=open_job_session)
+    routes.mount(service.endpoint("events"))
     with pytest.raises(ValueError, match="already mounted"):
-        sockets.mount(service.endpoint("events"))
+        routes.mount(service.endpoint("events"))

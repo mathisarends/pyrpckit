@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.9.0 - Unreleased
+
+### Added
+
+- Declare the connection context of an endpoint with
+  `RpcService.socket(..., context=T)` and `RpcService.stream(..., context=T)`.
+  `RpcEndpoint` and `RpcStreamEndpoint` are generic in that type; it stays out
+  of OpenRPC and generated clients.
+- Mount endpoints individually on an existing FastAPI router with
+  `rpckit.fastapi.RpcRoutes`. Its `context=` function runs as a FastAPI
+  dependency per connection, path parameters included, and handlers receive the
+  result as `Inject[T]`. `RpcRoutes` takes its type from the function's return
+  annotation, so type checkers and `mount()` reject endpoints that declare
+  another context. Routes use the endpoint's declared path.
+- Integrate DI libraries with `RpcRoutes` through the `FastApiResolver`
+  protocol. `rpckit.dishka.Dishka` resolves from the app's root container per
+  connection and lets the context function declare `FromDishka[T]` without
+  `@inject`.
+- Map exceptions to connection rejections with `rejections=`, either a mapping
+  from exception types to `RpcRejection` or a callable returning an
+  `RpcReject`, on `serve()`, `create_router()`, `serve_websocket()`,
+  `RpcRoutes`, and `RpcTestClient`. Mapped failures of `before_accept`
+  hooks and `RpcRoutes` context functions reject the handshake; mapped failures
+  of event sources and binary streams close the accepted socket with the
+  matching code. Raising `RpcReject` behaves the same without a mapping, and
+  unmapped failures keep their current behavior. Export `RpcRejections` and
+  `RpcRejectionMapper`.
+- Add `RpcConnectionClose.TRY_AGAIN_LATER` (WebSocket code 1013), used when an
+  accepted connection is closed with `RpcRejection.UNAVAILABLE`.
+
 ## 0.8.0 - Unreleased
 
 ### Migration from 0.7
