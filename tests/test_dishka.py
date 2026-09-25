@@ -13,6 +13,7 @@ from rpckit.dishka import DishkaResolver, dishka_router, dishka_websockets
 
 dishka = pytest.importorskip("dishka")
 Scope = dishka.Scope
+setup_dishka = pytest.importorskip("dishka.integrations.fastapi").setup_dishka
 
 
 @dataclass(frozen=True)
@@ -165,3 +166,44 @@ def test_dishka_websockets_expose_provided_values_to_dishka_providers() -> None:
     ):
         websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.owner"})
         assert websocket.receive_json()["result"] == 7
+
+
+def test_dishka_websockets_inject_context_functions() -> None:
+    @dataclass(frozen=True)
+    class Owners:
+        prefix: str
+
+    @dataclass(frozen=True)
+    class Owner:
+        name: str
+
+    class Provider(dishka.Provider):
+        @dishka.provide(scope=Scope.APP)
+        def owners(self) -> Owners:
+            return Owners("owner")
+
+    channel = RpcChannel("demo")
+
+    @channel.server.method()
+    async def owner(owner: Inject[Owner]) -> str:
+        return owner.name
+
+    rpc = RpcService()
+    rpc.socket("/owners/{owner_id}/rpc", channels=(channel,), name="owners")
+    router = APIRouter(prefix="/owners")
+    websockets = dishka_websockets(router)
+
+    @websockets.context(rpc.endpoint("owners"))
+    async def open_owner(owner_id: int, owners: dishka.FromDishka[Owners]) -> Owner:
+        return Owner(f"{owners.prefix}-{owner_id}")
+
+    app = FastAPI()
+    app.include_router(router)
+    setup_dishka(dishka.make_async_container(Provider()), app)
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/owners/7/rpc") as websocket,
+    ):
+        websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.owner"})
+        assert websocket.receive_json()["result"] == "owner-7"

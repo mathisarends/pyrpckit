@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from typing import Annotated, Any, get_args, get_origin
+from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
 try:
     from fastapi import (
@@ -223,7 +223,9 @@ class RpcWebSockets:
 
     Values provided through FastAPI dependencies reach handlers as ``Inject[T]``.
     Failures covered by ``rejections`` reject the handshake or close the socket,
-    depending on whether it was already accepted.
+    depending on whether it was already accepted. ``context_decorator`` wraps
+    every function registered with ``context()``, such as a DI library's
+    ``inject``.
     """
 
     def __init__(
@@ -236,6 +238,8 @@ class RpcWebSockets:
         rejections: RpcRejections | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
+        context_decorator: Callable[[RpcContextFunction], RpcContextFunction]
+        | None = None,
     ) -> None:
         if resolver is not None and resolver_factory is not None:
             raise ValueError("resolver and resolver_factory are mutually exclusive")
@@ -246,6 +250,7 @@ class RpcWebSockets:
         self._rejections = rejections
         self._error_mapper = error_mapper
         self._limits = limits
+        self._context_decorator = context_decorator
         self._mounted: set[RpcEndpoint | RpcStreamEndpoint] = set()
         _provided_types(self._provide)
 
@@ -257,22 +262,31 @@ class RpcWebSockets:
         rejections: RpcRejections | None = None,
     ) -> None:
         """Serve ``endpoint``, supplying each ``Annotated[T, Depends(...)]`` as T."""
-        self._add(endpoint, (*self._provide, *provide), None, rejections)
+        self._add(endpoint, (*self._provide, *provide), None, None, rejections)
 
     def context(
         self,
-        endpoint: RpcEndpoint | RpcStreamEndpoint,
-        *,
+        *endpoints: RpcEndpoint | RpcStreamEndpoint,
         rejections: RpcRejections | None = None,
     ) -> Callable[[RpcContextFunction], RpcContextFunction]:
-        """Serve ``endpoint`` with the context returned by the decorated dependency.
+        """Serve ``endpoints`` with the context returned by the decorated dependency.
 
-        The function may return one object, keyed by its type, or a mapping from
-        types to values.
+        The result is keyed by the declared return type. Without a concrete return
+        type, the function may return one object, keyed by its runtime type, or a
+        mapping from types to values.
         """
+        if not endpoints:
+            raise TypeError("context() needs at least one endpoint")
 
         def decorator(function: RpcContextFunction) -> RpcContextFunction:
-            self._add(endpoint, self._provide, function, rejections)
+            key = _context_key(function)
+            dependency = (
+                self._context_decorator(function)
+                if self._context_decorator is not None
+                else function
+            )
+            for endpoint in endpoints:
+                self._add(endpoint, self._provide, dependency, key, rejections)
             return function
 
         return decorator
@@ -282,6 +296,7 @@ class RpcWebSockets:
         endpoint: RpcEndpoint | RpcStreamEndpoint,
         provide: tuple[Any, ...],
         context: RpcContextFunction | None,
+        context_key: type[Any] | None,
         rejections: RpcRejections | None,
     ) -> None:
         if endpoint in self._mounted:
@@ -289,7 +304,7 @@ class RpcWebSockets:
         rejections = rejections if rejections is not None else self._rejections
         self._router.add_api_websocket_route(
             self._route_path(endpoint),
-            self._handler(endpoint, provide, context, rejections),
+            self._handler(endpoint, provide, context, context_key, rejections),
             name=endpoint.name,
             dependencies=[Depends(_reject_failures(rejections))],
         )
@@ -309,6 +324,7 @@ class RpcWebSockets:
         endpoint: RpcEndpoint | RpcStreamEndpoint,
         provide: tuple[Any, ...],
         context: RpcContextFunction | None,
+        context_key: type[Any] | None,
         rejections: RpcRejections | None,
     ) -> Callable[..., Awaitable[None]]:
         types = _provided_types(provide)
@@ -318,7 +334,9 @@ class RpcWebSockets:
                 dependency: values[f"provided_{index}"]
                 for index, dependency in enumerate(types)
             }
-            if context is not None:
+            if context_key is not None:
+                connection_context[context_key] = values["context"]
+            elif context is not None:
                 connection_context.update(context_values(values["context"]))
             await serve_websocket(
                 endpoint,
@@ -359,6 +377,17 @@ class RpcWebSockets:
             )
         handler.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
         return handler
+
+
+def _context_key(function: RpcContextFunction) -> type[Any] | None:
+    annotation = get_type_hints(function).get("return")
+    if (
+        annotation in (Any, object, type(None))
+        or not inspect.isclass(annotation)
+        or issubclass(annotation, Mapping)
+    ):
+        return None
+    return annotation
 
 
 def _provided_types(provide: Sequence[Any]) -> tuple[type[Any], ...]:

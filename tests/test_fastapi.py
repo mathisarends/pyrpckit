@@ -323,6 +323,10 @@ class Actor:
     def __init__(self, name: str) -> None:
         self.name = name
 
+    @classmethod
+    def guest(cls) -> "Actor":
+        return cls("guest")
+
 
 KNOWN_JOB = UUID(int=1)
 
@@ -528,6 +532,39 @@ def test_rpc_websockets_context_function_returns_typed_values() -> None:
             client.websocket_connect(f"/jobs/{UUID(int=3)}/broken"),
         ):
             pass
+
+
+def test_rpc_websockets_share_one_context_function_across_endpoints() -> None:
+    class ArchivedJob(Job):
+        pass
+
+    service = create_job_service()
+    router = APIRouter(prefix="/jobs")
+    rpc = RpcWebSockets(router, provide=[Annotated[Actor, Depends(Actor.guest)]])
+    calls: list[UUID] = []
+
+    @rpc.context(service.endpoint("events"), service.endpoint("broken"))
+    async def open_job(job_id: UUID) -> Job:
+        calls.append(job_id)
+        if job_id != KNOWN_JOB:
+            raise JobNotFound("Job not found")
+        return ArchivedJob(job_id)
+
+    web = FastAPI()
+    web.include_router(router)
+
+    with TestClient(web) as client:
+        with client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket:
+            websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "jobs.describe"})
+            assert websocket.receive_json()["result"] == f"guest:{KNOWN_JOB}"
+        with client.websocket_connect(f"/jobs/{KNOWN_JOB}/broken") as websocket:
+            assert websocket.receive_bytes() == b"first"
+    assert calls == [KNOWN_JOB, KNOWN_JOB]
+
+
+def test_rpc_websockets_context_needs_an_endpoint() -> None:
+    with pytest.raises(TypeError, match="at least one endpoint"):
+        RpcWebSockets(APIRouter()).context()
 
 
 def test_rpc_websockets_use_the_resolver_factory_per_connection() -> None:

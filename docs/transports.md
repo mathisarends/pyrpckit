@@ -115,8 +115,22 @@ JSON-RPC sockets and binary streams mount the same way. `provide=` on
 endpoint's declared path, so it always matches the contract; mounting fails
 when that path lies outside the router's prefix.
 
-When the context needs more than one dependency per value, decorate a
-function instead. It may return one object, keyed by its type, or a mapping
+When several endpoints share a context, or a value needs more than one
+dependency, decorate a function instead. It is a regular FastAPI dependency,
+path parameters included, and serves every endpoint passed to `context()`.
+The result is keyed by the declared return type, so a subclass instance still
+reaches `Inject[Job]`:
+
+```python
+@rpc.context(app.endpoint("events"), app.endpoint("output"))
+async def open_job(
+    job_id: UUID,
+    jobs: Annotated[JobRepository, Depends(get_job_repository)],
+) -> Job:
+    return await jobs.get_authorized(job_id)
+```
+
+To supply several values, annotate the function with a mapping and return one
 from types to values:
 
 ```python

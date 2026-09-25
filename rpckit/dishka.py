@@ -73,12 +73,18 @@ def dishka_router(service: RpcService, **options: Any) -> APIRouter:
 
 
 def dishka_websockets(router: APIRouter, **options: Any) -> RpcWebSockets:
-    """Mount endpoints on ``router`` with the app's root Dishka container."""
+    """Mount endpoints on ``router`` with the app's root Dishka container.
+
+    Context functions may declare ``FromDishka[T]`` parameters without
+    ``@inject``; they resolve from the container of Dishka's middleware.
+    """
     try:
+        from dishka.integrations.fastapi import inject
+
         from rpckit.fastapi import RpcWebSockets
     except ImportError as error:
         raise ModuleNotFoundError(
-            "dishka_websockets requires the 'fastapi' extra"
+            "dishka_websockets requires the 'fastapi' and 'dishka' extras"
         ) from error
 
     return RpcWebSockets(
@@ -86,5 +92,6 @@ def dishka_websockets(router: APIRouter, **options: Any) -> RpcWebSockets:
         resolver_factory=lambda websocket: DishkaResolver(
             websocket.app.state.dishka_container
         ),
+        context_decorator=inject,
         **options,
     )
