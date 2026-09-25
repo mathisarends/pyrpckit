@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer
-    from fastapi import APIRouter
+    from fastapi import APIRouter, WebSocket
 
-    from rpckit.fastapi import RpcWebSockets
     from rpckit.service import RpcService
 
 from rpckit.dependencies import RpcResolver
@@ -72,26 +71,24 @@ def dishka_router(service: RpcService, **options: Any) -> APIRouter:
     )
 
 
-def dishka_websockets(router: APIRouter, **options: Any) -> RpcWebSockets:
-    """Mount endpoints on ``router`` with the app's root Dishka container.
+class Dishka:
+    """Resolve ``RpcWebSockets`` dependencies with the app's root Dishka container.
 
-    Context functions may declare ``FromDishka[T]`` parameters without
-    ``@inject``; they resolve from the container of Dishka's middleware.
+    Functions in ``provide=`` may declare ``FromDishka[T]`` parameters without
+    ``@inject``; they resolve from the container of Dishka's FastAPI
+    middleware, so call ``setup_dishka()`` on the app.
     """
-    try:
-        from dishka.integrations.fastapi import inject
 
-        from rpckit.fastapi import RpcWebSockets
-    except ImportError as error:
-        raise ModuleNotFoundError(
-            "dishka_websockets requires the 'fastapi' and 'dishka' extras"
-        ) from error
+    def for_websocket(self, websocket: WebSocket) -> DishkaResolver:
+        return DishkaResolver(websocket.app.state.dishka_container)
 
-    return RpcWebSockets(
-        router,
-        resolver_factory=lambda websocket: DishkaResolver(
-            websocket.app.state.dishka_container
-        ),
-        context_decorator=inject,
-        **options,
-    )
+    def dependency[FunctionT: Callable[..., Any]](
+        self, function: FunctionT
+    ) -> FunctionT:
+        try:
+            from dishka.integrations.fastapi import inject
+        except ImportError as error:
+            raise ModuleNotFoundError(
+                "Dishka requires the 'fastapi' and 'dishka' extras"
+            ) from error
+        return cast("FunctionT", inject(function))

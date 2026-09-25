@@ -2,14 +2,15 @@ import builtins
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Any
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from rpckit import Inject, RpcChannel, RpcService
-from rpckit.dishka import DishkaResolver, dishka_router, dishka_websockets
+from rpckit.dishka import Dishka, DishkaResolver, dishka_router
+from rpckit.fastapi import RpcWebSockets
 
 dishka = pytest.importorskip("dishka")
 Scope = dishka.Scope
@@ -124,7 +125,7 @@ def test_dishka_router_reads_the_app_container_at_connection_time() -> None:
     assert root.calls[0]["scope"] is Scope.SESSION
 
 
-def test_dishka_websockets_expose_provided_values_to_dishka_providers() -> None:
+def test_dishka_exposes_provided_values_to_dishka_providers() -> None:
     @dataclass(frozen=True)
     class Owner:
         id: int
@@ -152,9 +153,8 @@ def test_dishka_websockets_expose_provided_values_to_dishka_providers() -> None:
     rpc = RpcService()
     rpc.socket("/owners/{owner_id}/rpc", channels=(channel,), name="owners")
     router = APIRouter(prefix="/owners")
-    dishka_websockets(router).mount(
-        rpc.endpoint("owners"),
-        provide=[Annotated[Owner, Depends(resolve_owner)]],
+    RpcWebSockets(router, resolver=Dishka()).mount(
+        rpc.endpoint("owners"), provide=[resolve_owner]
     )
     app = FastAPI()
     app.state.dishka_container = dishka.make_async_container(Provider())
@@ -168,7 +168,7 @@ def test_dishka_websockets_expose_provided_values_to_dishka_providers() -> None:
         assert websocket.receive_json()["result"] == 7
 
 
-def test_dishka_websockets_inject_context_functions() -> None:
+def test_dishka_injects_provided_functions() -> None:
     @dataclass(frozen=True)
     class Owners:
         prefix: str
@@ -191,11 +191,13 @@ def test_dishka_websockets_inject_context_functions() -> None:
     rpc = RpcService()
     rpc.socket("/owners/{owner_id}/rpc", channels=(channel,), name="owners")
     router = APIRouter(prefix="/owners")
-    websockets = dishka_websockets(router)
 
-    @websockets.context(rpc.endpoint("owners"))
     async def open_owner(owner_id: int, owners: dishka.FromDishka[Owners]) -> Owner:
         return Owner(f"{owners.prefix}-{owner_id}")
+
+    RpcWebSockets(router, resolver=Dishka()).mount(
+        rpc.endpoint("owners"), provide=[open_owner]
+    )
 
     app = FastAPI()
     app.include_router(router)

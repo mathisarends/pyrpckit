@@ -66,10 +66,11 @@ endpoints individually with `RpcWebSockets`.
 
 ### Mount endpoints with FastAPI dependencies
 
-`RpcWebSockets` mounts single endpoints on an existing router, including
-routers from other libraries. Each value in `provide=` is an
-`Annotated[T, Depends(...)]`; FastAPI resolves it for the connection, path
-parameters included, and handlers receive it as `Inject[T]`:
+`RpcWebSockets` mounts endpoints on an existing router, including routers from
+other libraries. `mount()` adds one WebSocket route per endpoint. Each function
+in `provide=` runs as a regular FastAPI dependency per connection, path
+parameters included, and handlers receive its result as `Inject[T]`, where T is
+the function's return annotation:
 
 ```python
 from typing import Annotated
@@ -81,70 +82,42 @@ from rpckit import RpcRejection
 from rpckit.fastapi import RpcWebSockets
 
 
-async def resolve_job(
-    job_id: UUID,
-    jobs: Annotated[JobRepository, Depends(get_job_repository)],
-) -> Job:
-    return await jobs.get_authorized(job_id)
-
-
-ResolvedJob = Annotated[Job, Depends(resolve_job)]
-
-router = APIRouter(prefix="/jobs")
-rpc = RpcWebSockets(
-    router,
-    provide=[Annotated[Actor, Depends(authenticate)]],
-    rejections={
-        JobNotFound: RpcRejection.NOT_FOUND,
-        JobAccessDenied: RpcRejection.FORBIDDEN,
-    },
-)
-rpc.mount(
-    app.endpoint("events"),
-    provide=[ResolvedJob, Annotated[JobEvents, Depends(get_job_events)]],
-)
-rpc.mount(
-    app.endpoint("output"),
-    provide=[ResolvedJob, Annotated[JobOutput, Depends(get_job_output)]],
-)
-web.include_router(router)
-```
-
-JSON-RPC sockets and binary streams mount the same way. `provide=` on
-`RpcWebSockets` applies to every endpoint it mounts. The route path is the
-endpoint's declared path, so it always matches the contract; mounting fails
-when that path lies outside the router's prefix.
-
-When several endpoints share a context, or a value needs more than one
-dependency, decorate a function instead. It is a regular FastAPI dependency,
-path parameters included, and serves every endpoint passed to `context()`.
-The result is keyed by the declared return type, so a subclass instance still
-reaches `Inject[Job]`:
-
-```python
-@rpc.context(app.endpoint("events"), app.endpoint("output"))
 async def open_job(
     job_id: UUID,
     jobs: Annotated[JobRepository, Depends(get_job_repository)],
 ) -> Job:
     return await jobs.get_authorized(job_id)
+
+
+router = APIRouter(prefix="/jobs")
+sockets = RpcWebSockets(
+    router,
+    provide=[authenticate],
+    rejections={
+        JobNotFound: RpcRejection.NOT_FOUND,
+        JobAccessDenied: RpcRejection.FORBIDDEN,
+    },
+)
+sockets.mount(app.endpoint("events"), app.endpoint("output"), provide=[open_job])
+web.include_router(router)
 ```
 
-To supply several values, annotate the function with a mapping and return one
-from types to values:
+JSON-RPC sockets and binary streams mount the same way. `provide=` on
+`RpcWebSockets` applies to every endpoint it mounts; each type may be provided
+once. Because the return annotation is the key, a subclass instance still
+reaches `Inject[Job]`. The route path is the endpoint's declared path, so it
+always matches the contract; mounting fails when that path lies outside the
+router's prefix or the endpoint is already mounted.
 
-```python
-@rpc.context(app.endpoint("events"))
-async def job_events(
-    job: ResolvedJob,
-    hub: Annotated[EventHub, Depends(get_event_hub)],
-) -> Mapping[type, object]:
-    return {Job: job, JobEvents: hub.events_for(job)}
-```
+`resolver=` accepts any rpckit resolver for the remaining `Inject[T]` values.
+To integrate a DI library, pass an object implementing `FastApiResolver`
+instead: it creates a resolver per WebSocket and may wrap every function in
+`provide=`. `rpckit.dishka.Dishka` is one such
+[integration](dependencies.md#dishka).
 
 `rejections=` follows
 [the core rules](connections-and-events.md#map-failures-to-rejections) and
-also covers FastAPI dependencies and the context function: before acceptance
+also covers the functions in `provide=` and their dependencies: before acceptance
 the handshake is rejected with an HTTP denial response, after acceptance the
 socket closes with the matching code. Unmapped failures propagate unchanged.
 Dependencies passed to `APIRouter(dependencies=...)` run before this check, so

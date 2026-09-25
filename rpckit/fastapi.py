@@ -1,7 +1,14 @@
 import asyncio
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from typing import Annotated, Any, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    Protocol,
+    get_origin,
+    get_type_hints,
+    runtime_checkable,
+)
 
 try:
     from fastapi import (
@@ -28,14 +35,14 @@ from rpckit.connection import (
     RpcRejection,
     RpcRejections,
 )
-from rpckit.dependencies import RpcResolverLike, context_values
+from rpckit.dependencies import RpcResolverLike
 from rpckit.runtime import _rejection
 from rpckit.server import RpcErrorMapper
 from rpckit.service import RpcEndpoint, RpcService, RpcStreamEndpoint
 from rpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 
 type FastApiResolverFactory = Callable[[WebSocket], RpcResolverLike]
-type RpcContextFunction = Callable[..., Awaitable[object]]
+type RpcProvider = Callable[..., Any]
 
 _HTTP_STATUS = {
     RpcRejection.UNAUTHORIZED: 401,
@@ -218,97 +225,79 @@ async def serve_websocket(
         return
 
 
+@runtime_checkable
+class FastApiResolver(Protocol):
+    """Resolve RPC dependencies per WebSocket and prepare ``provide=`` functions.
+
+    Pass an implementation, such as ``rpckit.dishka.Dishka``, as ``resolver=``
+    to ``RpcWebSockets`` to integrate a DI library.
+    """
+
+    def for_websocket(self, websocket: WebSocket) -> RpcResolverLike: ...
+
+    def dependency[FunctionT: Callable[..., Any]](
+        self, function: FunctionT
+    ) -> FunctionT: ...
+
+
 class RpcWebSockets:
     """Mount rpckit endpoints as WebSocket routes on an existing FastAPI router.
 
-    Values provided through FastAPI dependencies reach handlers as ``Inject[T]``.
-    Failures covered by ``rejections`` reject the handshake or close the socket,
-    depending on whether it was already accepted. ``context_decorator`` wraps
-    every function registered with ``context()``, such as a DI library's
-    ``inject``.
+    Each function in ``provide=`` runs as a FastAPI dependency per connection,
+    path parameters included, and its result reaches handlers as
+    ``Inject[T]``, where T is the function's return annotation. Failures
+    covered by ``rejections`` reject the handshake or close the socket,
+    depending on whether it was already accepted.
     """
 
     def __init__(
         self,
         router: APIRouter,
         *,
-        provide: Sequence[Any] = (),
-        resolver: RpcResolverLike | None = None,
-        resolver_factory: FastApiResolverFactory | None = None,
+        resolver: RpcResolverLike | FastApiResolver | None = None,
+        provide: Sequence[RpcProvider] = (),
         rejections: RpcRejections | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
-        context_decorator: Callable[[RpcContextFunction], RpcContextFunction]
-        | None = None,
     ) -> None:
-        if resolver is not None and resolver_factory is not None:
-            raise ValueError("resolver and resolver_factory are mutually exclusive")
         self._router = router
-        self._provide = tuple(provide)
-        self._resolver = resolver
-        self._resolver_factory = resolver_factory
+        self._resolver: RpcResolverLike | None = None
+        self._websocket_resolver: FastApiResolver | None = None
+        if isinstance(resolver, FastApiResolver):
+            self._websocket_resolver = resolver
+        else:
+            self._resolver = resolver
+        self._provide = _providers(provide)
         self._rejections = rejections
         self._error_mapper = error_mapper
         self._limits = limits
-        self._context_decorator = context_decorator
         self._mounted: set[RpcEndpoint | RpcStreamEndpoint] = set()
-        _provided_types(self._provide)
 
     def mount(
         self,
-        endpoint: RpcEndpoint | RpcStreamEndpoint,
-        *,
-        provide: Sequence[Any] = (),
-        rejections: RpcRejections | None = None,
-    ) -> None:
-        """Serve ``endpoint``, supplying each ``Annotated[T, Depends(...)]`` as T."""
-        self._add(endpoint, (*self._provide, *provide), None, None, rejections)
-
-    def context(
-        self,
         *endpoints: RpcEndpoint | RpcStreamEndpoint,
+        provide: Sequence[RpcProvider] = (),
         rejections: RpcRejections | None = None,
-    ) -> Callable[[RpcContextFunction], RpcContextFunction]:
-        """Serve ``endpoints`` with the context returned by the decorated dependency.
-
-        The result is keyed by the declared return type. Without a concrete return
-        type, the function may return one object, keyed by its runtime type, or a
-        mapping from types to values.
-        """
-        if not endpoints:
-            raise TypeError("context() needs at least one endpoint")
-
-        def decorator(function: RpcContextFunction) -> RpcContextFunction:
-            key = _context_key(function)
-            dependency = (
-                self._context_decorator(function)
-                if self._context_decorator is not None
-                else function
-            )
-            for endpoint in endpoints:
-                self._add(endpoint, self._provide, dependency, key, rejections)
-            return function
-
-        return decorator
-
-    def _add(
-        self,
-        endpoint: RpcEndpoint | RpcStreamEndpoint,
-        provide: tuple[Any, ...],
-        context: RpcContextFunction | None,
-        context_key: type[Any] | None,
-        rejections: RpcRejections | None,
     ) -> None:
-        if endpoint in self._mounted:
-            raise ValueError(f"RPC endpoint {endpoint.name!r} is already mounted")
+        """Add a WebSocket route for each endpoint at its declared path."""
+        if not endpoints:
+            raise TypeError("mount() needs at least one endpoint")
+        providers = {**self._provide}
+        for dependency, function in _providers(provide).items():
+            if dependency in providers:
+                raise TypeError(f"{dependency.__name__} is provided more than once")
+            providers[dependency] = function
         rejections = rejections if rejections is not None else self._rejections
-        self._router.add_api_websocket_route(
-            self._route_path(endpoint),
-            self._handler(endpoint, provide, context, context_key, rejections),
-            name=endpoint.name,
-            dependencies=[Depends(_reject_failures(rejections))],
-        )
-        self._mounted.add(endpoint)
+        for endpoint in endpoints:
+            if endpoint in self._mounted:
+                raise ValueError(f"RPC endpoint {endpoint.name!r} is already mounted")
+            self._router.add_api_websocket_route(
+                self._route_path(endpoint),
+                self._handler(endpoint, providers, rejections),
+                name=endpoint.name,
+                dependencies=[Depends(_reject_failures(rejections))],
+            )
+            self._mounted.add(endpoint)
 
     def _route_path(self, endpoint: RpcEndpoint | RpcStreamEndpoint) -> str:
         prefix = self._router.prefix
@@ -322,89 +311,78 @@ class RpcWebSockets:
     def _handler(
         self,
         endpoint: RpcEndpoint | RpcStreamEndpoint,
-        provide: tuple[Any, ...],
-        context: RpcContextFunction | None,
-        context_key: type[Any] | None,
+        providers: Mapping[type[Any], RpcProvider],
         rejections: RpcRejections | None,
     ) -> Callable[..., Awaitable[None]]:
-        types = _provided_types(provide)
+        types = tuple(providers)
 
         async def handler(websocket: WebSocket, **values: Any) -> None:
-            connection_context = {
-                dependency: values[f"provided_{index}"]
-                for index, dependency in enumerate(types)
-            }
-            if context_key is not None:
-                connection_context[context_key] = values["context"]
-            elif context is not None:
-                connection_context.update(context_values(values["context"]))
             await serve_websocket(
                 endpoint,
                 websocket,
                 resolver=(
-                    self._resolver_factory(websocket)
-                    if self._resolver_factory is not None
+                    self._websocket_resolver.for_websocket(websocket)
+                    if self._websocket_resolver is not None
                     else self._resolver
                 ),
-                context=connection_context,
+                context={
+                    dependency: values[f"provided_{index}"]
+                    for index, dependency in enumerate(types)
+                },
                 error_mapper=self._error_mapper,
                 limits=self._limits,
                 rejections=rejections,
             )
 
-        parameters = [
-            inspect.Parameter(
-                "websocket",
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                annotation=WebSocket,
-            ),
-            *(
+        handler.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+            [
                 inspect.Parameter(
-                    f"provided_{index}",
-                    inspect.Parameter.KEYWORD_ONLY,
-                    annotation=annotation,
-                )
-                for index, annotation in enumerate(provide)
-            ),
-        ]
-        if context is not None:
-            parameters.append(
-                inspect.Parameter(
-                    "context",
-                    inspect.Parameter.KEYWORD_ONLY,
-                    annotation=Annotated[Any, Depends(context)],
-                )
-            )
-        handler.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
+                    "websocket",
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=WebSocket,
+                ),
+                *(
+                    inspect.Parameter(
+                        f"provided_{index}",
+                        inspect.Parameter.KEYWORD_ONLY,
+                        annotation=Annotated[Any, Depends(self._dependency(function))],
+                    )
+                    for index, function in enumerate(providers.values())
+                ),
+            ]
+        )
         return handler
 
-
-def _context_key(function: RpcContextFunction) -> type[Any] | None:
-    annotation = get_type_hints(function).get("return")
-    if (
-        annotation in (Any, object, type(None))
-        or not inspect.isclass(annotation)
-        or issubclass(annotation, Mapping)
-    ):
-        return None
-    return annotation
+    def _dependency(self, function: RpcProvider) -> RpcProvider:
+        if self._websocket_resolver is not None:
+            return self._websocket_resolver.dependency(function)
+        return function
 
 
-def _provided_types(provide: Sequence[Any]) -> tuple[type[Any], ...]:
-    types = []
-    for annotation in provide:
-        dependency = (
-            get_args(annotation)[0] if get_origin(annotation) is Annotated else None
-        )
-        if not inspect.isclass(dependency):
-            raise TypeError(
-                "provide= expects Annotated[T, Depends(...)] with a concrete type T, "
-                f"got {annotation!r}"
-            )
-        if dependency in types:
+def _providers(provide: Sequence[RpcProvider]) -> dict[type[Any], RpcProvider]:
+    providers: dict[type[Any], RpcProvider] = {}
+    for function in provide:
+        dependency = _provided_type(function)
+        if dependency in providers:
             raise TypeError(f"{dependency.__name__} is provided more than once")
-        types.append(dependency)
-    return tuple(types)
+        providers[dependency] = function
+    return providers
+
+
+def _provided_type(function: RpcProvider) -> type[Any]:
+    if (
+        not callable(function)
+        or inspect.isclass(function)
+        or get_origin(function) is not None
+    ):
+        raise TypeError(f"provide= expects functions, got {function!r}")
+    dependency = get_type_hints(function).get("return")
+    if dependency in (Any, object, type(None)) or not inspect.isclass(dependency):
+        raise TypeError(
+            f"{getattr(function, '__qualname__', function)!r} in provide= needs a "
+            f"concrete class as return annotation, got {dependency!r}"
+        )
+    return dependency
 
 
 def _reject_failures(

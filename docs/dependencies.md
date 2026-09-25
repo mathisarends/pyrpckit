@@ -112,27 +112,41 @@ The integration reads `web.state.dishka_container`; pass the APP container to
 `websocket.state` is rejected because rpckit opens that scope itself and adds
 `RpcConnection` and `RpcConnectedClient` to its context.
 
-To mount single endpoints with FastAPI dependencies, `dishka_websockets(router)`
-returns an [`RpcWebSockets`](transports.md#mount-endpoints-with-fastapi-dependencies)
-backed by the same resolver. Its context functions may declare `FromDishka[T]`
-parameters without `@inject`; they resolve from the container of Dishka's
-middleware, so call `setup_dishka()` on the app:
+To mount endpoints with FastAPI dependencies, pass `Dishka()` as the
+resolver of an [`RpcWebSockets`](transports.md#mount-endpoints-with-fastapi-dependencies).
+Functions in `provide=` may then declare `FromDishka[T]` parameters without
+`@inject`; they resolve from the container of Dishka's middleware, so call
+`setup_dishka()` on the app:
 
 ```python
-rpc = dishka_websockets(router, rejections={SessionNotFound: RpcRejection.NOT_FOUND})
+from dishka.integrations.fastapi import FromDishka
+
+from rpckit.dishka import Dishka
+from rpckit.fastapi import RpcWebSockets
 
 
-@rpc.context(app.endpoint("screencast"), app.endpoint("events"))
 async def open_session(
     session_id: UUID,
     actor: AuthenticatedActor,
     sessions: FromDishka[SessionRepository],
 ) -> Session:
     return await sessions.get_authorized(session_id, actor)
+
+
+sockets = RpcWebSockets(
+    router,
+    resolver=Dishka(),
+    rejections={SessionNotFound: RpcRejection.NOT_FOUND},
+)
+sockets.mount(
+    app.endpoint("screencast"),
+    app.endpoint("events"),
+    provide=[open_session],
+)
 ```
 
-Values from `provide=` and context functions join the connection's context,
-so Dishka providers can also receive them through `from_context`.
+Values from `provide=` join the connection's context, so Dishka providers can
+also receive them through `from_context`.
 
 Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
 container for every WebSocket, including RPC sockets. rpckit does not use
