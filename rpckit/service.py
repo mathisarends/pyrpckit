@@ -3,14 +3,20 @@ import warnings
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from types import FunctionType
+from types import FunctionType, NoneType
 from typing import Any
 from urllib.parse import unquote
 
 from pydantic import BaseModel
 
 from rpckit.channel import RpcChannel, request_name
-from rpckit.connection import RpcBeforeAccept, RpcLimits, RpcRejection, RpcSocket
+from rpckit.connection import (
+    RpcBeforeAccept,
+    RpcLimits,
+    RpcRejection,
+    RpcRejections,
+    RpcSocket,
+)
 from rpckit.contract import RpcContract, ServerVariable
 from rpckit.dependencies import RpcResolverLike, resolver_with_context
 from rpckit.errors import ProtocolDefinitionError, RpcError, declared_error
@@ -23,7 +29,7 @@ from rpckit.server import (
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class RpcEndpoint:
+class RpcEndpoint[ContextT]:
     service: "RpcService"
     name: str
     path: str
@@ -36,6 +42,7 @@ class RpcEndpoint:
     path_variables: tuple[str, ...]
     before_accept: RpcBeforeAccept | None = None
     path_model: type[BaseModel] | None = None
+    context: type[ContextT] | None = None
     _protocol: RpcProtocol | None = field(default=None, init=False, repr=False)
 
     @property
@@ -85,6 +92,7 @@ class RpcEndpoint:
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
         before_accept: RpcBeforeAccept | None = None,
+        rejections: RpcRejections | None = None,
     ) -> None:
         from rpckit.runtime import serve_endpoint
 
@@ -96,6 +104,7 @@ class RpcEndpoint:
             error_mapper=error_mapper or self.error_mapper,
             limits=limits or self.limits,
             before_accept=before_accept or self.before_accept,
+            rejections=rejections,
         )
 
     def create_server(
@@ -119,7 +128,7 @@ class RpcEndpoint:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class RpcStreamEndpoint:
+class RpcStreamEndpoint[ContextT]:
     service: "RpcService"
     name: str
     path: str
@@ -131,6 +140,7 @@ class RpcStreamEndpoint:
     path_variables: tuple[str, ...]
     before_accept: RpcBeforeAccept | None = None
     error_mapper: RpcErrorMapper | None = None
+    context: type[ContextT] | None = None
 
     def match(self, path: str) -> dict[str, str] | None:
         return _match(self.path, path)
@@ -144,6 +154,7 @@ class RpcStreamEndpoint:
         limits: RpcLimits | None = None,
         before_accept: RpcBeforeAccept | None = None,
         error_mapper: RpcErrorMapper | None = None,
+        rejections: RpcRejections | None = None,
     ) -> None:
         from rpckit.runtime import serve_stream_endpoint
 
@@ -155,6 +166,7 @@ class RpcStreamEndpoint:
             limits=limits or self.limits,
             before_accept=before_accept or self.before_accept,
             error_mapper=error_mapper or self.error_mapper,
+            rejections=rejections,
         )
 
 
@@ -215,7 +227,7 @@ class RpcService:
     def strict_errors(self) -> bool:
         return self._strict_errors
 
-    def socket(
+    def socket[ContextT](
         self,
         path: str,
         /,
@@ -229,9 +241,11 @@ class RpcService:
         summary: str | None = None,
         before_accept: RpcBeforeAccept | None = None,
         path_model: type[BaseModel] | None = None,
-    ) -> RpcEndpoint:
+        context: type[ContextT] = NoneType,
+    ) -> RpcEndpoint[ContextT]:
         self._ensure_mutable()
         variables = _validate_endpoint(self._endpoints, path, name, subprotocol)
+        _validate_context(context)
         if path_model is not None:
             if not isinstance(path_model, type) or not issubclass(
                 path_model, BaseModel
@@ -271,12 +285,13 @@ class RpcService:
             variables,
             before_accept,
             path_model,
+            None if context is NoneType else context,
         )
         self._endpoints.append(endpoint)
         self._channels.update(channels)
         return endpoint
 
-    def stream(
+    def stream[ContextT](
         self,
         path: str,
         stream: Callable[..., Any],
@@ -289,9 +304,11 @@ class RpcService:
         summary: str | None = None,
         before_accept: RpcBeforeAccept | None = None,
         error_mapper: RpcErrorMapper | None = None,
-    ) -> RpcStreamEndpoint:
+        context: type[ContextT] = NoneType,
+    ) -> RpcStreamEndpoint[ContextT]:
         self._ensure_mutable()
         variables = _validate_endpoint(self._endpoints, path, name, subprotocol)
+        _validate_context(context)
         marker = getattr(stream, "__rpckit_stream__", None)
         if not isinstance(stream, FunctionType) or marker is None:
             raise ProtocolDefinitionError(
@@ -320,6 +337,7 @@ class RpcService:
             variables,
             before_accept,
             error_mapper or self._error_mapper,
+            None if context is NoneType else context,
         )
         self._endpoints.append(endpoint)
         self._channels.add(channel)
@@ -452,6 +470,7 @@ class RpcService:
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
         root_path: str = "",
+        rejections: RpcRejections | None = None,
     ) -> None:
         path = socket.handshake.path
         if root_path and path.startswith(root_path):
@@ -468,6 +487,7 @@ class RpcService:
                 context=context,
                 error_mapper=error_mapper,
                 limits=limits,
+                rejections=rejections,
             )
         else:
             await endpoint.serve(
@@ -476,6 +496,7 @@ class RpcService:
                 context=context,
                 limits=limits,
                 error_mapper=error_mapper,
+                rejections=rejections,
             )
 
     def contract(
@@ -501,6 +522,13 @@ class RpcService:
             raise ProtocolDefinitionError(
                 "RpcService is frozen because its protocol was already materialized"
             )
+
+
+def _validate_context(context: object) -> None:
+    if context is not None and not isinstance(context, type):
+        raise ProtocolDefinitionError(
+            f"RPC endpoint context must be a class, got {context!r}"
+        )
 
 
 def _validate_endpoint(

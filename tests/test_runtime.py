@@ -13,6 +13,7 @@ from rpckit import (
     RpcConnectionClose,
     RpcDisconnect,
     RpcErrorCode,
+    RpcHandshake,
     RpcLimits,
     RpcModel,
     RpcObserver,
@@ -388,6 +389,47 @@ async def test_event_can_opt_in_to_closing_on_error() -> None:
         RpcConnectionClose.INTERNAL_ERROR,
         "Internal error",
     )
+
+
+async def test_mapped_event_source_failure_closes_the_connection() -> None:
+    class AccessRevoked(Exception):
+        pass
+
+    events = RpcChannel("events")
+
+    @events.server.event(payload=Params)
+    async def changed() -> AsyncIterator[Params]:
+        raise AccessRevoked("revoked")
+        yield Params(value="never")
+
+    rpc = RpcService()
+    rpc.socket("/events", channels=(events,))
+
+    async with RpcTestClient(
+        rpc, "/events", rejections={AccessRevoked: RpcRejection.FORBIDDEN}
+    ) as client:
+        await asyncio.wait_for(client.closed(), 1)
+
+    assert client.socket.closed == (RpcConnectionClose.POLICY_VIOLATION, "revoked")
+
+
+async def test_before_accept_failures_are_rejected_with_mapped_rejections() -> None:
+    class SessionNotFound(Exception):
+        pass
+
+    async def authenticate(handshake: RpcHandshake) -> None:
+        raise SessionNotFound("no session")
+
+    rpc = RpcService()
+    rpc.socket("/rpc", channels=(channel,), before_accept=authenticate)
+
+    async with RpcTestClient(
+        rpc, "/rpc", rejections={SessionNotFound: RpcRejection.NOT_FOUND}
+    ) as client:
+        await client.closed()
+
+    assert not client.socket.accepted
+    assert client.socket.rejection == (RpcRejection.NOT_FOUND, "no session")
 
 
 async def test_cancelling_a_connection_closes_it_as_shutdown() -> None:

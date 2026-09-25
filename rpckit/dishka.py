@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer
-    from fastapi import APIRouter
+    from fastapi import APIRouter, WebSocket
 
     from rpckit.service import RpcService
 
@@ -69,3 +69,26 @@ def dishka_router(service: RpcService, **options: Any) -> APIRouter:
         ),
         **options,
     )
+
+
+class Dishka:
+    """Resolve ``RpcRoutes`` dependencies with the app's root Dishka container.
+
+    The context function may declare ``FromDishka[T]`` parameters without
+    ``@inject``; they resolve from the container of Dishka's FastAPI
+    middleware, so call ``setup_dishka()`` on the app.
+    """
+
+    def for_websocket(self, websocket: WebSocket) -> DishkaResolver:
+        return DishkaResolver(websocket.app.state.dishka_container)
+
+    def dependency[FunctionT: Callable[..., Any]](
+        self, function: FunctionT
+    ) -> FunctionT:
+        try:
+            from dishka.integrations.fastapi import inject
+        except ImportError as error:
+            raise ModuleNotFoundError(
+                "Dishka requires the 'fastapi' and 'dishka' extras"
+            ) from error
+        return cast("FunctionT", inject(function))

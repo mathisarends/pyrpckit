@@ -21,6 +21,7 @@ class RpcConnectionClose(StrEnum):
     POLICY_VIOLATION = "policy_violation"
     MESSAGE_TOO_BIG = "message_too_big"
     INTERNAL_ERROR = "internal_error"
+    TRY_AGAIN_LATER = "try_again_later"
     OTHER = "other"
 
 
@@ -41,6 +42,7 @@ class RpcDisconnect(Exception):
                 1008: RpcConnectionClose.POLICY_VIOLATION,
                 1009: RpcConnectionClose.MESSAGE_TOO_BIG,
                 1011: RpcConnectionClose.INTERNAL_ERROR,
+                1013: RpcConnectionClose.TRY_AGAIN_LATER,
             }.get(close, RpcConnectionClose.OTHER)
             self.raw_close_code = close
         self.reason = reason
@@ -74,6 +76,41 @@ class RpcReject(Exception):
         self.reason = reason
         self.headers = headers
         super().__init__(reason)
+
+
+type RpcRejectionMapper = Callable[[Exception], RpcReject | None]
+type RpcRejections = Mapping[type[Exception], RpcRejection] | RpcRejectionMapper
+
+REJECTION_CLOSES = MappingProxyType(
+    {
+        RpcRejection.UNAUTHORIZED: RpcConnectionClose.POLICY_VIOLATION,
+        RpcRejection.FORBIDDEN: RpcConnectionClose.POLICY_VIOLATION,
+        RpcRejection.NOT_FOUND: RpcConnectionClose.POLICY_VIOLATION,
+        RpcRejection.PROTOCOL_ERROR: RpcConnectionClose.PROTOCOL_ERROR,
+        RpcRejection.UNAVAILABLE: RpcConnectionClose.TRY_AGAIN_LATER,
+        RpcRejection.INTERNAL_ERROR: RpcConnectionClose.INTERNAL_ERROR,
+    }
+)
+
+
+def rejection_for(
+    error: Exception, rejections: RpcRejections | None
+) -> RpcReject | None:
+    """Map a failure to a rejection; mapped entries use the error text as reason."""
+    if isinstance(error, RpcReject):
+        return error
+    if rejections is None:
+        return None
+    if isinstance(rejections, Mapping):
+        return next(
+            (
+                RpcReject(rejection, str(error))
+                for exception, rejection in rejections.items()
+                if isinstance(error, exception)
+            ),
+            None,
+        )
+    return rejections(error)
 
 
 class RpcSocket(Protocol):

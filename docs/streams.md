@@ -126,7 +126,9 @@ parameter remain available through `RpcConnection.path_params`.
 
 The dependency lifecycle works exactly as it does for a JSON-RPC endpoint. The
 socket closes normally when the generator or handler finishes. An exception
-closes the stream with an internal error (1011). A frame larger than
+closes the stream with an internal error (1011), unless it is an `RpcReject` or
+covered by [`rejections=`](connections-and-events.md#map-failures-to-rejections).
+A frame larger than
 `RpcLimits.max_message_bytes` closes it with 1009.
 
 The client ends its input with the text message `{"type":"end"}`. Any other

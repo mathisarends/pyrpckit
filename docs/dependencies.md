@@ -112,6 +112,46 @@ The integration reads `web.state.dishka_container`; pass the APP container to
 `websocket.state` is rejected because rpckit opens that scope itself and adds
 `RpcConnection` and `RpcConnectedClient` to its context.
 
+To mount endpoints with FastAPI dependencies, pass `Dishka()` as the resolver
+of [`RpcRoutes`](transports.md#mount-endpoints-with-fastapi-dependencies). The
+context function may then declare `FromDishka[T]` parameters without
+`@inject`; they resolve from the container of Dishka's middleware, so call
+`setup_dishka()` on the app:
+
+```python
+from dishka.integrations.fastapi import FromDishka
+
+from rpckit.dishka import Dishka
+from rpckit.fastapi import RpcRoutes
+
+screencast = app.stream("/sessions/{session_id}/screencast", frames, context=Session)
+events = app.socket(
+    "/sessions/{session_id}/events", channels=(session_events,), context=Session
+)
+
+
+async def open_session(
+    session_id: UUID,
+    actor: AuthenticatedActor,
+    sessions: FromDishka[SessionRepository],
+) -> Session:
+    return await sessions.get_authorized(session_id, actor)
+
+
+session_routes = RpcRoutes(
+    router,
+    context=open_session,
+    resolver=Dishka(),
+    rejections={SessionNotFound: RpcRejection.NOT_FOUND},
+)
+session_routes.mount(screencast)
+session_routes.mount(events)
+```
+
+Handlers receive the session as `Inject[Session]` and everything else from
+Dishka. The context also joins Dishka's SESSION context, so providers can
+receive it through `from_context`.
+
 Dishka's FastAPI middleware from `setup_dishka()` still opens its own SESSION
 container for every WebSocket, including RPC sockets. rpckit does not use
 that container: RPC handlers resolve from the SESSION scope opened per

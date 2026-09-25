@@ -11,6 +11,7 @@ from rpckit._adapter import adapter
 from rpckit.codec import RpcCodec
 from rpckit.connected_client import RpcConnectedClient
 from rpckit.connection import (
+    REJECTION_CLOSES,
     RpcBeforeAccept,
     RpcConnection,
     RpcConnectionClose,
@@ -18,7 +19,9 @@ from rpckit.connection import (
     RpcLimits,
     RpcReject,
     RpcRejection,
+    RpcRejections,
     RpcSocket,
+    rejection_for,
 )
 from rpckit.constants import LOGGER_NAME
 from rpckit.dependencies import (
@@ -43,8 +46,22 @@ from rpckit.subscriptions import SubscriptionSession
 logger = logging.getLogger(LOGGER_NAME)
 
 
+def _rejection(error: Exception, rejections: RpcRejections | None) -> RpcReject | None:
+    try:
+        return rejection_for(error, rejections)
+    except Exception:
+        logger.exception("RPC rejection mapper failed")
+        return None
+
+
 async def _prepare(
-    endpoint, socket, resolver, context, path_model=None, before_accept=None
+    endpoint,
+    socket,
+    resolver,
+    context,
+    path_model=None,
+    before_accept=None,
+    rejections=None,
 ):
     endpoint.service.freeze()
     resolved = as_resolver(resolver)
@@ -72,12 +89,14 @@ async def _prepare(
     if before_accept is not None:
         try:
             accepted_values = await before_accept(socket.handshake)
-        except RpcReject as error:
-            await socket.reject(error.rejection, error.reason, headers=error.headers)
-            return None
-        except Exception:
-            logger.exception("RPC before_accept hook failed")
-            await socket.reject(RpcRejection.INTERNAL_ERROR, "Internal error")
+        except Exception as error:
+            rejected = _rejection(error, rejections)
+            if rejected is None:
+                logger.exception("RPC before_accept hook failed")
+                rejected = RpcReject(RpcRejection.INTERNAL_ERROR, "Internal error")
+            await socket.reject(
+                rejected.rejection, rejected.reason, headers=rejected.headers
+            )
             return None
         if accepted_values is not None:
             base_values.update(accepted_values)
@@ -95,6 +114,7 @@ async def serve_endpoint(
     error_mapper: RpcErrorMapper | None = None,
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
+    rejections: RpcRejections | None = None,
 ) -> None:
     limits = limits or RpcLimits()
     prepared = await _prepare(
@@ -104,6 +124,7 @@ async def serve_endpoint(
         context,
         endpoint.path_model,
         before_accept,
+        rejections,
     )
     if prepared is None:
         return
@@ -262,14 +283,24 @@ async def serve_endpoint(
                     await asyncio.gather(
                         *(
                             _event_source(
-                                event, scoped, send_outgoing, endpoint.observer
+                                event,
+                                scoped,
+                                send_outgoing,
+                                endpoint.observer,
+                                rejections,
                             )
                             for event in endpoint.protocol.notifications
                         )
                     )
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as error:
+                    rejected = _rejection(error, rejections)
+                    if rejected is not None:
+                        request_close(
+                            REJECTION_CLOSES[rejected.rejection], rejected.reason
+                        )
+                        return
                     logger.exception("RPC event source failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
@@ -327,7 +358,7 @@ def _is_notification(message: object) -> bool:
     return isinstance(message, dict) and "id" not in message
 
 
-async def _event_source(event, resolver, send, observer):
+async def _event_source(event, resolver, send, observer, rejections=None):
     try:
         arguments = {
             parameter.name: await resolver.resolve(parameter.dependency)
@@ -354,8 +385,8 @@ async def _event_source(event, resolver, send, observer):
             )
     except asyncio.CancelledError:
         raise
-    except Exception:
-        if event.on_error == "close":
+    except Exception as error:
+        if event.on_error == "close" or _rejection(error, rejections) is not None:
             raise
         logger.exception("RPC event source %s failed", event.name)
 
@@ -369,11 +400,18 @@ async def serve_stream_endpoint(
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
     error_mapper: RpcErrorMapper | None = None,
+    rejections: RpcRejections | None = None,
 ) -> None:
     limits = limits or RpcLimits()
     stream = endpoint.stream
     prepared = await _prepare(
-        endpoint, socket, resolver, context, stream.path_model, before_accept
+        endpoint,
+        socket,
+        resolver,
+        context,
+        stream.path_model,
+        before_accept,
+        rejections,
     )
     if prepared is None:
         return
@@ -400,6 +438,10 @@ async def serve_stream_endpoint(
     def close_stream_error(error: Exception) -> None:
         if isinstance(error, RpcStreamClose):
             request_close(error.close, error.reason)
+            return
+        rejected = _rejection(error, rejections)
+        if rejected is not None:
+            request_close(REJECTION_CLOSES[rejected.rejection], rejected.reason)
             return
         try:
             mapped = (

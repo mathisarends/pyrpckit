@@ -1,6 +1,6 @@
 from types import MappingProxyType
 
-from rpckit.connection import RpcConnectionClose, RpcRejection
+from rpckit.connection import REJECTION_CLOSES, RpcConnectionClose
 
 CLOSE_CODES = MappingProxyType(
     {
@@ -10,18 +10,12 @@ CLOSE_CODES = MappingProxyType(
         RpcConnectionClose.POLICY_VIOLATION: 1008,
         RpcConnectionClose.MESSAGE_TOO_BIG: 1009,
         RpcConnectionClose.INTERNAL_ERROR: 1011,
+        RpcConnectionClose.TRY_AGAIN_LATER: 1013,
         RpcConnectionClose.OTHER: 1008,
     }
 )
 REJECTION_CLOSE_CODES = MappingProxyType(
-    {
-        RpcRejection.UNAUTHORIZED: 1008,
-        RpcRejection.FORBIDDEN: 1008,
-        RpcRejection.NOT_FOUND: 1008,
-        RpcRejection.PROTOCOL_ERROR: 1002,
-        RpcRejection.UNAVAILABLE: 1013,
-        RpcRejection.INTERNAL_ERROR: 1011,
-    }
+    {rejection: CLOSE_CODES[close] for rejection, close in REJECTION_CLOSES.items()}
 )
 MAX_CLOSE_REASON_BYTES = 123
 

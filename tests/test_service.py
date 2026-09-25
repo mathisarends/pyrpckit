@@ -29,6 +29,26 @@ def test_channel_cannot_be_mounted_twice() -> None:
         service.socket("/two", channels=(channel,))
 
 
+def test_endpoints_record_their_declared_context() -> None:
+    class Session:
+        pass
+
+    service = RpcService()
+    session = service.socket(
+        "/session", channels=(RpcChannel("session"),), context=Session
+    )
+    plain = service.socket("/plain", channels=(RpcChannel("plain"),))
+
+    assert session.context is Session
+    assert plain.context is None
+    with pytest.raises(ProtocolDefinitionError, match="context must be a class"):
+        service.socket(
+            "/invalid",
+            channels=(RpcChannel("invalid"),),
+            context="Session",  # type: ignore[arg-type]
+        )
+
+
 def test_service_freezes_channels() -> None:
     channel = RpcChannel("control")
     service = RpcService()
