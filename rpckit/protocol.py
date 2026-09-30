@@ -203,7 +203,7 @@ class RpcProtocol:
 def method_definition(
     *,
     name: str,
-    function: FunctionType,
+    function: Any,
     handler_name: str,
     summary: str | None,
     raises: tuple[type[RpcError], ...],

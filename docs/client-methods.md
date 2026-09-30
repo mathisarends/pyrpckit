@@ -27,6 +27,11 @@ the generated client's `*Handler` class provides that implementation.
 
 Server streams are declared the same way, with `channel.server.stream(...)`.
 
+The server side is the default: `channel.method(...)`, `channel.event(...)`,
+`channel.subscription(...)`, and `channel.stream(...)` are shorthands for the
+`channel.server` decorators. Spell out `channel.server` when a channel also
+declares client methods, so both directions read side by side.
+
 Both sides can send JSON-RPC requests on the same socket. The Language
 Server Protocol relies on this pattern (`workspace/applyEdit`), and OpenAPI
 calls it `callbacks`.

@@ -27,12 +27,12 @@ and any transport you already have can serve a rpckit service.
 You define each operation once, on the server:
 
 ```python
-@tasks.server.method()
+@tasks.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     return await store.create(params.title)
 
 
-@tasks.server.event()
+@tasks.event()
 async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
     async for task in store.watch():
         yield TaskUpdated(task=task)
@@ -99,7 +99,7 @@ class TaskStore:
 tasks = RpcChannel("tasks")
 
 
-@tasks.server.method()
+@tasks.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     """Create a task."""
     return await store.create(params.title)
