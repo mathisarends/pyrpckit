@@ -15,7 +15,14 @@ from rpckit.dependencies import (
     call_scope,
     resolver_with_context,
 )
-from rpckit.errors import ProtocolDefinitionError, RpcError, declared_error
+from rpckit.errors import (
+    ProtocolDefinitionError,
+    RpcError,
+    RpcErrorBinding,
+    RpcErrorDeclaration,
+    error_declarations,
+    merge_error_declarations,
+)
 from rpckit.observer import RpcObserverLike
 from rpckit.protocol import (
     RpcClientMethod,
@@ -52,7 +59,7 @@ class RpcChannel:
         /,
         *,
         namespace: str | None = None,
-        raises: Iterable[type[RpcError]] = (),
+        raises: Iterable[RpcErrorDeclaration] = (),
         resolver_scope: RpcResolverScope = call_scope,
     ) -> None:
         if name is None and namespace is None:
@@ -68,7 +75,7 @@ class RpcChannel:
         if not self._name:
             raise ProtocolDefinitionError("RPC channel name cannot be empty")
         self._namespace = resolved_namespace
-        self._raises = tuple(dict.fromkeys(declared_error(item) for item in raises))
+        self._raises = error_declarations(raises, owner=f"RPC channel {self.name}")
         if not callable(resolver_scope):
             raise ProtocolDefinitionError("RPC resolver scope must be callable")
         self._resolver_scope = resolver_scope
@@ -139,18 +146,22 @@ class RpcChannel:
 
     def child(
         self,
-        segment: str,
+        name: str,
         /,
         *,
-        raises: Iterable[type[RpcError]] = (),
+        raises: Iterable[RpcErrorDeclaration] = (),
         resolver_scope: RpcResolverScope | None = None,
     ) -> "RpcChannel":
         self._ensure_mutable()
-        local = _segment(segment, "child channel name")
+        local = _name(name, "child channel name")
         child = RpcChannel(
             join_rpc_name(self.name, local),
             namespace=join_rpc_name(self.namespace, local),
-            raises=(*self.raises, *raises),
+            raises=merge_error_declarations(
+                self.raises,
+                raises,
+                owner=f"RPC channel {join_rpc_name(self.name, local)}",
+            ),
             resolver_scope=resolver_scope or self.resolver_scope,
         )
         self._children.append(child)
@@ -219,7 +230,6 @@ class RpcChannel:
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserverLike | None = None,
         limits: RpcLimits | None = None,
-        errors: Mapping[type[Exception], type[RpcError]] | None = None,
         strict_errors: bool = False,
     ) -> RpcServer:
         return RpcServer._from_channel(
@@ -228,7 +238,6 @@ class RpcChannel:
             error_mapper=error_mapper,
             observer=observer,
             limits=limits,
-            errors=errors,
             strict_errors=strict_errors,
         )
 
@@ -271,7 +280,7 @@ class RpcServerSide:
         /,
         *,
         summary: str | None = None,
-        raises: Iterable[type[RpcError]] = (),
+        raises: Iterable[RpcErrorDeclaration] = (),
     ) -> Callable[[FunctionType], FunctionType]: ...
 
     def method(
@@ -280,7 +289,7 @@ class RpcServerSide:
         /,
         *,
         summary: str | None = None,
-        raises: Iterable[type[RpcError]] = (),
+        raises: Iterable[RpcErrorDeclaration] = (),
     ) -> Any:
         channel = self._channel
         channel._ensure_mutable()
@@ -290,15 +299,16 @@ class RpcServerSide:
             raise ProtocolDefinitionError(
                 "RPC method decorator expects a function or name"
             )
-        local_name = None if name is None else _segment(name, "method name")
-        merged_raises = tuple(
-            dict.fromkeys((*channel.raises, *(declared_error(e) for e in raises)))
-        )
+        local_name = None if name is None else _name(name, "method name")
+        raises = tuple(raises)
 
         def decorate(function: FunctionType) -> FunctionType:
             channel._validate_function(function, "method", coroutine=True)
             wire_name = join_rpc_name(
                 channel.namespace, local_name or function.__name__
+            )
+            merged_raises = merge_error_declarations(
+                channel.raises, raises, owner=f"RPC method {wire_name}"
             )
             channel._reserve(wire_name)
             channel._routes.append(
@@ -326,6 +336,7 @@ class RpcServerSide:
         payload: Any = None,
         summary: str | None = None,
         on_error: str = "continue",
+        raises: Iterable[RpcErrorDeclaration] = (),
     ) -> Callable[[FunctionType], FunctionType]: ...
 
     def event(
@@ -336,6 +347,7 @@ class RpcServerSide:
         payload: Any = None,
         summary: str | None = None,
         on_error: str = "continue",
+        raises: Iterable[RpcErrorDeclaration] = (),
     ) -> Any:
         channel = self._channel
         channel._ensure_mutable()
@@ -349,11 +361,15 @@ class RpcServerSide:
             raise ProtocolDefinitionError(
                 "RPC event decorator expects a function or name"
             )
+        raises = tuple(raises)
 
         def decorate(function: FunctionType) -> FunctionType:
             channel._validate_function(function, "event", coroutine=False)
             wire_name = join_rpc_name(
-                channel.namespace, _segment(name or function.__name__, "event name")
+                channel.namespace, _name(name or function.__name__, "event name")
+            )
+            merged_raises = merge_error_declarations(
+                channel.raises, raises, owner=f"RPC event {wire_name}"
             )
             definition = notification_definition(
                 name=wire_name,
@@ -362,6 +378,7 @@ class RpcServerSide:
                 summary=summary or _docstring_summary(function),
                 server=None,
                 on_error=on_error,
+                raises=merged_raises,
             )
             channel._reserve(wire_name)
             channel._events.append(definition)
@@ -374,11 +391,21 @@ class RpcServerSide:
 
     @overload
     def subscription(
-        self, name: str | None = None, /, *, summary: str | None = None
+        self,
+        name: str | None = None,
+        /,
+        *,
+        summary: str | None = None,
+        raises: Iterable[RpcErrorDeclaration] = (),
     ) -> Callable[[FunctionType], FunctionType]: ...
 
     def subscription(
-        self, name: str | FunctionType | None = None, /, *, summary: str | None = None
+        self,
+        name: str | FunctionType | None = None,
+        /,
+        *,
+        summary: str | None = None,
+        raises: Iterable[RpcErrorDeclaration] = (),
     ) -> Any:
         channel = self._channel
         channel._ensure_mutable()
@@ -388,18 +415,23 @@ class RpcServerSide:
             raise ProtocolDefinitionError(
                 "RPC subscription decorator expects a function or name"
             )
+        raises = tuple(raises)
 
         def decorate(function: FunctionType) -> FunctionType:
             channel._validate_function(function, "subscription", coroutine=False)
             wire_name = join_rpc_name(
                 channel.namespace,
-                _segment(name or function.__name__, "subscription name"),
+                _name(name or function.__name__, "subscription name"),
+            )
+            merged_raises = merge_error_declarations(
+                channel.raises, raises, owner=f"RPC subscription {wire_name}"
             )
             definition = subscription_definition(
                 name=wire_name,
                 function=function,
                 summary=summary or _docstring_summary(function),
                 resolver_scope=channel.resolver_scope,
+                raises=merged_raises,
             )
             channel._reserve(wire_name)
             channel._subscriptions.append(definition)
@@ -449,7 +481,7 @@ class RpcServerSide:
 
         def decorate(function: FunctionType) -> FunctionType:
             channel._validate_function(function, "stream", coroutine=False)
-            local = _segment(name or function.__name__, "stream name")
+            local = _name(name or function.__name__, "stream name")
             wire_name = join_rpc_name(channel.namespace, local)
             definition = stream_definition(
                 name=wire_name,
@@ -486,15 +518,19 @@ class RpcClientSide:
         """Declare a request the server sends and the connected client answers."""
         channel = self._channel
         channel._ensure_mutable()
-        wire_name = join_rpc_name(
-            channel.namespace, _segment(name, "client method name")
-        )
+        wire_name = join_rpc_name(channel.namespace, _name(name, "client method name"))
+        raises = tuple(raises)
+        if any(isinstance(error, RpcErrorBinding) for error in raises):
+            raise ProtocolDefinitionError(
+                "Client methods declare RpcError subclasses: the server receives "
+                "these errors and cannot rebuild a domain exception from them"
+            )
         definition = client_method_definition(
             name=wire_name,
             params=params,
             result=result,
             summary=summary,
-            raises=tuple(dict.fromkeys(declared_error(e) for e in raises)),
+            raises=error_declarations(raises, owner=f"RPC client method {wire_name}"),
         )
         channel._reserve(wire_name)
         channel._client_methods.append(definition)
@@ -508,21 +544,15 @@ def join_rpc_name(*parts: str) -> str:
 def normalize_namespace(value: object) -> str:
     namespace = str(value)
     if namespace:
-        for part in namespace.split("."):
-            _segment(part, "namespace")
+        _name(namespace, "namespace")
     return namespace
 
 
-def _segment(value: object, kind: str) -> str:
-    if isinstance(value, str) and "." in value:
-        raise ProtocolDefinitionError(
-            f"RPC {kind} {value!r} contains '.'; names are single segments "
-            "inside the channel namespace. Use channel.child(...) for a nested "
-            "namespace."
-        )
-    if (
-        not isinstance(value, str)
-        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", value) is None
+def _name(value: object, kind: str) -> str:
+    """Validate a name relative to a namespace; dots separate its segments."""
+    if not isinstance(value, str) or any(
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", segment) is None
+        for segment in value.split(".")
     ):
         raise ProtocolDefinitionError(f"Invalid RPC {kind}: {value!r}")
     return value

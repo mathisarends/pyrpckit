@@ -1,6 +1,107 @@
 # Changelog
 
-## 0.9.0 - Unreleased
+## 0.10.0 - Unreleased
+
+### Migration from 0.9
+
+- `RpcService(errors=...)`, `RpcChannel.create_server(errors=...)`, and
+  `RpcService.errors` are removed. Replace the global exception mapping with
+  `RpcErrorBinding` declarations in the relevant operations' `raises=`.
+  `error_mapper` remains available for custom mapping logic.
+- Regenerate committed Python and TypeScript clients so
+  `rpckit generate --check` passes and subscription failures are decoded as
+  structured RPC errors.
+- Normal and shutdown closes now wait until queued messages are sent, bounded by
+  `RpcLimits.send_timeout`. Remove workarounds that tracked socket sends before
+  calling `connection.close()`, and use `close_when_events_complete=True` for
+  sockets that should end with their event sources.
+- Users of earlier 0.10 PR revisions must replace `RpcErrorContract` with
+  `RpcErrorBinding`, `binding.error` with `binding.error_type`, and connection
+  `raises=` with `rejects=`. These names have no compatibility aliases.
+- Child-channel and operation bindings override inherited bindings for the
+  same exception class. Other inherited errors are kept. Conflicting bindings
+  within one declaration raise `ProtocolDefinitionError` when that channel or
+  operation is registered, with its name in the diagnostic.
+- `rejections=` passed to `serve()`, `create_router()`, `serve_websocket()`,
+  `RpcRoutes`, or `RpcTestClient` keeps working and is consulted first. Move
+  mappings repeated at several call sites to bindings in
+  `RpcService(rejects=...)` or in the endpoint's `socket(rejects=...)` or
+  `stream(rejects=...)`.
+- Child channels that only hold a single operation can become a dotted name on
+  the parent channel, for example `@channel.server.method("text.insert")`. The
+  wire name stays the same.
+
+### Added
+
+- Close finite event sockets with
+  `RpcService.socket(..., close_when_events_complete=True)`. Once every event
+  source of the socket has finished, the queued notifications are sent and the
+  connection closes with `NORMAL`. Sockets whose channels declare no events
+  reject the option.
+- Bind domain exceptions to RPC errors with `RpcErrorBinding`, so domain code
+  no longer imports rpckit. A binding sets the same `code`, `message`,
+  `rpc_code`, and `details` as an `RpcError` subclass, reads dynamic messages
+  and details from the exception, and may name the `RpcRejection` the
+  exception becomes when it ends a connection. Declare it in `raises=` of
+  methods, events, subscriptions, and channels, where it appears in OpenRPC and
+  generated clients like an `RpcError` subclass. Lookup is scoped to each
+  operation regardless of `strict_errors`; the same domain exception can have
+  different bindings on different operations. The most specific binding matches
+  subclasses. Required `details=Model` field names are checked at definition,
+  and `binding.check(exception)` validates a representative instance. Server
+  error classes use an `RpcError` suffix to avoid domain exception collisions;
+  `binding.error_type` exposes the generated class. Export `RpcErrorBinding`
+  and `RpcErrorDeclaration`.
+- Override a channel's binding at a child channel, method, event, or
+  subscription for the same domain exception. Overrides affect only that
+  operation or child channel, including its OpenRPC and generated client
+  declarations. Bindings for more specific exception subclasses are retained.
+- Declare connection failures next to the endpoints with bindings in
+  `RpcService(rejects=...)`, `RpcService.socket(..., rejects=...)`,
+  `RpcService.stream(..., rejects=...)`, and `RpcRoutes(..., rejects=...)`.
+  The binding's message becomes the rejection reason. A failure is looked up
+  in the call's `rejections=` first (`serve()`, `create_router()`,
+  `serve_websocket()`, `RpcRoutes`, `RpcTestClient`), then the endpoint's
+  `rejects=`, then the service's; the first level that maps it wins.
+- Pass dotted names to `method()`, `event()`, `subscription()`, `stream()`,
+  `client.method()`, and `child()`. Names are relative to the channel
+  namespace and each segment is validated, so
+  `@channel.server.method("text.insert")` no longer needs a child channel.
+  Wire names, contracts, and generated clients match the child-channel
+  equivalent.
+
+### Removed
+
+- The service-wide `errors=` mapping, the channel server's `errors=` parameter,
+  and the `RpcService.errors` property. No deprecated fallback is retained.
+- The earlier 0.10 draft's `RpcErrorBinding.error` attribute; use `error_type`.
+
+### Fixed
+
+- Dishka context injection through `RpcRoutes` works on the supported minimum
+  Dishka 1.7 and FastAPI 0.115 versions: the injector resolves from the
+  WebSocket's container instead of requiring an HTTP request.
+- Conflicting error bindings are rejected during channel or operation
+  registration instead of waiting for freeze. Diagnostics identify the channel,
+  method, event, or subscription and both conflicting error codes.
+- Unresolvable or invalid `details=` callback annotations raise
+  `ProtocolDefinitionError` with the domain exception's name and the original
+  cause. Error-binding diagnostics consistently use "binding" terminology.
+- `strict_errors=True` accepts subclasses of declared `RpcError` types.
+- Exceptions raised by an `error_mapper` are logged and contained as
+  `internal_error`, including for notifications.
+- Positional JSON-RPC parameter arrays are rejected with `-32602`
+  (`invalid_params`) instead of `-32600` (`invalid_request`).
+- Aborted subscriptions send the declared RPC error payload instead of the
+  fixed text `Subscription failed`; generated clients expose typed failures.
+- `RpcConnection.close()` with `NORMAL` or `SHUTDOWN` no longer drops the
+  message being sent when the close arrives. Closes wait until the queued
+  messages are sent, within `RpcLimits.send_timeout` in total, so an event
+  source can close right after its final `yield`.
+- Cancelling a served JSON-RPC connection also cancels its reader, writer,
+  event sources, and pending requests instead of leaving them running.
+
+## 0.9.0 - 2026-09-25
 
 ### Added
 
@@ -30,7 +131,7 @@
 - Add `RpcConnectionClose.TRY_AGAIN_LATER` (WebSocket code 1013), used when an
   accepted connection is closed with `RpcRejection.UNAVAILABLE`.
 
-## 0.8.0 - Unreleased
+## 0.8.0 - 2026-09-24
 
 ### Migration from 0.7
 
@@ -143,7 +244,7 @@
   a connection uses the same client/server vocabulary as client methods. The
   module `rpckit.peer` is now `rpckit.connected_client`.
 
-## 0.7.0 - Unreleased
+## 0.7.0 - 2026-09-19
 
 ### Migration from 0.6
 

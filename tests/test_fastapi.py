@@ -14,11 +14,13 @@ from starlette.testclient import WebSocketDenialResponse
 
 from rpckit import (
     Inject,
+    ProtocolDefinitionError,
     RpcBinaryInput,
     RpcBinaryOutput,
     RpcChannel,
     RpcConnection,
     RpcDisconnect,
+    RpcErrorBinding,
     RpcReject,
     RpcRejection,
     RpcRejections,
@@ -315,6 +317,11 @@ class JobNotFound(Exception):
     pass
 
 
+job_not_found = RpcErrorBinding(
+    JobNotFound, message=str, rejection=RpcRejection.NOT_FOUND
+)
+
+
 class JobOutput:
     def __init__(self, frames: list[bytes]) -> None:
         self.frames = frames
@@ -346,7 +353,11 @@ async def open_job_session(
     return JobSession(Job(job_id), actor)
 
 
-def create_job_service(released: list[bool] | None = None) -> RpcService:
+def create_job_service(
+    released: list[bool] | None = None,
+    *,
+    rejects: tuple[RpcErrorBinding[Any], ...] = (),
+) -> RpcService:
     events = RpcChannel("jobs")
 
     @events.server.method()
@@ -374,7 +385,7 @@ def create_job_service(released: list[bool] | None = None) -> RpcService:
         yield b"first"
         raise JobNotFound("Job was deleted")
 
-    service = RpcService()
+    service = RpcService(rejects=rejects)
     service.socket(
         "/jobs/{job_id}/events", channels=(events,), name="events", context=JobSession
     )
@@ -386,6 +397,7 @@ def create_job_service(released: list[bool] | None = None) -> RpcService:
 def create_job_app(
     service: RpcService,
     *,
+    rejects: tuple[RpcErrorBinding[Any], ...] = (),
     rejections: RpcRejections | None = None,
 ) -> FastAPI:
     async def resolve(dependency: type) -> JobOutput:
@@ -393,7 +405,11 @@ def create_job_app(
 
     router = APIRouter(prefix="/jobs")
     routes = RpcRoutes(
-        router, context=open_job_session, resolver=resolve, rejections=rejections
+        router,
+        context=open_job_session,
+        resolver=resolve,
+        rejects=rejects,
+        rejections=rejections,
     )
     for name in ("events", "output", "broken"):
         routes.mount(service.endpoint(name))
@@ -444,6 +460,24 @@ def test_rpc_routes_reject_context_failures_before_accepting(rejections) -> None
         pass
     assert denied.value.status_code == 404
     assert denied.value.text == "Job not found"
+
+
+def test_rpc_routes_reject_context_failures_their_contracts_cover() -> None:
+    web = create_job_app(create_job_service(), rejects=(job_not_found,))
+
+    with (
+        TestClient(web) as client,
+        pytest.raises(WebSocketDenialResponse) as denied,
+        client.websocket_connect(f"/jobs/{UUID(int=2)}/events"),
+    ):
+        pass
+    assert denied.value.status_code == 404
+    assert denied.value.text == "Job not found"
+
+
+def test_rpc_routes_raises_needs_contracts_with_a_rejection() -> None:
+    with pytest.raises(ProtocolDefinitionError, match="with a rejection"):
+        RpcRoutes(APIRouter(), rejects=(RpcErrorBinding(JobNotFound),))
 
 
 def test_rpc_routes_reject_raised_rejections_with_their_headers() -> None:
@@ -497,6 +531,24 @@ def test_rpc_routes_close_accepted_streams_with_mapped_rejections() -> None:
             "code": 1008,
             "reason": "Job was deleted",
         }
+
+
+def test_rpc_routes_fall_back_to_the_service_contracts() -> None:
+    web = create_job_app(
+        create_job_service(rejects=(job_not_found,)),
+        rejections={KeyError: RpcRejection.UNAUTHORIZED},
+    )
+
+    with TestClient(web) as client:
+        with (
+            pytest.raises(WebSocketDenialResponse) as denied,
+            client.websocket_connect(f"/jobs/{UUID(int=2)}/events"),
+        ):
+            pass
+        with client.websocket_connect(f"/jobs/{KNOWN_JOB}/broken") as websocket:
+            assert websocket.receive_bytes() == b"first"
+            assert websocket.receive()["code"] == 1008
+    assert denied.value.status_code == 404
 
 
 def test_rpc_routes_key_a_subclass_context_by_the_declared_type() -> None:

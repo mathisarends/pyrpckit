@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+import pytest
 from pydantic import BaseModel
 
 from rpckit import (
@@ -25,6 +26,15 @@ from .conftest import (
 
 def _server(handler: GreetingState) -> RpcServer:
     return greeting_app.create_server(resolver=TestResolver(handler))
+
+
+@pytest.mark.parametrize("params", [[], ["M"], [1, 2]])
+async def test_positional_params_are_invalid_params(handler, params) -> None:
+    response = await _server(handler).handle(
+        {"jsonrpc": "2.0", "id": 7, "method": GreetingRpcMethod.SAY, "params": params}
+    )
+    assert response.error.code == RpcErrorCode.INVALID_PARAMS
+    assert response.id == 7
 
 
 async def test_a_request_is_answered_with_its_result(
@@ -295,7 +305,7 @@ async def test_batch_size_limit_rejects_batch() -> None:
     assert response.error.code == RpcErrorCode.INVALID_REQUEST
 
 
-async def test_declarative_error_mapping_and_strict_errors() -> None:
+async def test_custom_error_mapper_and_strict_errors() -> None:
     class DomainMissing(Exception):
         pass
 
@@ -312,7 +322,14 @@ async def test_declarative_error_mapping_and_strict_errors() -> None:
     async def undeclared() -> None:
         raise DomainMissing("gone")
 
-    service = RpcService(errors={DomainMissing: MissingError}, strict_errors=True)
+    def mapper(error: Exception) -> RpcError | None:
+        return (
+            MissingError(message=str(error))
+            if isinstance(error, DomainMissing)
+            else None
+        )
+
+    service = RpcService(error_mapper=mapper, strict_errors=True)
     endpoint = service.socket("/mapped", channels=(channel,))
     server = endpoint.create_server()
     declared_response = await server.handle(

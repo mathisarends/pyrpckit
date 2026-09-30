@@ -55,26 +55,138 @@ Errors may be declared for every method in a channel:
 tasks = RpcChannel("tasks", raises=(PermissionDeniedError,))
 ```
 
-Method-level declarations are added to the channel-level set.
-
-Map domain exceptions at service construction when an RPC error needs no
-details model:
-
-```python
-service = RpcService(
-    errors={TaskNotFound: TaskNotFoundRpcError},
-    strict_errors=True,
-)
-```
-
-The original exception text becomes the RPC error message. `error_mapper`
-remains a fallback for mappings that need custom details. With
-`strict_errors=True`, an application error absent from the method's `raises=`
-declaration becomes an internal error and is logged.
+Operation-level declarations extend the channel-level set. A local binding
+replaces an inherited binding for the same domain exception class. With
+`RpcService(strict_errors=True)`, an application error absent from the
+method's `raises=` declaration becomes an internal error and is logged.
+Subclasses of a declared `RpcError` are accepted. Error bindings always require
+an operation declaration, regardless of `strict_errors`.
 
 Clients should identify application errors by `error.data.code`. The numeric
 `error.code` is optional for application-specific identity; distinct errors may
 share it. The service warns when explicitly assigned numeric codes collide.
+
+## Bind domain exceptions
+
+Domain code should not have to import rpckit. An `RpcErrorBinding` binds an
+exception it raises to the RPC error that answers it, so the exception stays
+free of transport concerns:
+
+```python
+# tasks/exceptions.py
+class TaskNotFound(Exception):
+    def __init__(self, task_id: int) -> None:
+        self.task_id = task_id
+```
+
+```python
+# tasks/rpc_errors.py
+from rpckit import RpcErrorBinding, RpcModel, RpcRejection
+
+
+class TaskRef(RpcModel):
+    task_id: int
+
+
+task_not_found = RpcErrorBinding(
+    TaskNotFound,
+    message="Task not found",
+    details=TaskRef,
+    rejection=RpcRejection.NOT_FOUND,
+)
+```
+
+Declare the binding in `raises=` like an `RpcError` subclass. A method that
+lets `TaskNotFound` escape answers with the `task_not_found` error:
+
+```python
+@tasks.server.method(raises=[task_not_found])
+async def get(params: GetTask, repository: Inject[TaskRepository]) -> Task:
+    return await repository.get(params.task_id)
+```
+
+The binding accepts the same settings as an `RpcError` subclass, with the same
+defaults: `code` is derived from the exception name (`TaskNotFound` becomes
+`task_not_found`), `message` from that code, and `rpc_code` defaults to
+`-32000`. The dynamic parts are read from the exception:
+
+- `details=` takes a Pydantic model filled from the exception's attributes, or
+  a function annotated to return one, such as
+  `def lock_details(error: TaskLocked) -> LockDetails`.
+- `message=` takes a string or a function of the exception. `message=str`
+  passes the exception text; do that only when the text is written for
+  clients.
+- `rejection=` is the `RpcRejection` the failure becomes when it ends a
+  connection instead of a call. See
+  [Map failures to rejections](connections-and-events.md#map-failures-to-rejections).
+
+Bindings are resolved only from the operation's `raises=`, including inherited
+channel declarations. The most specific exception class wins. An undeclared
+domain exception becomes a logged `internal_error` even with `strict_errors=False`.
+Different methods and channels can bind the same exception differently; two
+conflicting bindings for the same exception within one declaration are rejected
+immediately, with the channel or operation name in the error. A child channel's
+bindings override its parent's, and a method, event, or subscription's bindings
+override its channel's. Other inherited errors remain in effect, including
+bindings for more specific exception subclasses. Overrides do not mutate the
+parent channel or affect sibling operations.
+
+```python
+permission_denied = RpcErrorBinding(PermissionError, code="permission_denied")
+admin_required = RpcErrorBinding(PermissionError, code="admin_required")
+
+tasks = RpcChannel("tasks", raises=[permission_denied])
+
+
+@tasks.server.method(raises=[admin_required])
+async def delete(params: TaskRef) -> None:
+    raise PermissionError()
+```
+
+`tasks.delete` declares and returns `admin_required`; other operations in
+`tasks` keep `permission_denied`. Repeating the same binding is idempotent;
+different bindings for the same exception on the same level are an error.
+
+OpenRPC documents and generated clients describe a binding exactly like an
+`RpcError` subclass with the same settings. Client methods keep declaring `RpcError`
+subclasses, because the server receives these errors and cannot rebuild a
+domain exception from them.
+
+`RpcService(errors=...)`, `RpcChannel.create_server(errors=...)`, and
+`RpcService.errors` have been removed. Declare bindings on the operations that
+can return them. `error_mapper` remains available for failures that need code
+to decide.
+
+For `details=Model`, required model fields must appear in the exception's
+annotations, attributes/properties, or `__init__` parameters. Missing names
+raise `ProtocolDefinitionError` when the binding is constructed. Fields are
+read by their Python names, so wire aliases such as `taskId` need no matching
+exception attribute. For custom mappings, supply an annotated function instead.
+Unresolvable or invalid callback annotations raise `ProtocolDefinitionError`
+at binding definition, identifying the exception and preserving the original
+cause.
+Static checks cannot prove that a constructor stores its arguments or that a
+callback returns valid values. Validate representative instances in tests:
+
+```python
+task_not_found.check(TaskNotFound(1))
+```
+
+`check()` validates the actual details and dynamic message, raising the original
+validation error on failure. At runtime, a failed binding or `error_mapper` is
+logged and answers with `internal_error`. The binding's server-side error class
+uses an `RpcError` suffix (`TaskNotFoundRpcError`) to distinguish it from the
+domain exception. Access this class through `task_not_found.error_type`;
+there is no `binding.error` alias. Generated client exception names keep their
+`Error` suffix.
+
+Events and subscriptions also accept `raises=` and inherit channel declarations.
+Subscription failures send a terminal notification with `complete: false` and
+an `error` object containing JSON-RPC `code`, `message`, and `data` (application
+code and typed details). Generated Python and TypeScript iterators raise the
+declared client error. Undeclared failures send `internal_error` and are logged.
+An event binding with `rejection=` closes the connection with that rejection;
+otherwise `on_error="close"` uses its mapped message as the close reason.
 
 ## Unexpected exceptions
 

@@ -25,7 +25,13 @@ from rpckit.dependencies import (
     RpcResolverScope,
     injected_parameter,
 )
-from rpckit.errors import ProtocolDefinitionError, RpcError, RpcMethodNotFoundError
+from rpckit.errors import (
+    ProtocolDefinitionError,
+    RpcError,
+    RpcMethodNotFoundError,
+    bind_contracts,
+    contract_of,
+)
 from rpckit.streams import RpcBinaryInput, RpcBinaryOutput, RpcStreamDirection
 from rpckit.wire import wire_annotation
 
@@ -68,6 +74,7 @@ class RpcNotificationDefinition:
     function: FunctionType | None = None
     injected_parameters: tuple[RpcInjectedParameter, ...] = ()
     on_error: str = "continue"
+    raises: tuple[type[RpcError], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +89,7 @@ class RpcSubscriptionDefinition:
     resolver_scope: RpcResolverScope
     summary: str | None = None
     server: str | None = None
+    raises: tuple[type[RpcError], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +155,15 @@ class RpcProtocol:
         self._client_methods = _unique(
             "client method", ((item.name, item) for item in client_methods)
         )
+        for operation in (*self.methods, *self.notifications, *self.subscriptions):
+            bind_contracts(
+                (
+                    contract
+                    for error in operation.raises
+                    if (contract := contract_of(error)) is not None
+                ),
+                owner=f"RPC operation {operation.name}",
+            )
 
     @property
     def version(self) -> int:
@@ -347,6 +364,7 @@ def notification_definition(
     summary: str | None,
     server: str | None,
     on_error: str = "continue",
+    raises: tuple[type[RpcError], ...] = (),
 ) -> RpcNotificationDefinition:
     if not inspect.isasyncgenfunction(function):
         raise ProtocolDefinitionError(
@@ -385,6 +403,7 @@ def notification_definition(
         function=function,
         injected_parameters=injected,
         on_error=on_error,
+        raises=raises,
     )
 
 
@@ -394,6 +413,7 @@ def subscription_definition(
     function: FunctionType,
     summary: str | None,
     resolver_scope: RpcResolverScope,
+    raises: tuple[type[RpcError], ...] = (),
 ) -> RpcSubscriptionDefinition:
     if not inspect.isasyncgenfunction(function):
         raise ProtocolDefinitionError(
@@ -421,6 +441,7 @@ def subscription_definition(
         ),
         resolver_scope=resolver_scope,
         summary=summary,
+        raises=raises,
     )
 
 

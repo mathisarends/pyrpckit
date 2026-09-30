@@ -34,7 +34,9 @@ from .envelopes import RpcFailure, RpcNotification, RpcRequestId, RpcSuccess
 from .errors import (
     ProtocolDefinitionError,
     RpcError,
+    RpcErrorBinding,
     RpcErrorCode,
+    RpcErrorDeclaration,
     RpcInternalError,
     RpcInvalidParamsError,
     RpcInvalidRequestError,
@@ -63,7 +65,7 @@ from .streams import (
     RpcStreamDirection,
 )
 
-__version__ = "0.8.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "Inject",
@@ -89,6 +91,8 @@ __all__ = [
     "RpcEndpoint",
     "RpcError",
     "RpcErrorCode",
+    "RpcErrorBinding",
+    "RpcErrorDeclaration",
     "RpcErrorMapper",
     "RpcFailure",
     "RpcHandshake",

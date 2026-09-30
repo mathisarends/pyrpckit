@@ -31,7 +31,14 @@ from rpckit.dependencies import (
     context_values,
 )
 from rpckit.envelopes import RpcNotification, RpcRequestEnvelope
-from rpckit.errors import RpcError, RpcParseError
+from rpckit.errors import (
+    RpcError,
+    RpcInternalError,
+    RpcParseError,
+    bind_contracts,
+    contract_for,
+    contract_of,
+)
 from rpckit.observer import RpcConnectionContext, notify_observer
 from rpckit.server import RpcErrorMapper, RpcServer, _request_id
 from rpckit.service import RpcEndpoint, RpcStreamEndpoint
@@ -179,7 +186,6 @@ async def serve_endpoint(
                 observer=endpoint.observer,
                 connection=connection,
                 limits=limits,
-                errors=endpoint.service.errors,
                 strict_errors=endpoint.service.strict_errors,
             )
             subscriptions = SubscriptionSession(
@@ -187,6 +193,7 @@ async def serve_endpoint(
                 scoped,
                 send_outgoing,
                 limit=limits.max_subscriptions,
+                server=server,
                 observer=endpoint.observer,
             )
 
@@ -195,8 +202,11 @@ async def serve_endpoint(
                 try:
                     while True:
                         message = await outgoing.get()
-                        async with asyncio.timeout(limits.send_timeout):
-                            await socket.send(message)
+                        try:
+                            async with asyncio.timeout(limits.send_timeout):
+                                await socket.send(message)
+                        finally:
+                            outgoing.task_done()
                 except asyncio.CancelledError:
                     raise
                 except RpcDisconnect as error:
@@ -288,6 +298,7 @@ async def serve_endpoint(
                                 send_outgoing,
                                 endpoint.observer,
                                 rejections,
+                                server,
                             )
                             for event in endpoint.protocol.notifications
                         )
@@ -303,24 +314,32 @@ async def serve_endpoint(
                         return
                     logger.exception("RPC event source failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+                    return
+                if endpoint.close_when_events_complete:
+                    request_close(RpcConnectionClose.NORMAL, "")
 
-            background = [
-                asyncio.create_task(writer()),
+            writer_task = asyncio.create_task(writer())
+            producers = [
                 asyncio.create_task(reader()),
                 asyncio.create_task(events()),
             ]
-            await close_event.wait()
-            for task in (*background, *tasks):
-                task.cancel()
-            await asyncio.gather(*background, *tasks, return_exceptions=True)
-            await subscriptions.close()
-            if close_value[0] in (
-                RpcConnectionClose.NORMAL,
-                RpcConnectionClose.SHUTDOWN,
-            ):
-                while not outgoing.empty():
-                    with suppress(RpcDisconnect):
-                        await socket.send(outgoing.get_nowait())
+            try:
+                await close_event.wait()
+                for task in (*producers, *tasks):
+                    task.cancel()
+                await asyncio.gather(*producers, *tasks, return_exceptions=True)
+                await subscriptions.close()
+                if close_value[0] in (
+                    RpcConnectionClose.NORMAL,
+                    RpcConnectionClose.SHUTDOWN,
+                ):
+                    await _flush(outgoing, writer_task, limits.send_timeout)
+            finally:
+                for task in (writer_task, *producers, *tasks):
+                    task.cancel()
+                await asyncio.gather(
+                    writer_task, *producers, *tasks, return_exceptions=True
+                )
     except asyncio.CancelledError:
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
         connection._close_code = RpcConnectionClose.SHUTDOWN
@@ -354,11 +373,23 @@ class RpcPendingLimitError(RpcError):
     message = "Too many pending requests"
 
 
+async def _flush(
+    outgoing: asyncio.Queue[str], writer: asyncio.Task, timeout: float | None
+) -> None:
+    drained = asyncio.create_task(outgoing.join())
+    try:
+        await asyncio.wait(
+            (drained, writer), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        drained.cancel()
+
+
 def _is_notification(message: object) -> bool:
     return isinstance(message, dict) and "id" not in message
 
 
-async def _event_source(event, resolver, send, observer, rejections=None):
+async def _event_source(event, resolver, send, observer, rejections, server):
     try:
         arguments = {
             parameter.name: await resolver.resolve(parameter.dependency)
@@ -386,9 +417,35 @@ async def _event_source(event, resolver, send, observer, rejections=None):
     except asyncio.CancelledError:
         raise
     except Exception as error:
-        if event.on_error == "close" or _rejection(error, rejections) is not None:
-            raise
-        logger.exception("RPC event source %s failed", event.name)
+        binding = contract_for(
+            error,
+            bind_contracts(
+                binding
+                for declared in event.raises
+                if (binding := contract_of(declared)) is not None
+            ),
+        )
+        if binding is not None:
+            try:
+                rejected = binding.reject(error)
+            except Exception:
+                logger.exception("RPC event error binding failed for %s", event.name)
+                raise RpcReject(
+                    RpcRejection.INTERNAL_ERROR, "Internal error"
+                ) from error
+            if rejected is not None:
+                raise rejected from error
+        rejected = _rejection(error, rejections)
+        if rejected is not None:
+            raise rejected from error
+        mapped = server._rpc_error(error, event.name, declared=event.raises)
+        if event.on_error == "close":
+            rejection = (
+                RpcRejection.INTERNAL_ERROR
+                if isinstance(mapped, RpcInternalError)
+                else RpcRejection.FORBIDDEN
+            )
+            raise RpcReject(rejection, mapped.message) from error
 
 
 async def serve_stream_endpoint(

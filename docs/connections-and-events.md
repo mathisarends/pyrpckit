@@ -46,19 +46,46 @@ async def sign_out(connection: Inject[RpcConnection]) -> None:
     await connection.close(RpcConnectionClose.NORMAL, reason="Signed out")
 ```
 
+A `NORMAL` or `SHUTDOWN` close first sends the responses and notifications
+already queued for the connection, within `RpcLimits.send_timeout` in total.
+Other close codes close at once. Requests still running are cancelled, so their
+responses are not sent.
+
 ## Map failures to rejections
 
-`rejections=` turns domain failures into connection-level refusals. It takes a
-mapping from exception types to `RpcRejection` values, using the exception text
-as reason, or a callable that returns an `RpcReject` or `None`:
+A failure can end a connection instead of a call: a `before_accept` hook or a
+context function refuses it, an event source or binary stream breaks. Declare
+the [error bindings](errors.md#bind-domain-exceptions) of such failures in
+`rejects=`, on `RpcService` for failures every endpoint shares and on
+`socket()` or `stream()` for one endpoint's failures. Each binding names the
+`RpcRejection` its exception becomes:
+
+```python
+from rpckit import RpcErrorBinding, RpcRejection
+
+session_expired = RpcErrorBinding(SessionExpired, rejection=RpcRejection.UNAUTHORIZED)
+session_not_found = RpcErrorBinding(SessionNotFound, rejection=RpcRejection.NOT_FOUND)
+
+app = RpcService(rejects=[session_expired])
+app.socket(
+    "/sessions/{session_id}/events",
+    channels=(session_events,),
+    rejects=[session_not_found],
+)
+```
+
+The binding's message becomes the rejection reason, so a denied handshake
+answers 404 with `Session not found` rather than the exception text. The same
+binding can also appear in a method's `raises=`, where it answers calls with
+the `session_not_found` error.
+
+`serve()`, `create_router()`, `serve_websocket()`, `RpcRoutes`, and
+`RpcTestClient` accept `rejections=` for call-specific policies: a mapping from
+exception types to `RpcRejection` values, using the exception text as reason,
+or a callable that returns an `RpcReject` or `None`:
 
 ```python
 from rpckit import RpcReject, RpcRejection
-
-rejections = {
-    TaskNotFound: RpcRejection.NOT_FOUND,
-    TaskAccessDenied: RpcRejection.FORBIDDEN,
-}
 
 
 def reject(error: Exception) -> RpcReject | None:
@@ -67,8 +94,12 @@ def reject(error: Exception) -> RpcReject | None:
     return None
 ```
 
-Pass it to `serve()`, `create_router()`, `serve_websocket()`, or
-`RpcTestClient`. The connection state decides what a rejection becomes:
+A failure is looked up in the call's policy first, then the endpoint's
+`rejects=`, then the service's; the first one that maps it wins, and a callable
+returning `None` passes it on. More specific levels therefore add or override
+mappings without repeating the others.
+
+The connection state decides what a rejection becomes:
 
 | Failure | Result |
 |---|---|
@@ -110,8 +141,44 @@ The payload type comes from `AsyncIterator[T]`, so events do not need
 `payload=`. The optional `@channel.server.event(payload=...)` only asserts that type
 and fails at definition time when it differs from the yielded type.
 
+Declare expected source failures with `@channel.server.event(raises=[binding])`.
+Events inherit channel error declarations. A binding with `rejection=` closes
+the connection using its own message and rejection before falling back to the
+connection policies. With `on_error="close"`, a binding without a rejection
+closes with `POLICY_VIOLATION` and its message; an unmapped failure closes with
+`INTERNAL_ERROR` and is logged. The default `on_error="continue"` logs unexpected
+source failures and keeps the connection open.
+
 Events expect no answer. When the server needs the client's result, declare a
 [client method](client-methods.md) instead.
+
+### Finite event sockets
+
+By default a socket stays open after its event sources finish. For a socket
+that only reports a finite job, let the endpoint close it:
+
+```python
+@exports.server.event()
+async def progress(job: Inject[ExportJob]) -> AsyncIterator[ExportProgress]:
+    async for percent in job.run():
+        yield ExportProgress(percent=percent)
+    yield ExportProgress(percent=100, done=True)
+
+
+app.socket(
+    "/exports/{job_id}",
+    channels=(exports,),
+    close_when_events_complete=True,
+)
+```
+
+Once every event source of the socket has finished, the queued notifications
+are sent and the connection closes with `NORMAL`. A failing source closes it as
+described in [Map failures to rejections](#map-failures-to-rejections). The
+service rejects the option on a socket whose channels declare no events.
+
+An event source can also close earlier with `await connection.close()`; the
+notifications it yielded before are still delivered.
 
 ## Subscriptions with parameters
 

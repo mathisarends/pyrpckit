@@ -12,6 +12,7 @@ from rpckit import (
     RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
+    RpcErrorBinding,
     RpcErrorCode,
     RpcHandshake,
     RpcLimits,
@@ -443,3 +444,205 @@ async def test_cancelling_a_connection_closes_it_as_shutdown() -> None:
         await task
 
     assert socket.closed == (RpcConnectionClose.SHUTDOWN, "")
+
+
+class DelayedSocket(InMemorySocket):
+    async def send(self, message: str) -> None:
+        await asyncio.sleep(0.01)
+        await super().send(message)
+
+
+async def test_closing_after_the_final_event_delivers_queued_notifications() -> None:
+    events = RpcChannel("events")
+
+    @events.server.event(payload=Params)
+    async def finished(
+        connection: Inject[RpcConnection],
+    ) -> AsyncIterator[Params]:
+        yield Params(value="last")
+        await connection.close()
+
+    rpc = RpcService()
+    rpc.socket("/events", channels=(events,))
+    socket = DelayedSocket("/events")
+
+    await asyncio.wait_for(rpc.serve(socket), 1)
+
+    assert json.loads(await socket.client_receive())["params"] == {"value": "last"}
+    assert socket.closed == (RpcConnectionClose.NORMAL, "")
+
+
+async def test_socket_closes_when_its_events_complete() -> None:
+    events = RpcChannel("events")
+
+    @events.server.event(payload=Params)
+    async def first() -> AsyncIterator[Params]:
+        yield Params(value="first")
+
+    @events.server.event(payload=Params)
+    async def second() -> AsyncIterator[Params]:
+        await asyncio.sleep(0.01)
+        yield Params(value="second")
+
+    rpc = RpcService()
+    rpc.socket("/events", channels=(events,), close_when_events_complete=True)
+    socket = DelayedSocket("/events")
+
+    await asyncio.wait_for(rpc.serve(socket), 1)
+
+    received = [json.loads(await socket.client_receive()) for _ in range(2)]
+    assert [message["params"]["value"] for message in received] == [
+        "first",
+        "second",
+    ]
+    assert socket.closed == (RpcConnectionClose.NORMAL, "")
+
+
+class SessionExpired(Exception):
+    pass
+
+
+class SessionNotFound(Exception):
+    pass
+
+
+def rejects(exception: type[Exception], rejection: RpcRejection) -> RpcErrorBinding:
+    return RpcErrorBinding(exception, message=str, rejection=rejection)
+
+
+@pytest.mark.parametrize(
+    ("failure", "call_rejections", "expected"),
+    [
+        (SessionExpired("expired"), None, RpcRejection.UNAUTHORIZED),
+        (SessionNotFound("missing"), None, RpcRejection.NOT_FOUND),
+        (
+            SessionExpired("expired"),
+            {SessionExpired: RpcRejection.FORBIDDEN},
+            RpcRejection.FORBIDDEN,
+        ),
+        (
+            SessionNotFound("missing"),
+            {SessionExpired: RpcRejection.FORBIDDEN},
+            RpcRejection.NOT_FOUND,
+        ),
+        (SessionNotFound("missing"), lambda error: None, RpcRejection.NOT_FOUND),
+    ],
+)
+async def test_rejections_are_looked_up_from_call_to_endpoint_to_service(
+    failure: Exception, call_rejections, expected: RpcRejection
+) -> None:
+    async def authenticate(handshake: RpcHandshake) -> None:
+        raise failure
+
+    rpc = RpcService(
+        rejects=[
+            rejects(SessionExpired, RpcRejection.UNAUTHORIZED),
+            rejects(SessionNotFound, RpcRejection.UNAVAILABLE),
+        ]
+    )
+    rpc.socket(
+        "/rpc",
+        channels=(RpcChannel("sessions"),),
+        before_accept=authenticate,
+        rejects=[rejects(SessionNotFound, RpcRejection.NOT_FOUND)],
+    )
+
+    async with RpcTestClient(rpc, "/rpc", rejections=call_rejections) as client:
+        await client.closed()
+
+    assert client.socket.rejection == (expected, str(failure))
+
+
+async def test_stream_endpoints_apply_their_contracts() -> None:
+    audio = RpcChannel("audio")
+
+    @audio.server.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        raise SessionNotFound("missing")
+        yield b""
+
+    rpc = RpcService()
+    rpc.stream(
+        "/audio", frames, rejects=[rejects(SessionNotFound, RpcRejection.UNAVAILABLE)]
+    )
+
+    async with RpcTestClient(rpc, "/audio") as client:
+        await asyncio.wait_for(client.closed(), 1)
+
+    assert client.socket.closed == (RpcConnectionClose.TRY_AGAIN_LATER, "missing")
+
+
+async def test_contracts_reject_with_their_message_by_default() -> None:
+    async def authenticate(handshake: RpcHandshake) -> None:
+        raise SessionNotFound("internal lookup detail")
+
+    rpc = RpcService()
+    rpc.socket(
+        "/rpc",
+        channels=(RpcChannel("sessions"),),
+        before_accept=authenticate,
+        rejects=[RpcErrorBinding(SessionNotFound, rejection=RpcRejection.NOT_FOUND)],
+    )
+
+    async with RpcTestClient(rpc, "/rpc") as client:
+        await client.closed()
+
+    assert client.socket.rejection == (RpcRejection.NOT_FOUND, "Session not found")
+
+
+@pytest.mark.parametrize("declared", [True, False])
+async def test_event_bindings_are_scoped_and_exported(declared, caplog) -> None:
+    binding = RpcErrorBinding(
+        SessionNotFound,
+        message="Session unavailable",
+        rejection=RpcRejection.UNAVAILABLE,
+    )
+    fallback = RpcErrorBinding(
+        SessionNotFound, code="session_denied", rejection=RpcRejection.FORBIDDEN
+    )
+    channel = RpcChannel("session", raises=[fallback] if declared else [])
+
+    @channel.server.event(raises=[binding] if declared else [], on_error="close")
+    async def updates() -> AsyncIterator[Params]:
+        raise SessionNotFound("private lookup text")
+        yield Params(value="never")
+
+    @channel.server.method(raises=[binding])
+    async def lookup() -> None: ...
+
+    service = RpcService()
+    service.socket("/rpc", channels=[channel])
+    document = service.contract(
+        title="Sessions", base_url="ws://localhost"
+    ).to_openrpc()
+    assert ("errors" in document["x-rpc-notifications"][0]) is declared
+    if declared:
+        assert [
+            error["x-rpckit-code"]
+            for error in document["x-rpc-notifications"][0]["errors"]
+        ] == [binding.code]
+    async with RpcTestClient(service, "/rpc") as client:
+        await asyncio.wait_for(client.closed(), 1)
+    assert client.socket.closed == (
+        (RpcConnectionClose.TRY_AGAIN_LATER, "Session unavailable")
+        if declared
+        else (RpcConnectionClose.INTERNAL_ERROR, "Internal error")
+    )
+    if not declared:
+        assert "RPC method session.updates failed" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "raises",
+    [
+        [RpcErrorBinding(SessionNotFound)],
+        [SessionNotFound],
+        [
+            rejects(SessionNotFound, RpcRejection.NOT_FOUND),
+            rejects(SessionNotFound, RpcRejection.UNAVAILABLE),
+        ],
+    ],
+)
+def test_endpoint_rejects_takes_one_rejecting_binding_per_exception(raises) -> None:
+    with pytest.raises(ProtocolDefinitionError):
+        RpcService().socket("/rpc", channels=(RpcChannel("sessions"),), rejects=raises)

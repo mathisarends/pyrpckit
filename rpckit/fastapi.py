@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import (
     Annotated,
     Any,
@@ -34,11 +34,18 @@ from rpckit.connection import (
     RpcLimits,
     RpcRejection,
     RpcRejections,
+    chain_rejections,
 )
 from rpckit.dependencies import RpcResolverLike
+from rpckit.errors import RpcErrorBinding, contract_rejections, rejecting_contracts
 from rpckit.runtime import _rejection
 from rpckit.server import RpcErrorMapper
-from rpckit.service import RpcEndpoint, RpcService, RpcStreamEndpoint
+from rpckit.service import (
+    RpcEndpoint,
+    RpcService,
+    RpcStreamEndpoint,
+    endpoint_rejections,
+)
 from rpckit.websocket import CLOSE_CODES, REJECTION_CLOSE_CODES, close_reason
 
 type FastApiResolverFactory = Callable[[WebSocket], RpcResolverLike]
@@ -244,8 +251,8 @@ class RpcRoutes[ContextT]:
 
     ``context`` runs as a FastAPI dependency per connection, path parameters
     included. Its result reaches handlers as ``Inject[T]``, where T is the
-    context type the mounted endpoint declares. Failures covered by
-    ``rejections`` reject the handshake or close the socket, depending on
+    context type the mounted endpoint declares. Failures covered by ``rejects``
+    or ``rejections`` reject the handshake or close the socket, depending on
     whether it was already accepted.
     """
 
@@ -256,6 +263,7 @@ class RpcRoutes[ContextT]:
         *,
         context: None = None,
         resolver: RpcResolverLike | FastApiResolver | None = None,
+        rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
@@ -268,6 +276,7 @@ class RpcRoutes[ContextT]:
         *,
         context: Callable[..., Awaitable[ContextT]],
         resolver: RpcResolverLike | FastApiResolver | None = None,
+        rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
@@ -279,6 +288,7 @@ class RpcRoutes[ContextT]:
         *,
         context: Callable[..., Awaitable[Any]] | None = None,
         resolver: RpcResolverLike | FastApiResolver | None = None,
+        rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
@@ -294,7 +304,10 @@ class RpcRoutes[ContextT]:
         self._context = context
         if context is not None and self._websocket_resolver is not None:
             self._context = self._websocket_resolver.dependency(context)
-        self._rejections = rejections
+        self._rejections = chain_rejections(
+            rejections,
+            contract_rejections(rejecting_contracts(rejects, "RpcRoutes")),
+        )
         self._error_mapper = error_mapper
         self._limits = limits
         self._mounted: set[RpcEndpoint | RpcStreamEndpoint] = set()
@@ -310,7 +323,15 @@ class RpcRoutes[ContextT]:
             self._route_path(endpoint),
             self._handler(endpoint),
             name=endpoint.name,
-            dependencies=[Depends(_reject_failures(self._rejections))],
+            dependencies=[
+                Depends(
+                    _reject_failures(
+                        chain_rejections(
+                            self._rejections, endpoint_rejections(endpoint)
+                        )
+                    )
+                )
+            ],
         )
         self._mounted.add(endpoint)
 
