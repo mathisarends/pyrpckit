@@ -20,7 +20,7 @@ class Greeter:
 router = RpcChannel("greeting")
 
 
-@router.server.method()
+@router.method()
 async def say(params: GreetParams, greeter: Inject[Greeter]) -> Greeting:
     return Greeting(text=f"{greeter.salutation}, {params.name}!")
 

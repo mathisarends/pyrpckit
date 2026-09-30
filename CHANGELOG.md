@@ -69,6 +69,11 @@
   `@channel.server.method("text.insert")` no longer needs a child channel.
   Wire names, contracts, and generated clients match the child-channel
   equivalent.
+- Declare server-side operations directly on the channel:
+  `@channel.method()`, `@channel.event()`, `@channel.subscription()`, and
+  `@channel.stream()` are shorthands for the `channel.server` decorators.
+  `channel.server` stays available for channels that also declare
+  `channel.client` methods.
 
 ### Removed
 

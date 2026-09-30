@@ -27,12 +27,12 @@ and any transport you already have can serve a rpckit service.
 You define each operation once, on the server:
 
 ```python
-@tasks.server.method()
+@tasks.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     return await store.create(params.title)
 
 
-@tasks.server.event()
+@tasks.event()
 async def updated(store: Inject[TaskStore]) -> AsyncIterator[TaskUpdated]:
     async for task in store.watch():
         yield TaskUpdated(task=task)
@@ -99,7 +99,7 @@ class TaskStore:
 tasks = RpcChannel("tasks")
 
 
-@tasks.server.method()
+@tasks.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> Task:
     """Create a task."""
     return await store.create(params.title)
@@ -126,6 +126,12 @@ async def test_create() -> None:
 `tasks.create` is the wire name, the docstring becomes the contract summary,
 and `Inject[TaskStore]` is resolved on the server — it never appears in the
 public schema.
+
+Operations on a channel are implemented by the server unless you say otherwise:
+`@tasks.method()`, `@tasks.event()`, `@tasks.subscription()`, and
+`@tasks.stream()` cover the usual client-to-server API. Only when the server
+also calls into the client do you name both sides, `tasks.server` and
+`tasks.client` — see [Client methods](docs/client-methods.md).
 
 ## Documentation
 

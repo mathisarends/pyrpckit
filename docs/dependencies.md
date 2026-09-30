@@ -20,7 +20,7 @@ class TaskStore:
 tasks = RpcChannel("tasks")
 
 
-@tasks.server.method()
+@tasks.method()
 async def create(params: CreateTask, store: Inject[TaskStore]) -> int:
     return await store.create(params.title)
 ```

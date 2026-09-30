@@ -29,12 +29,12 @@ class Task(RpcModel):
 tasks = RpcChannel("tasks")
 
 
-@tasks.server.method()
+@tasks.method()
 async def create(params: CreateTask) -> Task:
     return Task(id=1, title=params.title)
 
 
-@tasks.server.method()
+@tasks.method()
 async def health() -> None:
     return None
 
@@ -47,7 +47,7 @@ The methods are exposed as `tasks.create` and `tasks.health`. Use an explicit
 decorator name when the Python and wire names should differ:
 
 ```python
-@tasks.server.method("list", summary="List the current tasks.")
+@tasks.method("list", summary="List the current tasks.")
 async def list_tasks() -> list[Task]:
     return []
 ```
@@ -97,7 +97,7 @@ voice = RpcChannel("voice", raises=(ResourceNotFoundError,))
 turn = voice.child("turn")
 
 
-@turn.server.method()
+@turn.method()
 async def start() -> None: ...  # voice.turn.start
 
 
@@ -109,7 +109,7 @@ decorators are relative to the channel namespace and may contain dots; each
 segment is validated:
 
 ```python
-@voice.server.method("settings.update")
+@voice.method("settings.update")
 async def update_settings() -> None: ...  # voice.settings.update
 ```
 

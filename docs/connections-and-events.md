@@ -30,7 +30,7 @@ fields to log why a socket ended.
 Inject it like any other server-side dependency:
 
 ```python
-@tasks.server.method()
+@tasks.method()
 async def connection_path(connection: Inject[RpcConnection]) -> str:
     return connection.path
 ```
@@ -41,7 +41,7 @@ After acceptance, injected code can close the live connection:
 from rpckit import RpcConnection, RpcConnectionClose
 
 
-@tasks.server.method()
+@tasks.method()
 async def sign_out(connection: Inject[RpcConnection]) -> None:
     await connection.close(RpcConnectionClose.NORMAL, reason="Signed out")
 ```
@@ -126,7 +126,7 @@ class TaskEvents:
     async def subscribe(self) -> AsyncIterator[TaskUpdated]: ...
 
 
-@tasks.server.event(summary="Publish task changes.")
+@tasks.event(summary="Publish task changes.")
 async def updated(events: Inject[TaskEvents]) -> AsyncIterator[TaskUpdated]:
     async for update in events.subscribe():
         yield update
@@ -138,10 +138,10 @@ Pydantic models is supported for event families, and a literal `type` field can
 serve as their discriminator in generated clients.
 
 The payload type comes from `AsyncIterator[T]`, so events do not need
-`payload=`. The optional `@channel.server.event(payload=...)` only asserts that type
+`payload=`. The optional `@channel.event(payload=...)` only asserts that type
 and fails at definition time when it differs from the yielded type.
 
-Declare expected source failures with `@channel.server.event(raises=[binding])`.
+Declare expected source failures with `@channel.event(raises=[binding])`.
 Events inherit channel error declarations. A binding with `rejection=` closes
 the connection using its own message and rejection before falling back to the
 connection policies. With `on_error="close"`, a binding without a rejection
@@ -158,7 +158,7 @@ By default a socket stays open after its event sources finish. For a socket
 that only reports a finite job, let the endpoint close it:
 
 ```python
-@exports.server.event()
+@exports.event()
 async def progress(job: Inject[ExportJob]) -> AsyncIterator[ExportProgress]:
     async for percent in job.run():
         yield ExportProgress(percent=percent)
@@ -190,7 +190,7 @@ class TaskFilter(RpcModel):
     project_id: str
 
 
-@tasks.server.subscription()
+@tasks.subscription()
 async def changes(params: TaskFilter) -> AsyncIterator[TaskUpdated]:
     async for update in task_bus.listen(params.project_id):
         yield update

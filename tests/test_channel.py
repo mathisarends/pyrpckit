@@ -192,7 +192,46 @@ def test_channel_groups_declarations_by_the_implementing_side() -> None:
     assert [route.name for route in channel.routes] == ["room.join"]
     assert [event.name for event in channel.events] == ["room.joined"]
     assert isinstance(channel.create_server(), RpcServer)
-    assert not hasattr(channel, "method")
+
+
+def test_server_side_is_the_default_for_channel_decorators() -> None:
+    channel = RpcChannel("room")
+
+    @channel.method
+    async def join() -> None: ...
+
+    @channel.method("leave", summary="Leave the room.")
+    async def leave_room() -> None: ...
+
+    @channel.event("joined")
+    async def joined_events() -> AsyncIterator[Event]:
+        yield Event(value="x")
+
+    @channel.subscription
+    async def members() -> AsyncIterator[Event]:
+        yield Event(value="x")
+
+    @channel.stream(content_type="audio/pcm")
+    async def audio() -> AsyncIterator[bytes]:
+        yield b""
+
+    assert [route.name for route in channel.routes] == ["room.join", "room.leave"]
+    assert channel.routes[1].summary == "Leave the room."
+    assert [event.name for event in channel.events] == ["room.joined"]
+    assert [item.name for item in channel.subscriptions] == ["room.members"]
+    assert [stream.name for stream in channel.streams] == ["room.audio"]
+
+
+def test_channel_shorthand_and_server_side_share_route_names() -> None:
+    channel = RpcChannel("room")
+
+    @channel.method
+    async def join() -> None: ...
+
+    with pytest.raises(ProtocolDefinitionError, match="Duplicate RPC route"):
+
+        @channel.server.method("join")
+        async def join_again() -> None: ...
 
 
 def test_client_method_declares_a_typed_server_to_client_request() -> None:
