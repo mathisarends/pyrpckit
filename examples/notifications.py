@@ -25,7 +25,7 @@ class JobEvents:
         yield JobStarted(job_id="job-42")
 
 
-@router.server.event(
+@router.event(
     "changed",
     summary="Publish job lifecycle changes.",
 )

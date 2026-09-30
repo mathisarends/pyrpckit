@@ -78,7 +78,7 @@ from rpckit import Inject, RpcChannel, RpcService
 output = RpcChannel("output")
 
 
-@output.server.stream(content_type="text/plain")
+@output.stream(content_type="text/plain")
 async def lines(job: Inject[Job]) -> AsyncIterator[bytes]:
     async for line in job.output():
         yield line

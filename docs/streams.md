@@ -29,7 +29,7 @@ class FrameSource:
 media = RpcChannel("media")
 
 
-@media.server.stream(content_type="image/jpeg", summary="Live preview frames.")
+@media.stream(content_type="image/jpeg", summary="Live preview frames.")
 async def preview(source: Inject[FrameSource]) -> AsyncIterator[bytes]:
     async for frame in source.frames():
         yield frame
@@ -60,7 +60,7 @@ from rpckit import RpcBinaryInput, RpcBinaryOutput
 uploads = RpcChannel("uploads")
 
 
-@uploads.server.stream("audio", input_content_type="audio/pcm")
+@uploads.stream("audio", input_content_type="audio/pcm")
 async def upload_audio(
     frames: Inject[RpcBinaryInput],
     store: Inject[RecordingStore],
@@ -70,7 +70,7 @@ async def upload_audio(
             await recording.write(frame)
 
 
-@media.server.stream("talk", content_type="audio/opus", input_content_type="audio/pcm")
+@media.stream("talk", content_type="audio/opus", input_content_type="audio/pcm")
 async def talk(
     frames: Inject[RpcBinaryInput],
     output: Inject[RpcBinaryOutput],
@@ -105,7 +105,7 @@ Handler parameters without `Inject[...]` are variables of the mounted path.
 Pydantic validates them before the WebSocket is accepted:
 
 ```python
-@voice.server.stream("media", content_type="audio/pcm")
+@voice.stream("media", content_type="audio/pcm")
 async def media(
     voice_session_id: UUID,
     frames: Inject[RpcBinaryInput],
@@ -165,7 +165,7 @@ class MediaOwners:
                 self._owners.discard(key)
 
 
-@voice.server.stream("media", content_type="audio/pcm")
+@voice.stream("media", content_type="audio/pcm")
 async def media(
     voice_session_id: UUID,
     frames: Inject[RpcBinaryInput],

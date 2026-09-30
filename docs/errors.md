@@ -23,7 +23,7 @@ Declare expected errors on a method and raise them with a details model or its
 fields:
 
 ```python
-@tasks.server.method(raises=(MissingTaskError,))
+@tasks.method(raises=(MissingTaskError,))
 async def get(params: GetTask) -> Task:
     task = await find_task(params.task_id)
     if task is None:
@@ -100,7 +100,7 @@ Declare the binding in `raises=` like an `RpcError` subclass. A method that
 lets `TaskNotFound` escape answers with the `task_not_found` error:
 
 ```python
-@tasks.server.method(raises=[task_not_found])
+@tasks.method(raises=[task_not_found])
 async def get(params: GetTask, repository: Inject[TaskRepository]) -> Task:
     return await repository.get(params.task_id)
 ```
@@ -138,7 +138,7 @@ admin_required = RpcErrorBinding(PermissionError, code="admin_required")
 tasks = RpcChannel("tasks", raises=[permission_denied])
 
 
-@tasks.server.method(raises=[admin_required])
+@tasks.method(raises=[admin_required])
 async def delete(params: TaskRef) -> None:
     raise PermissionError()
 ```
