@@ -45,6 +45,18 @@ from .errors import (
     RpcValidationIssue,
     error_message,
 )
+from .middleware import (
+    RpcConnectionOutcome,
+    RpcConnectionScope,
+    RpcEndpointInfo,
+    RpcMiddleware,
+    RpcMiddlewareLike,
+    RpcRequestOutcome,
+    RpcRequestScope,
+    RpcStreamEndpointInfo,
+    RpcStreamOutcome,
+    RpcStreamScope,
+)
 from .models import RpcModel
 from .observer import (
     RpcConnectionContext,
@@ -68,6 +80,16 @@ from .streams import (
 __version__ = "0.10.0"
 
 __all__ = [
+    "RpcEndpointInfo",
+    "RpcStreamEndpointInfo",
+    "RpcConnectionOutcome",
+    "RpcConnectionScope",
+    "RpcMiddleware",
+    "RpcMiddlewareLike",
+    "RpcRequestOutcome",
+    "RpcRequestScope",
+    "RpcStreamOutcome",
+    "RpcStreamScope",
     "Inject",
     "LOGGER_NAME",
     "ProtocolDefinitionError",

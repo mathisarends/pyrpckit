@@ -64,6 +64,7 @@ instead of shipping.
 uv add pyrpckit
 uv add "pyrpckit[fastapi]"  # FastAPI adapter
 uv add "pyrpckit[codegen]"  # client generation
+uv add "pyrpckit[otel]"     # OpenTelemetry integration
 ```
 
 Python 3.12 or newer. Pydantic is the only required dependency.

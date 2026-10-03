@@ -9,6 +9,7 @@ guides cover the individual parts of the API in more detail:
 - [Client methods](client-methods.md) — let the server call the connected client
 - [Typed errors](errors.md) — make expected failures part of the contract
 - [Binary streams](streams.md) — stream bytes on dedicated endpoints
+- [Observability](observability.md) — instrument calls and streams with middleware and OpenTelemetry
 - [Contract and clients](clients.md) — export OpenRPC and generate typed clients
 - [Transports](transports.md) — serve with FastAPI, a custom adapter, or in-memory tests
 - [Releasing](releasing.md) — version, validate, and tag a release
@@ -17,5 +18,5 @@ Start with services and channels if you are building a server. Start with the
 contract and client guide if the server definition already exists.
 
 The stable import surface is `rpckit` plus the documented integration
-modules `rpckit.fastapi`, `rpckit.dishka`, `rpckit.testing`, and
+modules `rpckit.fastapi`, `rpckit.dishka`, `rpckit.opentelemetry`, `rpckit.testing`, and
 `rpckit.codegen`. Other submodules are implementation details.

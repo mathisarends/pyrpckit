@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from typing import (
     Annotated,
     Any,
@@ -38,6 +39,14 @@ from rpckit.connection import (
 )
 from rpckit.dependencies import RpcResolverLike
 from rpckit.errors import RpcErrorBinding, contract_rejections, rejecting_contracts
+from rpckit.middleware import (
+    RpcMiddlewareLike,
+    _current_serving,
+    _record_error,
+    _record_rejection,
+    _serving_scope,
+    _ServingState,
+)
 from rpckit.runtime import _rejection
 from rpckit.server import RpcErrorMapper
 from rpckit.service import (
@@ -144,10 +153,12 @@ def create_router(
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
     rejections: RpcRejections | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
 ) -> APIRouter:
     if resolver is not None and resolver_factory is not None:
         raise ValueError("resolver and resolver_factory are mutually exclusive")
     service.freeze()
+    middleware = tuple(middleware)
     router = APIRouter()
     for endpoint in service.endpoints:
         handler = _create_handler(
@@ -159,6 +170,7 @@ def create_router(
             limits=limits,
             before_accept=before_accept,
             rejections=rejections,
+            middleware=middleware,
         )
         router.add_api_websocket_route(endpoint.path, handler, name=endpoint.name)
     return router
@@ -174,21 +186,27 @@ def _create_handler(
     limits: RpcLimits | None,
     before_accept: RpcBeforeAccept | None,
     rejections: RpcRejections | None,
+    middleware: Sequence[RpcMiddlewareLike],
 ):
+    boundary = asynccontextmanager(_middleware_dependency(endpoint, middleware))
+
     async def handler(websocket: WebSocket) -> None:
-        connection_resolver = (
-            resolver_factory(websocket) if resolver_factory is not None else resolver
-        )
-        await serve_websocket(
-            endpoint,
-            websocket,
-            resolver=connection_resolver,
-            context=context,
-            error_mapper=error_mapper,
-            limits=limits,
-            before_accept=before_accept,
-            rejections=rejections,
-        )
+        async with boundary(websocket):
+            connection_resolver = (
+                resolver_factory(websocket)
+                if resolver_factory is not None
+                else resolver
+            )
+            await serve_websocket(
+                endpoint,
+                websocket,
+                resolver=connection_resolver,
+                context=context,
+                error_mapper=error_mapper,
+                limits=limits,
+                before_accept=before_accept,
+                rejections=rejections,
+            )
 
     return handler
 
@@ -203,8 +221,14 @@ async def serve_websocket(
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
     rejections: RpcRejections | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
 ) -> None:
-    socket = FastApiSocket(websocket)
+    active = websocket.scope.get("rpckit.serving")
+    socket = (
+        active.socket
+        if isinstance(active, _ServingState) and active.scope.endpoint is endpoint
+        else FastApiSocket(websocket)
+    )
     try:
         if isinstance(endpoint, RpcEndpoint):
             await endpoint.serve(
@@ -215,6 +239,7 @@ async def serve_websocket(
                 limits=limits,
                 before_accept=before_accept,
                 rejections=rejections,
+                middleware=middleware,
             )
         else:
             await endpoint.serve(
@@ -225,6 +250,7 @@ async def serve_websocket(
                 before_accept=before_accept,
                 error_mapper=error_mapper,
                 rejections=rejections,
+                middleware=middleware,
             )
     except asyncio.CancelledError:
         # Starlette cancels its WebSocket task after websocket.disconnect.
@@ -265,6 +291,7 @@ class RpcRoutes[ContextT]:
         resolver: RpcResolverLike | FastApiResolver | None = None,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
     ) -> None: ...
@@ -278,6 +305,7 @@ class RpcRoutes[ContextT]:
         resolver: RpcResolverLike | FastApiResolver | None = None,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
     ) -> None: ...
@@ -290,6 +318,7 @@ class RpcRoutes[ContextT]:
         resolver: RpcResolverLike | FastApiResolver | None = None,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
     ) -> None:
@@ -310,6 +339,7 @@ class RpcRoutes[ContextT]:
         )
         self._error_mapper = error_mapper
         self._limits = limits
+        self._middleware = tuple(middleware)
         self._mounted: set[RpcEndpoint | RpcStreamEndpoint] = set()
 
     def mount(
@@ -324,13 +354,14 @@ class RpcRoutes[ContextT]:
             self._handler(endpoint),
             name=endpoint.name,
             dependencies=[
+                Depends(_middleware_dependency(endpoint, self._middleware)),
                 Depends(
                     _reject_failures(
                         chain_rejections(
                             self._rejections, endpoint_rejections(endpoint)
                         )
                     )
-                )
+                ),
             ],
         )
         self._mounted.add(endpoint)
@@ -414,16 +445,17 @@ def _type_name(value: type[Any] | None) -> str:
 def _reject_failures(
     rejections: RpcRejections | None,
 ) -> Callable[[WebSocket], AsyncIterator[None]]:
-    # Registered as the route's first dependency, so its exit sees failures of
-    # later dependencies and of the handler.
+    # Runs before context dependencies; connection middleware wraps its cleanup.
     async def reject_failures(websocket: WebSocket) -> AsyncIterator[None]:
         try:
             yield
         except Exception as error:
+            _record_error(error)
             rejected = _rejection(error, rejections)
             if rejected is None:
                 raise
             if websocket.application_state is WebSocketState.CONNECTING:
+                _record_rejection(rejected.rejection)
                 await _reject(
                     websocket,
                     rejected.rejection,
@@ -431,9 +463,31 @@ def _reject_failures(
                     headers=rejected.headers,
                 )
             elif websocket.application_state is WebSocketState.CONNECTED:
+                state = _current_serving()
+                if state is not None and state.scope.connection is not None:
+                    state.scope.connection._close_code = REJECTION_CLOSES[
+                        rejected.rejection
+                    ]
                 await websocket.close(
                     CLOSE_CODES[REJECTION_CLOSES[rejected.rejection]],
                     close_reason(rejected.reason),
                 )
 
     return reject_failures
+
+
+def _middleware_dependency(
+    endpoint: RpcEndpoint | RpcStreamEndpoint,
+    middleware: Sequence[RpcMiddlewareLike],
+) -> Callable[[WebSocket], AsyncIterator[None]]:
+    async def dependency(websocket: WebSocket) -> AsyncIterator[None]:
+        async with _serving_scope(
+            endpoint, FastApiSocket(websocket), middleware
+        ) as state:
+            websocket.scope["rpckit.serving"] = state
+            try:
+                yield
+            finally:
+                websocket.scope.pop("rpckit.serving", None)
+
+    return dependency

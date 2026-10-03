@@ -33,6 +33,13 @@
 
 ### Added
 
+- Lifecycle middleware for connections, requests, and binary streams, with
+  outcomes for rejection, failure, and cancellation. Register it on services,
+  endpoints, standalone servers, or the FastAPI adapter.
+- Optional `pyrpckit[otel]` integration through
+  `rpckit.opentelemetry.OpenTelemetry`, using application providers for RPC and
+  stream spans, live frame and byte metrics, and connection measurements.
+
 - Close finite event sockets with
   `RpcService.socket(..., close_when_events_complete=True)`. Once every event
   source of the socket has finished, the queued notifications are sent and the

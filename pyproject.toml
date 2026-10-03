@@ -14,6 +14,7 @@ dependencies = [
 codegen = ["jinja2>=3.1"]
 dishka = ["dishka>=1.7"]
 fastapi = ["fastapi>=0.115"]
+otel = ["opentelemetry-api>=1.30"]
 
 [project.scripts]
 rpckit = "rpckit.codegen.cli:main"
@@ -27,6 +28,7 @@ packages = ["rpckit"]
 
 [dependency-groups]
 dev = [
+    "opentelemetry-sdk>=1.30",
     "dishka>=1.7",
     "fastapi>=0.115",
     "httpx>=0.27",

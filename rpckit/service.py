@@ -26,6 +26,7 @@ from rpckit.errors import (
     contract_rejections,
     rejecting_contracts,
 )
+from rpckit.middleware import RpcMiddlewareLike
 from rpckit.observer import RpcObserverLike
 from rpckit.protocol import RpcProtocol, RpcStreamDefinition
 from rpckit.server import (
@@ -51,6 +52,7 @@ class RpcEndpoint[ContextT]:
     context: type[ContextT] | None = None
     close_when_events_complete: bool = False
     rejects: tuple[RpcErrorBinding[Any], ...] = ()
+    middleware: tuple[RpcMiddlewareLike, ...] = ()
     _protocol: RpcProtocol | None = field(default=None, init=False, repr=False)
 
     @property
@@ -101,6 +103,7 @@ class RpcEndpoint[ContextT]:
         limits: RpcLimits | None = None,
         before_accept: RpcBeforeAccept | None = None,
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
     ) -> None:
         from rpckit.runtime import serve_endpoint
 
@@ -113,6 +116,7 @@ class RpcEndpoint[ContextT]:
             limits=limits or self.limits,
             before_accept=before_accept or self.before_accept,
             rejections=chain_rejections(rejections, endpoint_rejections(self)),
+            middleware=middleware,
         )
 
     def create_server(
@@ -123,6 +127,7 @@ class RpcEndpoint[ContextT]:
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
         observer: RpcObserverLike | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
     ) -> RpcServer:
         return RpcServer._from_channel(
             self.protocol,
@@ -131,6 +136,8 @@ class RpcEndpoint[ContextT]:
             observer=observer or self.observer,
             limits=limits or self.limits,
             strict_errors=self.service.strict_errors,
+            middleware=(*middleware, *self.middleware),
+            endpoint=self,
         )
 
 
@@ -149,6 +156,7 @@ class RpcStreamEndpoint[ContextT]:
     error_mapper: RpcErrorMapper | None = None
     context: type[ContextT] | None = None
     rejects: tuple[RpcErrorBinding[Any], ...] = ()
+    middleware: tuple[RpcMiddlewareLike, ...] = ()
 
     def match(self, path: str) -> dict[str, str] | None:
         return _match(self.path, path)
@@ -163,6 +171,7 @@ class RpcStreamEndpoint[ContextT]:
         before_accept: RpcBeforeAccept | None = None,
         error_mapper: RpcErrorMapper | None = None,
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
     ) -> None:
         from rpckit.runtime import serve_stream_endpoint
 
@@ -175,6 +184,7 @@ class RpcStreamEndpoint[ContextT]:
             before_accept=before_accept or self.before_accept,
             error_mapper=error_mapper or self.error_mapper,
             rejections=chain_rejections(rejections, endpoint_rejections(self)),
+            middleware=middleware,
         )
 
 
@@ -185,6 +195,7 @@ class RpcService:
         version: int = 1,
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserverLike | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         limits: RpcLimits | None = None,
         strict_errors: bool = False,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
@@ -196,6 +207,7 @@ class RpcService:
         self._version = version
         self._error_mapper = error_mapper
         self._observer = observer
+        self._middleware = tuple(middleware)
         self._limits = limits or RpcLimits()
         self._strict_errors = strict_errors
         self._rejects = rejecting_contracts(rejects, "RpcService")
@@ -233,6 +245,7 @@ class RpcService:
         name: str | None = None,
         error_mapper: RpcErrorMapper | None = None,
         observer: RpcObserverLike | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
@@ -289,6 +302,7 @@ class RpcService:
             rejecting_contracts(rejects, f"RPC socket {path!r}"),
         )
         self._endpoints.append(endpoint)
+        object.__setattr__(endpoint, "middleware", (*self._middleware, *middleware))
         self._channels.update(channels)
         return endpoint
 
@@ -300,6 +314,7 @@ class RpcService:
         *,
         name: str | None = None,
         observer: RpcObserverLike | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         limits: RpcLimits | None = None,
         subprotocol: str | None = None,
         summary: str | None = None,
@@ -343,6 +358,7 @@ class RpcService:
             rejecting_contracts(rejects, f"RPC stream {path!r}"),
         )
         self._endpoints.append(endpoint)
+        object.__setattr__(endpoint, "middleware", (*self._middleware, *middleware))
         self._channels.add(channel)
         self._mounted_streams.add(stream)
         return endpoint

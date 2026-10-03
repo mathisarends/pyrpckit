@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from typing import Any
 
@@ -39,8 +39,17 @@ from rpckit.errors import (
     contract_for,
     contract_of,
 )
-from rpckit.observer import RpcConnectionContext, notify_observer
-from rpckit.server import RpcErrorMapper, RpcServer, _request_id
+from rpckit.middleware import (
+    RpcMiddlewareLike,
+    RpcStreamScope,
+    _current_serving,
+    _record_error,
+    _record_rejection,
+    _serving_scope,
+    _stream_scope,
+)
+from rpckit.observer import RpcConnectionContext, RpcObserverLike, notify_observer
+from rpckit.server import RpcErrorMapper, RpcServer
 from rpckit.service import RpcEndpoint, RpcStreamEndpoint
 from rpckit.streams import (
     RpcBinaryInput,
@@ -77,11 +86,15 @@ async def _prepare(
         socket.handshake.path_params or endpoint.match(socket.handshake.path) or {}
     )
     connection = RpcConnection._create(endpoint, socket, path_params)
+    state = _current_serving()
+    if state is not None:
+        state.scope.connection = connection
     base_values = {**values, RpcConnection: connection}
     if (
         endpoint.subprotocol is not None
         and endpoint.subprotocol not in socket.handshake.subprotocols
     ):
+        _record_rejection(RpcRejection.PROTOCOL_ERROR)
         await socket.reject(RpcRejection.PROTOCOL_ERROR, "Unsupported subprotocol")
         return None
     path_values: dict[str, Any] = {}
@@ -89,6 +102,7 @@ async def _prepare(
         try:
             parsed = path_model.model_validate(dict(path_params))
         except ValidationError:
+            _record_rejection(RpcRejection.NOT_FOUND)
             await socket.reject(RpcRejection.NOT_FOUND, "Invalid path variable")
             return None
         path_values = {name: getattr(parsed, name) for name in path_model.model_fields}
@@ -97,10 +111,12 @@ async def _prepare(
         try:
             accepted_values = await before_accept(socket.handshake)
         except Exception as error:
+            _record_error(error)
             rejected = _rejection(error, rejections)
             if rejected is None:
                 logger.exception("RPC before_accept hook failed")
                 rejected = RpcReject(RpcRejection.INTERNAL_ERROR, "Internal error")
+            _record_rejection(rejected.rejection)
             await socket.reject(
                 rejected.rejection, rejected.reason, headers=rejected.headers
             )
@@ -109,6 +125,8 @@ async def _prepare(
             base_values.update(accepted_values)
     await socket.accept(endpoint.subprotocol)
     connection._accepted = True
+    if state is not None:
+        state.accepted_at = time.perf_counter()
     return connection, resolved, base_values, path_values
 
 
@@ -122,6 +140,35 @@ async def serve_endpoint(
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
     rejections: RpcRejections | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
+) -> None:
+    async with _serving_scope(endpoint, socket, middleware) as state:
+        await _serve_endpoint(
+            endpoint,
+            socket,
+            resolver=resolver,
+            context=context,
+            error_mapper=error_mapper,
+            limits=limits,
+            before_accept=before_accept,
+            rejections=rejections,
+            observer=state.observer,
+            middleware=state.middleware,
+        )
+
+
+async def _serve_endpoint(
+    endpoint: RpcEndpoint,
+    socket: RpcSocket,
+    *,
+    resolver: RpcResolverLike | None = None,
+    context: object | Mapping[type[Any], object] | None = None,
+    error_mapper: RpcErrorMapper | None = None,
+    limits: RpcLimits | None = None,
+    before_accept: RpcBeforeAccept | None = None,
+    rejections: RpcRejections | None = None,
+    observer: RpcObserverLike | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
 ) -> None:
     limits = limits or RpcLimits()
     prepared = await _prepare(
@@ -137,7 +184,7 @@ async def serve_endpoint(
         return
     connection, resolved, values, _ = prepared
     started = time.perf_counter()
-    await notify_observer(endpoint.observer, "connection_opened", connection)
+    await notify_observer(observer, "connection_opened", connection)
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     client_closed = False
@@ -149,7 +196,7 @@ async def serve_endpoint(
         if slow_consumer_reported:
             return
         slow_consumer_reported = True
-        await notify_observer(endpoint.observer, "slow_consumer_closed", connection)
+        await notify_observer(observer, "slow_consumer_closed", connection)
 
     async def send_outgoing(message: str) -> None:
         try:
@@ -184,6 +231,8 @@ async def serve_endpoint(
                 resolver=scoped,
                 error_mapper=error_mapper,
                 observer=endpoint.observer,
+                middleware=middleware,
+                endpoint=endpoint,
                 connection=connection,
                 limits=limits,
                 strict_errors=endpoint.service.strict_errors,
@@ -194,7 +243,7 @@ async def serve_endpoint(
                 send_outgoing,
                 limit=limits.max_subscriptions,
                 server=server,
-                observer=endpoint.observer,
+                observer=observer,
             )
 
             async def writer():
@@ -212,13 +261,15 @@ async def serve_endpoint(
                 except RpcDisconnect as error:
                     client_closed = True
                     request_close(error.code, error.reason, error.raw_close_code)
-                except TimeoutError:
+                except TimeoutError as error:
+                    _record_error(error)
                     logger.warning("RPC client too slow: socket send blocked")
                     request_close(
                         RpcConnectionClose.POLICY_VIOLATION, "Client too slow"
                     )
                     await report_slow_consumer()
-                except Exception:
+                except Exception as error:
+                    _record_error(error)
                     logger.exception("RPC writer failed")
                     request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
@@ -241,10 +292,15 @@ async def serve_endpoint(
 
             async def reject_pending(message):
                 logger.warning("RPC client exceeded max_pending_requests")
-                if _is_notification(message):
-                    return
-                failure = server.failure(_request_id(message), RpcPendingLimitError())
-                await send_outgoing(codec.encode(failure))
+                failure = await server._handle_failure(message, RpcPendingLimitError())
+                if failure is not None:
+                    await send_outgoing(codec.encode(failure))
+
+            def invocation_done(task):
+                tasks.discard(task)
+                if not task.cancelled() and (error := task.exception()) is not None:
+                    _record_error(error)
+                    request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
             async def reader():
                 nonlocal client_closed
@@ -273,7 +329,7 @@ async def serve_endpoint(
                             message = codec.decode(frame)
                         except RpcParseError as error:
                             await send_outgoing(
-                                codec.encode(server.failure(None, error))
+                                codec.encode(await server._handle_failure(frame, error))
                             )
                             continue
                         if connected_client._resolve(message):
@@ -283,10 +339,13 @@ async def serve_endpoint(
                             continue
                         task = asyncio.create_task(invoke(message))
                         tasks.add(task)
-                        task.add_done_callback(tasks.discard)
+                        task.add_done_callback(invocation_done)
                 except RpcDisconnect as error:
                     client_closed = True
                     request_close(error.code, error.reason, error.raw_close_code)
+                except Exception as error:
+                    _record_error(error)
+                    request_close(RpcConnectionClose.INTERNAL_ERROR, "Internal error")
 
             async def events():
                 try:
@@ -296,7 +355,7 @@ async def serve_endpoint(
                                 event,
                                 scoped,
                                 send_outgoing,
-                                endpoint.observer,
+                                observer,
                                 rejections,
                                 server,
                             )
@@ -306,6 +365,7 @@ async def serve_endpoint(
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
+                    _record_error(error)
                     rejected = _rejection(error, rejections)
                     if rejected is not None:
                         request_close(
@@ -356,7 +416,7 @@ async def serve_endpoint(
                 await socket.close(*close_value)
         connection._closed = True
         await notify_observer(
-            endpoint.observer,
+            observer,
             "connection_closed",
             RpcConnectionContext(
                 connection=connection,
@@ -383,10 +443,6 @@ async def _flush(
         )
     finally:
         drained.cancel()
-
-
-def _is_notification(message: object) -> bool:
-    return isinstance(message, dict) and "id" not in message
 
 
 async def _event_source(event, resolver, send, observer, rejections, server):
@@ -435,6 +491,7 @@ async def _event_source(event, resolver, send, observer, rejections, server):
                 ) from error
             if rejected is not None:
                 raise rejected from error
+        _record_error(error)
         rejected = _rejection(error, rejections)
         if rejected is not None:
             raise rejected from error
@@ -458,6 +515,35 @@ async def serve_stream_endpoint(
     before_accept: RpcBeforeAccept | None = None,
     error_mapper: RpcErrorMapper | None = None,
     rejections: RpcRejections | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
+) -> None:
+    async with _serving_scope(endpoint, socket, middleware) as state:
+        await _serve_stream_endpoint(
+            endpoint,
+            socket,
+            resolver=resolver,
+            context=context,
+            error_mapper=error_mapper,
+            limits=limits,
+            before_accept=before_accept,
+            rejections=rejections,
+            observer=state.observer,
+            middleware=state.middleware,
+        )
+
+
+async def _serve_stream_endpoint(
+    endpoint: RpcStreamEndpoint,
+    socket: RpcSocket,
+    *,
+    resolver: RpcResolverLike | None = None,
+    context: object | Mapping[type[Any], object] | None = None,
+    limits: RpcLimits | None = None,
+    before_accept: RpcBeforeAccept | None = None,
+    error_mapper: RpcErrorMapper | None = None,
+    rejections: RpcRejections | None = None,
+    observer: RpcObserverLike | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
 ) -> None:
     limits = limits or RpcLimits()
     stream = endpoint.stream
@@ -474,13 +560,73 @@ async def serve_stream_endpoint(
         return
     connection, resolved, values, path_values = prepared
     started = time.perf_counter()
-    await notify_observer(endpoint.observer, "connection_opened", connection)
+    try:
+        await notify_observer(observer, "connection_opened", connection)
+        async with _stream_scope(RpcStreamScope(endpoint, connection), middleware):
+            await _run_stream_endpoint(
+                endpoint,
+                socket,
+                connection,
+                resolved,
+                values,
+                path_values,
+                limits,
+                error_mapper,
+                rejections,
+                observer,
+            )
+    except BaseException as error:
+        if not connection.closed:
+            connection._close_code = (
+                RpcConnectionClose.SHUTDOWN
+                if isinstance(error, asyncio.CancelledError)
+                else RpcConnectionClose.INTERNAL_ERROR
+            )
+        raise
+    finally:
+        if not connection.closed:
+            with suppress(RpcDisconnect):
+                await socket.close(
+                    connection.close_code or RpcConnectionClose.NORMAL,
+                    connection.close_reason,
+                )
+            connection._closed = True
+        await notify_observer(
+            observer,
+            "connection_closed",
+            RpcConnectionContext(
+                connection,
+                connection.close_code,
+                connection.close_reason,
+                time.perf_counter() - started,
+                connection.raw_close_code,
+            ),
+        )
+
+
+async def _run_stream_endpoint(
+    endpoint,
+    socket,
+    connection,
+    resolved,
+    values,
+    path_values,
+    limits,
+    error_mapper,
+    rejections,
+    observer,
+):
+    stream = endpoint.stream
     close_event = asyncio.Event()
     close_value = [RpcConnectionClose.NORMAL, ""]
     client_closed = False
 
     def request_close(code, reason, raw_close_code=None):
-        if not close_event.is_set():
+        if not close_event.is_set() or (
+            not client_closed
+            and close_value[0] == RpcConnectionClose.NORMAL
+            and code != RpcConnectionClose.NORMAL
+        ):
             close_value[:] = [code, reason]
             connection._close_code = code
             connection._close_reason = reason
@@ -496,6 +642,7 @@ async def serve_stream_endpoint(
         if isinstance(error, RpcStreamClose):
             request_close(error.close, error.reason)
             return
+        _record_error(error)
         rejected = _rejection(error, rejections)
         if rejected is not None:
             request_close(REJECTION_CLOSES[rejected.rejection], rejected.reason)
@@ -527,9 +674,7 @@ async def serve_stream_endpoint(
     if not stream.is_generator:
         values = {
             **values,
-            RpcBinaryOutput: RpcBinaryOutput._create(
-                socket, connection, endpoint.observer
-            ),
+            RpcBinaryOutput: RpcBinaryOutput._create(socket, connection, observer),
         }
         if binary_input is not None:
             values[RpcBinaryInput] = binary_input
@@ -549,6 +694,9 @@ async def serve_stream_endpoint(
                 try:
                     async for frame in generator:
                         if not isinstance(frame, bytes | bytearray | memoryview):
+                            _record_error(
+                                TypeError("Binary stream yielded a non-bytes value")
+                            )
                             logger.error("Binary stream yielded a non-bytes value")
                             request_close(
                                 RpcConnectionClose.INTERNAL_ERROR, "Internal error"
@@ -557,7 +705,7 @@ async def serve_stream_endpoint(
                         data = bytes(frame)
                         await socket.send_bytes(data)
                         await notify_observer(
-                            endpoint.observer,
+                            observer,
                             "stream_frame_sent",
                             connection,
                             len(data),
@@ -617,13 +765,15 @@ async def serve_stream_endpoint(
                         else:
                             await binary_input._put(frame)
                             await notify_observer(
-                                endpoint.observer,
+                                observer,
                                 "stream_frame_received",
                                 connection,
                                 len(frame),
                             )
                 except RpcDisconnect as error:
                     client_disconnected(error)
+                except Exception as error:
+                    close_stream_error(error)
 
             if stream.is_generator:
                 generator = stream.function(**arguments)
@@ -631,10 +781,18 @@ async def serve_stream_endpoint(
             else:
                 run = handle()
             tasks = [asyncio.create_task(run), asyncio.create_task(read())]
-            await close_event.wait()
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                await close_event.wait()
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                if generator is not None:
+                    try:
+                        await generator.aclose()
+                    except Exception as error:
+                        close_stream_error(error)
+                    generator = None
     except asyncio.CancelledError:
         close_value[:] = [RpcConnectionClose.SHUTDOWN, ""]
         connection._close_code = RpcConnectionClose.SHUTDOWN
@@ -644,23 +802,14 @@ async def serve_stream_endpoint(
         close_stream_error(error)
     finally:
         if generator is not None:
-            with suppress(Exception):
+            try:
                 await generator.aclose()
+            except Exception as error:
+                close_stream_error(error)
         if not client_closed:
             with suppress(RpcDisconnect):
                 await socket.close(*close_value)
         connection._closed = True
-        await notify_observer(
-            endpoint.observer,
-            "connection_closed",
-            RpcConnectionContext(
-                connection=connection,
-                close_code=connection.close_code,
-                close_reason=connection.close_reason,
-                duration=time.perf_counter() - started,
-                raw_close_code=connection.raw_close_code,
-            ),
-        )
 
 
 def _is_input_end(frame: str) -> bool:

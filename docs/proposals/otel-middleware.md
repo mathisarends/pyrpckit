@@ -1,8 +1,8 @@
 # Middleware and OpenTelemetry API proposal
 
-Status: draft for discussion. The APIs below are proposed additions and are
-not implemented. This proposal targets the serving runtime, including the
-existing FastAPI integration and dedicated binary streams.
+Status: design draft with an implementation in this branch. The original
+proposal below explains the API choices; see [Observability](../observability.md)
+for the implemented registration, scopes, signals, and metric names.
 
 The recommendation is to add transport-independent lifecycle middleware and
 ship an optional `rpckit.opentelemetry.OpenTelemetry` implementation. Existing
@@ -313,7 +313,7 @@ hooks and the existing observer callbacks. A smaller alternative adds the
 scope hooks directly to `RpcObserver` and uses `observer=OpenTelemetry()`;
 that preserves a smaller API but needs an explicit observer composition story.
 
-Agree on these choices before implementing:
+Review these choices alongside the implementation:
 
 1. Add the separate middleware surface, or extend the existing observer?
 2. Keep OTEL opt-in through `pyrpckit[otel]` and one registration?

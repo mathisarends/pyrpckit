@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any
 
 from rpckit.codec import RpcCodec
 from rpckit.connection import RpcConnection, RpcLimits
@@ -18,13 +20,23 @@ from rpckit.errors import (
     contract_for,
     contract_of,
 )
+from rpckit.middleware import (
+    RpcMiddlewareLike,
+    RpcRequestOutcome,
+    RpcRequestScope,
+    _middleware_observer,
+    _middleware_scope,
+)
 from rpckit.observer import (
     RpcObserverLike,
     RpcRequestContext,
     RpcResponseContext,
     notify_observer,
 )
-from rpckit.protocol import RpcProtocol
+from rpckit.protocol import RpcMethodDefinition, RpcProtocol
+
+if TYPE_CHECKING:
+    from rpckit.service import RpcEndpoint
 
 type RpcErrorMapper = Callable[[Exception], RpcError | None]
 type RpcResponse = RpcSuccess | RpcFailure
@@ -50,17 +62,33 @@ class RpcServer:
         connection: RpcConnection | None = None,
         limits: RpcLimits | None = None,
         strict_errors: bool = False,
+        middleware: Sequence[RpcMiddlewareLike] = (),
+        endpoint: "RpcEndpoint[Any] | None" = None,
     ) -> "RpcServer":
         server = cls.__new__(cls)
         server._protocol = protocol
         server._dispatcher = RpcDispatcher(protocol, resolver=resolver)
         server._error_mapper = error_mapper
-        server._observer = observer
+        server._middleware = tuple(middleware)
+        server._observer = _middleware_observer(observer, middleware)
+        server._endpoint = endpoint
         server._connection = connection
         server._codec = RpcCodec()
         server._limits = limits or RpcLimits()
         server._semaphore = asyncio.Semaphore(server._limits.max_concurrency)
         server._strict_errors = strict_errors
+        server._observed_methods = {method.name: method for method in protocol.methods}
+        for subscription in protocol.subscriptions:
+            for suffix in ("subscribe", "unsubscribe"):
+                name = f"{subscription.name}.{suffix}"
+                server._observed_methods[name] = RpcMethodDefinition(
+                    name=name,
+                    handler_name=name,
+                    request_name=name,
+                    params=subscription.params if suffix == "subscribe" else None,
+                    result=Any,
+                    raises=subscription.raises,
+                )
         return server
 
     @property
@@ -71,7 +99,7 @@ class RpcServer:
         """Serve one decoded request or batch."""
         if isinstance(raw_request, list):
             if not raw_request or len(raw_request) > self._limits.max_batch_size:
-                return self.failure(None, RpcInvalidRequestError())
+                return await self._handle_failure(raw_request, RpcInvalidRequestError())
             responses = await asyncio.gather(
                 *(self._handle_one_bounded(item) for item in raw_request)
             )
@@ -87,62 +115,90 @@ class RpcServer:
         try:
             request = self._codec.decode(message)
         except RpcParseError as error:
-            return self._codec.encode(self.failure(None, error))
+            return self._codec.encode(await self._handle_failure(message, error))
         response = await self.handle(request)
         return None if response is None else self._codec.encode(response)
 
-    async def _handle_one(self, raw_request: object) -> RpcResponse | None:
-        request_context = RpcRequestContext(
+    @asynccontextmanager
+    async def _observe_request(
+        self, raw_request: object
+    ) -> AsyncIterator[RpcRequestScope]:
+        request = RpcRequestContext(
             raw_request=raw_request,
             method=_request_method(raw_request),
             request_id=_request_id(raw_request),
             notification=_looks_like_notification(raw_request),
             connection=self._connection,
         )
-        started = time.perf_counter()
-        caught_error: Exception | None = None
-        invocation = None
-        await notify_observer(self._observer, "request_started", request_context)
-        try:
-            invocation = self._dispatcher.parse_request(raw_request)
-            result = await self._dispatcher.execute(invocation)
-        except Exception as error:
-            caught_error = error
-            if _looks_like_notification(raw_request):
-                self._rpc_error(
-                    error,
-                    request_context.method,
-                    declared=invocation.method.raises if invocation else (),
-                )
-                response = None
-            else:
-                response = self.failure(
-                    _request_id(raw_request),
-                    error,
-                    method=request_context.method,
-                    declared=invocation.method.raises if invocation else (),
-                )
-        else:
-            response = (
-                RpcSuccess._with_result_annotation(
-                    invocation.request.id,
-                    result,
-                    invocation.method.result,
-                )
-                if invocation.request.expects_response
-                else None
-            )
-        await notify_observer(
-            self._observer,
-            "request_finished",
-            RpcResponseContext(
-                request=request_context,
-                response=response,
-                duration=time.perf_counter() - started,
-                error=caught_error,
-            ),
+        scope = RpcRequestScope(
+            request,
+            self._endpoint,
+            self._observed_methods.get(request.method or ""),
         )
+        started = time.perf_counter()
+        caught: BaseException | None = None
+        async with _middleware_scope(self._middleware, "request", scope):
+            try:
+                await notify_observer(self._observer, "request_started", request)
+                yield scope
+            except BaseException as error:
+                caught = error
+                raise
+            finally:
+                previous = scope.outcome
+                error = caught if previous is None else previous.error or caught
+                scope.outcome = RpcRequestOutcome(
+                    response=None if previous is None else previous.response,
+                    duration=time.perf_counter() - started,
+                    error=error,
+                    cancelled=isinstance(caught, asyncio.CancelledError),
+                    error_code=None if previous is None else previous.error_code,
+                )
+                await notify_observer(
+                    self._observer,
+                    "request_finished",
+                    RpcResponseContext(
+                        request, scope.outcome.response, scope.outcome.duration, error
+                    ),
+                )
+
+    async def _handle_one(
+        self, raw_request: object, *, failure: Exception | None = None
+    ) -> RpcResponse | None:
+        invocation = None
+        response: RpcResponse | None = None
+        async with self._observe_request(raw_request) as scope:
+            try:
+                if failure is not None:
+                    raise failure
+                invocation = self._dispatcher.parse_request(raw_request)
+                result = await self._dispatcher.execute(invocation)
+            except Exception as error:
+                mapped = self._rpc_error(
+                    error,
+                    scope.request.method,
+                    declared=invocation.method.raises if invocation else (),
+                )
+                if not scope.request.notification:
+                    response = RpcFailure.from_error(scope.request.request_id, mapped)
+                scope.outcome = RpcRequestOutcome(
+                    response, 0.0, error, error_code=str(mapped.rpc_code)
+                )
+            else:
+                response = (
+                    RpcSuccess._with_result_annotation(
+                        invocation.request.id, result, invocation.method.result
+                    )
+                    if invocation.request.expects_response
+                    else None
+                )
+                scope.outcome = RpcRequestOutcome(response, 0.0)
         return response
+
+    async def _handle_failure(
+        self, raw_request: object, error: Exception
+    ) -> RpcResponse | None:
+        return await self._handle_one(raw_request, failure=error)
 
     def failure(
         self,
