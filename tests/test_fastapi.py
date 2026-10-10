@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import sys
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any
 from uuid import UUID
@@ -9,6 +10,7 @@ from uuid import UUID
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
+from fastapi.websockets import WebSocketState
 from pydantic import BaseModel
 from starlette.testclient import WebSocketDenialResponse
 
@@ -656,3 +658,395 @@ def test_rpc_routes_reject_invalid_mounts() -> None:
     routes.mount(service.endpoint("events"))
     with pytest.raises(ValueError, match="already mounted"):
         routes.mount(service.endpoint("events"))
+
+
+@pytest.mark.parametrize("endpoint_name", ["events", "output"])
+def test_custom_handlers_receive_context_and_dependencies_at_the_declared_route(
+    endpoint_name: str,
+) -> None:
+    service = create_job_service()
+    document = service.contract(title="Jobs", base_url="ws://example.com").to_openrpc()
+    resolved: list[type] = []
+    calls: list[JobSession] = []
+
+    async def resolve(dependency: type) -> JobOutput:
+        resolved.append(dependency)
+        return JobOutput([b"custom"])
+
+    async def label() -> str:
+        return "fastapi"
+
+    async def serve_job(
+        socket: WebSocket,
+        job: Inject[JobSession],
+        output: Inject[JobOutput],
+        job_id: UUID,
+        label: Annotated[str, Depends(label)],
+    ) -> None:
+        assert socket.application_state is WebSocketState.CONNECTING
+        assert job.job.id == job_id
+        calls.append(job)
+        await socket.accept()
+        await socket.send_json({"actor": job.actor.name, "label": label})
+        await socket.send_bytes(output.frames[0])
+        await socket.close()
+
+    router = APIRouter(prefix="/jobs")
+    endpoint = service.endpoint(endpoint_name)
+    routes = RpcRoutes(router, context=open_job_session, resolver=resolve)
+    routes.mount(endpoint, handler=serve_job)
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    assert app.url_path_for(endpoint_name, job_id=str(KNOWN_JOB)) == (
+        f"/api/jobs/{KNOWN_JOB}/{endpoint_name}"
+    )
+    assert service.contract(title="Jobs", base_url="ws://example.com").to_openrpc() == (
+        document
+    )
+    with (
+        TestClient(app) as client,
+        client.websocket_connect(f"/api/jobs/{KNOWN_JOB}/{endpoint_name}") as socket,
+    ):
+        assert socket.receive_json() == {"actor": "ada", "label": "fastapi"}
+        assert socket.receive_bytes() == b"custom"
+        assert socket.receive()["code"] == 1000
+    assert resolved == [JobOutput]
+    assert len(calls) == 1
+    with pytest.raises(ValueError, match="already mounted"):
+        routes.mount(endpoint, handler=serve_job)
+
+
+@pytest.mark.parametrize(
+    "stage", ["dependency", "handler_dependency", "injection", "handler", "cleanup"]
+)
+def test_custom_handlers_reject_failures_before_acceptance(stage: str) -> None:
+    calls: list[str] = []
+
+    async def authorize() -> None:
+        if stage == "dependency":
+            raise JobNotFound("Unavailable")
+
+    async def context(
+        job_id: UUID, authorized: Annotated[None, Depends(authorize)]
+    ) -> JobSession:
+        return JobSession(Job(job_id), Actor("ada"))
+
+    async def handler_dependency() -> None:
+        if stage == "handler_dependency":
+            raise JobNotFound("Unavailable")
+
+    class Resolver:
+        async def resolve(self, dependency: type) -> JobOutput:
+            if stage == "injection":
+                raise JobNotFound("Unavailable")
+            return JobOutput([])
+
+        @asynccontextmanager
+        async def enter_connection(self, values):
+            calls.append("enter")
+            try:
+                yield self
+            finally:
+                calls.append("exit")
+                if stage == "cleanup":
+                    raise JobNotFound("Unavailable")
+
+    async def handler(
+        socket: WebSocket,
+        output: Inject[JobOutput],
+        authorized: Annotated[None, Depends(handler_dependency)],
+    ) -> None:
+        calls.append("handler")
+        if stage == "handler":
+            raise JobNotFound("Unavailable")
+
+    router = APIRouter(prefix="/jobs")
+    routes = RpcRoutes(router, context=context, resolver=Resolver())
+    routes.mount(
+        create_job_service(rejects=(job_not_found,)).endpoint("events"), handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+    with (
+        TestClient(app) as client,
+        pytest.raises(WebSocketDenialResponse) as denied,
+        client.websocket_connect(f"/jobs/{KNOWN_JOB}/events"),
+    ):
+        pass
+    assert denied.value.status_code == 404
+    assert denied.value.text == "Unavailable"
+    assert (
+        calls
+        == {
+            "dependency": [],
+            "handler_dependency": [],
+            "injection": ["enter", "exit"],
+            "handler": ["enter", "handler", "exit"],
+            "cleanup": ["enter", "handler", "exit"],
+        }[stage]
+    )
+
+
+@pytest.mark.parametrize("policy", ["service", "endpoint", "routes"])
+def test_custom_handlers_use_rejection_precedence_after_acceptance(policy: str) -> None:
+    service_binding = RpcErrorBinding(
+        JobNotFound, message="service", rejection=RpcRejection.NOT_FOUND
+    )
+    endpoint_binding = RpcErrorBinding(
+        JobNotFound, message="endpoint", rejection=RpcRejection.UNAVAILABLE
+    )
+    route_binding = RpcErrorBinding(
+        JobNotFound, message="routes", rejection=RpcRejection.FORBIDDEN
+    )
+    channel = RpcChannel("jobs")
+    service = RpcService(rejects=(service_binding,))
+    endpoint = service.socket(
+        "/jobs/{job_id}/events",
+        channels=(channel,),
+        context=JobSession,
+        rejects=() if policy == "service" else (endpoint_binding,),
+    )
+
+    async def handler(websocket: WebSocket, job: Inject[JobSession]) -> None:
+        await websocket.accept()
+        await websocket.send_text("pending")
+        raise JobNotFound()
+
+    router = APIRouter(prefix="/jobs")
+    routes = RpcRoutes(
+        router,
+        context=open_job_session,
+        rejects=(route_binding,) if policy == "routes" else (),
+    )
+    routes.mount(endpoint, handler=handler)
+    app = FastAPI()
+    app.include_router(router)
+    with (
+        TestClient(app) as client,
+        client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket,
+    ):
+        assert websocket.receive_text() == "pending"
+        assert websocket.receive() == {
+            "type": "websocket.close",
+            "code": 1013 if policy == "endpoint" else 1008,
+            "reason": policy,
+        }
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_custom_handlers_preserve_unknown_failures_and_do_not_close_twice(
+    closed: bool,
+) -> None:
+    async def handler(websocket: WebSocket) -> None:
+        await websocket.accept()
+        if closed:
+            await websocket.close(1000, "done")
+            raise JobNotFound("already closed")
+        raise RuntimeError("unknown")
+
+    router = APIRouter(prefix="/jobs")
+    RpcRoutes(router, context=open_job_session, rejects=(job_not_found,)).mount(
+        create_job_service().endpoint("events"), handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        if closed:
+            with client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket:
+                assert websocket.receive()["reason"] == "done"
+        else:
+            with (
+                pytest.raises(RuntimeError, match="unknown"),
+                client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket,
+            ):
+                websocket.receive()
+
+
+def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() -> None:
+    calls: list[str] = []
+
+    class Resolver:
+        async def resolve(self, dependency: type) -> JobOutput:
+            return JobOutput([])
+
+        @asynccontextmanager
+        async def enter_connection(self, values):
+            calls.append("enter")
+            assert values[JobSession].job.id == KNOWN_JOB
+            try:
+                yield self
+            finally:
+                calls.append("exit")
+
+    async def handler(websocket: WebSocket, job: Inject[JobSession]) -> None:
+        acquiring = asyncio.Event()
+
+        async def acquire() -> None:
+            calls.append("acquire")
+            acquiring.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                calls.append("cancelled")
+
+        await websocket.accept()
+        pending = asyncio.create_task(acquire())
+        try:
+            await acquiring.wait()
+            await websocket.send_text("pending")
+            await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+    router = APIRouter(prefix="/jobs")
+    RpcRoutes(router, context=open_job_session, resolver=Resolver()).mount(
+        create_job_service().endpoint("events"), handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket:
+            assert websocket.receive_text() == "pending"
+        assert calls == ["enter", "acquire", "cancelled", "exit"]
+
+
+def test_custom_handlers_authorize_even_without_context_parameters() -> None:
+    called: list[bool] = []
+
+    async def handler() -> None:
+        called.append(True)
+        raise RpcReject(RpcRejection.FORBIDDEN, "not accepted")
+
+    router = APIRouter(prefix="/jobs")
+    RpcRoutes(router, context=open_job_session, rejects=(job_not_found,)).mount(
+        create_job_service().endpoint("events"), handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        for job_id, code in [(KNOWN_JOB, 403), (UUID(int=2), 404)]:
+            with (
+                pytest.raises(WebSocketDenialResponse) as denied,
+                client.websocket_connect(f"/jobs/{job_id}/events"),
+            ):
+                pass
+            assert denied.value.status_code == code
+    assert called == [True]
+
+
+def test_custom_handlers_require_explicit_context_injection() -> None:
+    routes = RpcRoutes(APIRouter(prefix="/jobs"), context=open_job_session)
+    endpoint = create_job_service().endpoint("events")
+
+    async def unmarked(websocket: WebSocket, task: JobSession) -> None: ...
+
+    class OtherSession(JobSession):
+        pass
+
+    async def incompatible(task: Inject[OtherSession]) -> None: ...
+
+    def sync(websocket: WebSocket) -> None: ...
+
+    async def variadic(**arguments: Any) -> None: ...
+
+    for handler, message in [
+        (unmarked, r"must use Inject\[JobSession\]"),
+        (incompatible, "must inject the declared context type JobSession"),
+        (sync, "expects an async function"),
+        (variadic, "must be positional-or-keyword or keyword-only"),
+    ]:
+        with pytest.raises(TypeError, match=message):
+            routes.mount(endpoint, handler=handler)  # type: ignore[arg-type]
+
+
+async def test_custom_handlers_release_the_scope_on_cancellation() -> None:
+    calls: list[str] = []
+    started = asyncio.Event()
+
+    class Resolver:
+        @asynccontextmanager
+        async def enter_connection(self, values):
+            calls.append("enter")
+            try:
+                yield self
+            finally:
+                calls.append("exit")
+
+        async def resolve(self, dependency: type) -> JobOutput:
+            return JobOutput([])
+
+    async def handler(websocket: WebSocket, job: Inject[JobSession]) -> None:
+        await websocket.accept()
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            calls.append("handler cleanup")
+
+    router = APIRouter(prefix="/jobs")
+    RpcRoutes(router, context=open_job_session, resolver=Resolver()).mount(
+        create_job_service().endpoint("events"), handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(message):
+        pass
+
+    serving = asyncio.create_task(
+        app(
+            {
+                "type": "websocket",
+                "path": f"/jobs/{KNOWN_JOB}/events",
+                "query_string": b"",
+                "headers": [],
+            },
+            receive,
+            send,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+    finally:
+        serving.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await serving
+    assert calls == ["enter", "handler cleanup", "exit"]
+
+
+def test_custom_handlers_without_context_preserve_internal_parameter_names() -> None:
+    output = JobOutput([b"custom"])
+
+    async def resolve(dependency: type) -> JobOutput:
+        assert dependency is JobOutput
+        return output
+
+    async def handler(
+        *,
+        _rpckit_websocket: Inject[JobOutput],
+        _rpckit_context: str = "custom",
+    ) -> None:
+        assert _rpckit_websocket is output
+        assert _rpckit_context == "custom"
+        raise RpcReject(RpcRejection.FORBIDDEN, "custom rejection")
+
+    router = APIRouter()
+    RpcRoutes(router, resolver=resolve).mount(
+        create_service().endpoint("rpc"), handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+    with (
+        TestClient(app) as client,
+        pytest.raises(WebSocketDenialResponse) as denied,
+        client.websocket_connect("/rpc"),
+    ):
+        pass
+    assert denied.value.status_code == 403
+    assert denied.value.text == "custom rejection"
