@@ -228,3 +228,81 @@ def test_dishka_injects_the_context_function(transport_parameter: str) -> None:
     ):
         websocket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.owner"})
         assert websocket.receive_json()["result"] == "owner-7"
+
+
+@pytest.mark.parametrize("explicit_injection", [False, True])
+def test_custom_handlers_resolve_context_and_providers_in_one_session(
+    explicit_injection: bool,
+) -> None:
+    @dataclass(frozen=True)
+    class Owner:
+        id: int
+
+    @dataclass(frozen=True)
+    class Streamer:
+        owner: Owner
+
+    @dataclass(frozen=True)
+    class Owners:
+        pass
+
+    released: list[int] = []
+    contexts: list[Owner] = []
+    streamed: list[Streamer] = []
+
+    class Provider(dishka.Provider):
+        owner = dishka.from_context(Owner, scope=Scope.SESSION)
+
+        @dishka.provide(scope=Scope.APP)
+        def owners(self) -> Owners:
+            return Owners()
+
+        @dishka.provide(scope=Scope.SESSION)
+        async def streamer(self, owner: Owner) -> AsyncGenerator[Streamer, None]:
+            try:
+                yield Streamer(owner)
+            finally:
+                released.append(owner.id)
+
+    async def open_owner(owner_id: int, owners: dishka.FromDishka[Owners]) -> Owner:
+        owner = Owner(owner_id)
+        contexts.append(owner)
+        return owner
+
+    async def handler(
+        websocket: WebSocket,
+        task: Inject[Owner],
+        lifecycle: Inject[Streamer],
+        other: Inject[Streamer],
+        owners: dishka.FromDishka[Owners],
+    ) -> None:
+        assert task is contexts[-1]
+        assert lifecycle.owner is task
+        assert other is lifecycle
+        streamed.append(lifecycle)
+        await websocket.accept()
+        await websocket.send_json(task.id)
+        await websocket.close()
+
+    if explicit_injection:
+        handler = dishka.integrations.fastapi.inject(handler)
+
+    service = RpcService()
+    endpoint = service.socket(
+        "/owners/{owner_id}/rpc", channels=(RpcChannel("demo"),), context=Owner
+    )
+    router = APIRouter(prefix="/owners")
+    RpcRoutes(router, context=open_owner, resolver=Dishka()).mount(
+        endpoint, handler=handler
+    )
+    app = FastAPI()
+    app.include_router(router)
+    setup_dishka(dishka.make_async_container(Provider()), app)
+
+    with TestClient(app) as client:
+        for owner_id in (7, 8):
+            with client.websocket_connect(f"/owners/{owner_id}/rpc") as websocket:
+                assert websocket.receive_json() == owner_id
+                assert websocket.receive()["code"] == 1000
+    assert streamed[0] is not streamed[1]
+    assert released == [7, 8]
