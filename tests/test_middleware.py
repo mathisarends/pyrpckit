@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketDenialResponse
 
 from rpckit import (
     RpcChannel,
+    RpcConnectionClose,
     RpcConnectionScope,
     RpcMiddleware,
     RpcObserver,
@@ -18,7 +19,7 @@ from rpckit import (
     RpcService,
     RpcStreamScope,
 )
-from rpckit.fastapi import RpcRoutes, create_router
+from rpckit.fastapi import RpcRoutes, create_router, serve_websocket
 from rpckit.testing import InMemorySocket, RpcTestClient
 
 request_id: ContextVar[object] = ContextVar("test.request", default=None)
@@ -383,3 +384,148 @@ async def test_stream_generator_and_di_cleanup_errors_are_observed():
     assert cleanup == ["generator", "di"]
     assert isinstance(recorder.streams[0].outcome.error, ValueError)
     assert isinstance(recorder.connections[0].outcome.error, ValueError)
+
+
+@pytest.mark.parametrize("peer_disconnect", [False, True])
+def test_custom_handlers_report_accepted_connections_and_close_codes(peer_disconnect):
+    recorder = Recorder()
+    endpoint = RpcService(middleware=[recorder]).socket(
+        "/rpc", channels=[RpcChannel("demo")]
+    )
+
+    async def handler(websocket: WebSocket) -> None:
+        await websocket.accept()
+        assert recorder.connections[0].connection is not None
+        await websocket.send_text("ready")
+        if peer_disconnect:
+            with pytest.raises(WebSocketDisconnect):
+                await websocket.receive_text()
+        else:
+            await websocket.close(4001, "custom close")
+
+    router = APIRouter()
+    RpcRoutes(router).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+    with TestClient(web) as client, client.websocket_connect("/rpc") as socket:
+        assert socket.receive_text() == "ready"
+        if peer_disconnect:
+            socket.close(1001, "peer shutdown")
+        else:
+            assert socket.receive()["code"] == 4001
+    assert len(recorder.connections) == 1
+    scope = recorder.connections[0]
+    assert scope.connection.closed
+    assert scope.outcome.accepted
+    assert scope.outcome.error is None
+    assert scope.outcome.accepted_duration > 0
+    assert scope.outcome.close_code is (
+        RpcConnectionClose.SHUTDOWN if peer_disconnect else RpcConnectionClose.OTHER
+    )
+    assert scope.outcome.raw_close_code == (1001 if peer_disconnect else 4001)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("shared", [False, True])
+def test_custom_handlers_compose_delegated_middleware_once(stream, shared):
+    order = []
+    configured = Recorder("configured", order)
+    delegated = configured if shared else Recorder("delegated", order)
+    channel = RpcChannel("demo")
+    rpc = RpcService(middleware=[configured])
+
+    @channel.method()
+    async def ping() -> str:
+        return "pong"
+
+    @channel.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        yield b"frame"
+
+    endpoint = (
+        rpc.stream("/rpc", frames) if stream else rpc.socket("/rpc", channels=[channel])
+    )
+
+    async def handler(websocket: WebSocket) -> None:
+        await serve_websocket(endpoint, websocket, middleware=[delegated])
+
+    router = APIRouter()
+    RpcRoutes(router).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+    with TestClient(web) as client, client.websocket_connect("/rpc") as socket:
+        if stream:
+            assert socket.receive_bytes() == b"frame"
+            assert socket.receive()["code"] == 1000
+        else:
+            socket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.ping"})
+            assert socket.receive_json()["result"] == "pong"
+    for recorder in (configured, delegated):
+        assert len(recorder.connections) == 1
+        assert recorder.connections[0].outcome.accepted
+        assert len(recorder.streams if stream else recorder.requests) == 1
+    if not stream:
+        assert order == (
+            ["enter:configured", "exit:configured"]
+            if shared
+            else [
+                "enter:configured",
+                "enter:delegated",
+                "exit:delegated",
+                "exit:configured",
+            ]
+        )
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_custom_handlers_report_cancellation_and_failed_acceptance(cancel):
+    recorder = Recorder()
+    endpoint = RpcService(middleware=[recorder]).socket(
+        "/rpc", channels=[RpcChannel("demo")]
+    )
+    accepted = asyncio.Event()
+    failure = RuntimeError("accept failed")
+
+    async def handler(websocket: WebSocket) -> None:
+        await websocket.accept()
+        accepted.set()
+        await asyncio.Event().wait()
+
+    router = APIRouter()
+    RpcRoutes(router).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(message):
+        if not cancel and message["type"] == "websocket.accept":
+            raise failure
+
+    task = asyncio.create_task(
+        web(
+            {"type": "websocket", "path": "/rpc", "query_string": b"", "headers": []},
+            receive,
+            send,
+        )
+    )
+    if cancel:
+        try:
+            await asyncio.wait_for(accepted.wait(), timeout=5)
+        finally:
+            task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(RuntimeError, match="accept failed"):
+            await task
+    outcome = recorder.connections[0].outcome
+    assert outcome.accepted is cancel
+    assert outcome.cancelled is cancel
+    if cancel:
+        assert outcome.close_code is RpcConnectionClose.SHUTDOWN
+        assert recorder.connections[0].connection.closed
+    else:
+        assert outcome.error is failure
+        assert outcome.accepted_duration is None

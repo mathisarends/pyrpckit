@@ -4,7 +4,7 @@ import sys
 from collections.abc import AsyncIterator
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from opentelemetry import trace
 from opentelemetry.sdk.metrics import MeterProvider
@@ -25,7 +25,7 @@ from rpckit import (
     RpcRequestScope,
     RpcService,
 )
-from rpckit.fastapi import RpcRoutes
+from rpckit.fastapi import RpcRoutes, serve_websocket
 from rpckit.opentelemetry import OpenTelemetry
 from rpckit.testing import InMemorySocket, RpcTestClient, RpcTestError
 
@@ -450,3 +450,102 @@ async def test_failed_sends_and_invalid_input_are_not_counted(providers, failed_
     )
     (span,) = exporter.get_finished_spans()
     assert span.status.status_code is StatusCode.ERROR
+
+
+def test_custom_handlers_measure_live_connections_and_accepted_duration(providers):
+    tracer, meter, exporter, reader = providers
+    endpoint = RpcService().socket("/rpc", channels=[RpcChannel("demo")])
+
+    async def handler(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_text("ready")
+        await websocket.receive_text()
+        await websocket.close()
+
+    router = APIRouter()
+    RpcRoutes(
+        router,
+        middleware=[
+            OpenTelemetry(
+                tracer_provider=tracer, meter_provider=meter, connection_spans=True
+            )
+        ],
+    ).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+    with TestClient(web) as client, client.websocket_connect("/rpc") as socket:
+        assert socket.receive_text() == "ready"
+        assert total(reader, "rpckit.connections.active") == 1
+        socket.send_text("close")
+        assert socket.receive()["code"] == 1000
+    assert total(reader, "rpckit.connections.active") == 0
+    assert total(reader, "rpckit.connections", **{"rpckit.outcome": "accepted"}) == 1
+    assert total(reader, "rpckit.connections", **{"rpckit.outcome": "failed"}) == 0
+    (duration,) = points(reader, "rpckit.connections.duration")
+    assert duration.count == 1
+    assert duration.sum > 0
+    assert duration.attributes["rpckit.close"] == "normal"
+    (span,) = exporter.get_finished_spans()
+    assert span.status.status_code is StatusCode.UNSET
+
+
+def test_delegated_middleware_records_rpc_and_connection_once(providers):
+    tracer, meter, exporter, reader = providers
+    telemetry = OpenTelemetry(tracer_provider=tracer, meter_provider=meter)
+    channel = RpcChannel("demo")
+
+    @channel.method()
+    async def ping() -> str:
+        return "pong"
+
+    endpoint = RpcService().socket("/rpc", channels=[channel])
+
+    async def handler(websocket: WebSocket) -> None:
+        await serve_websocket(endpoint, websocket, middleware=[telemetry])
+
+    router = APIRouter()
+    RpcRoutes(router).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+    with TestClient(web) as client, client.websocket_connect("/rpc") as socket:
+        socket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.ping"})
+        assert socket.receive_json()["result"] == "pong"
+        assert total(reader, "rpckit.connections.active") == 1
+    assert [span.name for span in exporter.get_finished_spans()] == ["demo.ping"]
+    assert total(reader, "rpckit.rpc.calls") == 1
+    assert total(reader, "rpckit.rpc.active") == 0
+    assert total(reader, "rpckit.connections") == 1
+    assert total(reader, "rpckit.connections.active") == 0
+
+
+def test_custom_handler_peer_disconnect_keeps_connection_span_successful(providers):
+    tracer, meter, exporter, reader = providers
+    endpoint = RpcService().socket("/rpc", channels=[RpcChannel("demo")])
+
+    async def handler(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_text("ready")
+        await websocket.receive_text()
+
+    router = APIRouter()
+    RpcRoutes(
+        router,
+        middleware=[
+            OpenTelemetry(
+                tracer_provider=tracer, meter_provider=meter, connection_spans=True
+            )
+        ],
+    ).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+    with (
+        TestClient(web) as client,
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/rpc") as socket,
+    ):
+        assert socket.receive_text() == "ready"
+        socket.close(1000)
+    (span,) = exporter.get_finished_spans()
+    assert span.status.status_code is StatusCode.UNSET
+    assert total(reader, "rpckit.connections") == 1
+    assert total(reader, "rpckit.connections.active") == 0

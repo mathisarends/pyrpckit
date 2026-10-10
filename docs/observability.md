@@ -184,6 +184,16 @@ closes it after dependency cleanup, including mapped context rejections.
 Earlier FastAPI or router-wide dependencies remain outside that boundary.
 Manual routes start their boundary when they call `serve_websocket()`.
 
+Custom `RpcRoutes.mount(handler=...)` handlers also report acceptance, close
+codes, and connection lifetime when they use FastAPI's `WebSocket` directly.
+RPC and stream scopes begin when a custom handler delegates to
+`serve_websocket()`. Additional `middleware=` supplied there runs inside the
+connection scopes already opened by the route, and participates in request,
+stream, and activity callbacks. Instances already active on that connection
+are reused without entering their scopes twice. Middleware added during
+delegation finishes when delegated serving ends; route middleware also covers
+the surrounding dependency cleanup.
+
 Generated-client instrumentation, browser trace propagation, and OTEL log
 exporting are separate from this server-side integration.
 

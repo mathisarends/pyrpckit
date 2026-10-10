@@ -1,7 +1,8 @@
 import asyncio
 import inspect
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import (
     Annotated,
     Any,
@@ -22,6 +23,7 @@ try:
         WebSocketDisconnect,
     )
     from fastapi.websockets import WebSocketState
+    from starlette.types import Message
 except ImportError as error:
     raise ModuleNotFoundError(
         "rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]",
@@ -31,6 +33,7 @@ except ImportError as error:
 from rpckit.connection import (
     REJECTION_CLOSES,
     RpcBeforeAccept,
+    RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
     RpcHandshake,
@@ -55,6 +58,7 @@ from rpckit.middleware import (
     _serving_scope,
     _ServingState,
 )
+from rpckit.observer import RpcConnectionContext, notify_observer
 from rpckit.runtime import _rejection
 from rpckit.server import RpcErrorMapper
 from rpckit.service import (
@@ -367,7 +371,11 @@ class RpcRoutes[ContextT]:
             else self._custom_handler(endpoint, handler),
             name=endpoint.name,
             dependencies=[
-                Depends(_middleware_dependency(endpoint, self._middleware)),
+                Depends(
+                    _middleware_dependency(
+                        endpoint, self._middleware, custom=handler is not None
+                    )
+                ),
                 Depends(
                     _reject_failures(
                         chain_rejections(
@@ -600,6 +608,8 @@ def _reject_failures(
 def _middleware_dependency(
     endpoint: RpcEndpoint | RpcStreamEndpoint,
     middleware: Sequence[RpcMiddlewareLike],
+    *,
+    custom: bool = False,
 ) -> Callable[[WebSocket], AsyncIterator[None]]:
     async def dependency(websocket: WebSocket) -> AsyncIterator[None]:
         async with _serving_scope(
@@ -607,8 +617,83 @@ def _middleware_dependency(
         ) as state:
             websocket.scope["rpckit.serving"] = state
             try:
-                yield
+                async with (
+                    _custom_connection(websocket, state) if custom else nullcontext()
+                ):
+                    yield
             finally:
                 websocket.scope.pop("rpckit.serving", None)
 
     return dependency
+
+
+@asynccontextmanager
+async def _custom_connection(
+    websocket: WebSocket, state: _ServingState
+) -> AsyncIterator[None]:
+    original_send, original_receive = websocket.send, websocket.receive
+    connection: RpcConnection | None = None
+
+    def disconnected(code: int, reason: str) -> None:
+        if connection is not None and not connection.closed:
+            close = RpcDisconnect(code, reason)
+            connection._close_code = close.code
+            connection._raw_close_code = close.raw_close_code
+            connection._close_reason = close.reason
+            connection._closed = True
+
+    async def send(message: Message) -> None:
+        nonlocal connection
+        try:
+            await original_send(message)
+        except WebSocketDisconnect as error:
+            disconnected(error.code, error.reason)
+            raise
+        # Delegated serving prepares its own connection and sends its callbacks.
+        if message["type"] == "websocket.accept" and state.scope.connection is None:
+            connection = RpcConnection._create(state.scope.endpoint, state.socket)
+            connection._accepted = True
+            state.scope.connection = connection
+            state.accepted_at = time.perf_counter()
+            await notify_observer(state.observer, "connection_opened", connection)
+        elif message["type"] == "websocket.close":
+            disconnected(message.get("code", 1000), message.get("reason") or "")
+
+    async def receive() -> Message:
+        message = await original_receive()
+        if message["type"] == "websocket.disconnect":
+            disconnected(message.get("code", 1000), message.get("reason") or "")
+        return message
+
+    websocket.send, websocket.receive = send, receive
+    try:
+        yield
+    except WebSocketDisconnect as error:
+        state.disconnect_error = error
+        if state.error is error:
+            state.error = None
+        disconnected(error.code, error.reason)
+        raise
+    except BaseException as error:
+        if connection is not None and not connection.closed:
+            connection._close_code = (
+                RpcConnectionClose.SHUTDOWN
+                if isinstance(error, asyncio.CancelledError)
+                else RpcConnectionClose.INTERNAL_ERROR
+            )
+        raise
+    finally:
+        websocket.send, websocket.receive = original_send, original_receive
+        if connection is not None:
+            connection._closed = True
+            await notify_observer(
+                state.observer,
+                "connection_closed",
+                RpcConnectionContext(
+                    connection,
+                    connection.close_code,
+                    connection.close_reason,
+                    time.perf_counter() - (state.accepted_at or state.started_at),
+                    connection.raw_close_code,
+                ),
+            )

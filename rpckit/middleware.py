@@ -4,7 +4,7 @@ import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from rpckit.connection import (
@@ -233,10 +233,28 @@ class _ServingState:
     socket: RpcSocket
     middleware: tuple[RpcMiddlewareLike, ...]
     observer: RpcObserverLike | None
+    started_at: float = field(default_factory=time.perf_counter)
     error: BaseException | None = None
+    disconnect_error: BaseException | None = None
     rejection: RpcRejection | None = None
     accepted_at: float | None = None
     cancelled: bool = False
+
+    def finish(self) -> None:
+        connection = self.scope.connection
+        finished = time.perf_counter()
+        self.scope.outcome = RpcConnectionOutcome(
+            accepted=self.accepted_at is not None,
+            rejection=self.rejection,
+            close_code=None if connection is None else connection.close_code,
+            raw_close_code=None if connection is None else connection.raw_close_code,
+            duration=finished - self.started_at,
+            error=self.error,
+            cancelled=self.cancelled,
+            accepted_duration=None
+            if self.accepted_at is None
+            else finished - self.accepted_at,
+        )
 
 
 _serving: ContextVar[_ServingState | None] = ContextVar("rpckit.serving", default=None)
@@ -252,6 +270,7 @@ def _record_error(error: BaseException) -> None:
         state.cancelled = True
     if (
         state is not None
+        and error is not state.disconnect_error
         and (state.error is None or isinstance(state.error, asyncio.CancelledError))
         and not isinstance(error, RpcDisconnect)
     ):
@@ -276,7 +295,22 @@ async def _serving_scope(
         and active.socket is socket
         and active.scope.endpoint is endpoint
     ):
-        yield active
+        additional = tuple(
+            item
+            for item in middleware
+            if not any(item is configured for configured in active.middleware)
+        )
+        if not additional:
+            yield active
+            return
+        previous = active.middleware, active.observer
+        active.middleware = (*active.middleware, *additional)
+        active.observer = _middleware_observer(active.observer, additional)
+        try:
+            async with _connection_middleware(active, additional):
+                yield active
+        finally:
+            active.middleware, active.observer = previous
         return
     chain = (*middleware, *endpoint.middleware)
     state = _ServingState(
@@ -285,35 +319,26 @@ async def _serving_scope(
         chain,
         _middleware_observer(endpoint.observer, chain),
     )
-    started = time.perf_counter()
     token = _serving.set(state)
     try:
-        async with _middleware_scope(chain, "connection", state.scope):
-            try:
-                yield state
-            except BaseException as error:
-                _record_error(error)
-                raise
-            finally:
-                connection = state.scope.connection
-                state.scope.outcome = RpcConnectionOutcome(
-                    accepted=state.accepted_at is not None,
-                    rejection=state.rejection,
-                    close_code=None if connection is None else connection.close_code,
-                    raw_close_code=None
-                    if connection is None
-                    else connection.raw_close_code,
-                    duration=time.perf_counter() - started,
-                    error=state.error,
-                    cancelled=state.cancelled,
-                    accepted_duration=(
-                        None
-                        if state.accepted_at is None
-                        else time.perf_counter() - state.accepted_at
-                    ),
-                )
+        async with _connection_middleware(state, chain):
+            yield state
     finally:
         _serving.reset(token)
+
+
+@asynccontextmanager
+async def _connection_middleware(
+    state: _ServingState, middleware: Sequence[RpcMiddlewareLike]
+) -> AsyncIterator[None]:
+    async with _middleware_scope(middleware, "connection", state.scope):
+        try:
+            yield
+        except BaseException as error:
+            _record_error(error)
+            raise
+        finally:
+            state.finish()
 
 
 @asynccontextmanager
