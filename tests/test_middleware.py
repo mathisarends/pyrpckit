@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
@@ -8,6 +9,9 @@ from fastapi import APIRouter, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketDenialResponse
 
+import rpckit.middleware as middleware_module
+import rpckit.runtime as runtime_module
+import rpckit.server as server_module
 from rpckit import (
     RpcChannel,
     RpcConnectionClose,
@@ -24,6 +28,128 @@ from rpckit.testing import InMemorySocket, RpcTestClient
 
 request_id: ContextVar[object] = ContextVar("test.request", default=None)
 connection_name: ContextVar[str | None] = ContextVar("test.connection", default=None)
+
+
+async def test_unregistered_middleware_allocates_no_operation_scopes(monkeypatch):
+    def unexpected_scope(*args, **kwargs):
+        pytest.fail("Uninstrumented operations must not allocate middleware scopes")
+
+    for module, names in (
+        (middleware_module, ("RpcConnectionScope", "RpcConnectionOutcome")),
+        (server_module, ("RpcRequestScope", "RpcRequestOutcome", "RpcRequestContext")),
+        (runtime_module, ("RpcStreamScope",)),
+    ):
+        for name in names:
+            monkeypatch.setattr(module, name, unexpected_scope)
+
+    channel = RpcChannel("demo")
+
+    @channel.method()
+    async def ping() -> str:
+        assert middleware_module._current_serving() is None
+        return "pong"
+
+    @channel.server.subscription()
+    async def events() -> AsyncIterator[str]:
+        yield "event"
+
+    @channel.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        assert middleware_module._current_serving() is None
+        yield b"frame"
+
+    server = channel.create_server()
+    request = {"jsonrpc": "2.0", "id": 1, "method": "demo.ping"}
+    assert (await server.handle(request)).result == "pong"
+    assert len(await server.handle([request, request])) == 2
+    assert await server.handle({"jsonrpc": "2.0", "method": "demo.ping"}) is None
+    assert json.loads(await server.handle_json("{"))["error"]["code"] == -32700
+    assert (await server.handle([])).error.code == -32600
+
+    rpc = RpcService()
+    rpc.socket("/rpc", channels=[channel])
+    rpc.stream("/stream", frames)
+    async with RpcTestClient(rpc, "/rpc") as client:
+        assert await client.request("demo.ping") == "pong"
+        subscription = await client.request("demo.events.subscribe")
+        _, event = await client.next_notification(timeout=1)
+        assert event == {
+            "subscriptionId": subscription["subscriptionId"],
+            "payload": "event",
+        }
+    async with RpcTestClient(rpc, "/stream") as client:
+        assert await client.next_frame() == b"frame"
+
+
+async def test_nested_uninstrumented_connection_restores_outer_scope():
+    child_channel = RpcChannel("child")
+
+    @child_channel.method()
+    async def ping() -> str:
+        assert middleware_module._current_serving() is None
+        return "pong"
+
+    child_service = RpcService()
+    child_service.socket("/child", channels=[child_channel])
+    recorder = Recorder()
+    channel = RpcChannel("parent")
+
+    @channel.stream()
+    async def frames() -> AsyncIterator[bytes]:
+        outer = middleware_module._current_serving()
+        connection = outer.scope.connection
+        async with RpcTestClient(child_service, "/child") as client:
+            assert await client.request("child.ping") == "pong"
+        assert middleware_module._current_serving() is outer
+        assert outer.scope.connection is connection
+        yield b"frame"
+
+    rpc = RpcService(middleware=[recorder])
+    rpc.stream("/parent", frames)
+    async with RpcTestClient(rpc, "/parent") as client:
+        assert await client.next_frame() == b"frame"
+        await asyncio.wait_for(client.closed(), 1)
+    assert recorder.connections[0].outcome.error is None
+    assert middleware_module._current_serving() is None
+
+
+async def test_uninstrumented_fastapi_rejection_does_not_update_outer_scope():
+    async def authenticate() -> str:
+        raise ValueError("Access denied")
+
+    child = RpcService().socket("/child", channels=[RpcChannel("child")], context=str)
+    router = APIRouter()
+    RpcRoutes(
+        router,
+        context=authenticate,
+        rejections={ValueError: RpcRejection.FORBIDDEN},
+    ).mount(child)
+    web = FastAPI()
+    web.include_router(router)
+    messages = []
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(message):
+        messages.append(message)
+
+    outer = RpcService(middleware=[Recorder()]).socket(
+        "/outer", channels=[RpcChannel("outer")]
+    )
+    async with middleware_module._serving_scope(
+        outer, InMemorySocket("/outer")
+    ) as state:
+        await web(
+            {"type": "websocket", "path": "/child", "query_string": b"", "headers": []},
+            receive,
+            send,
+        )
+        assert state.error is None
+        assert state.rejection is None
+    assert messages == [
+        {"type": "websocket.close", "code": 1008, "reason": "Access denied"}
+    ]
 
 
 class Recorder(RpcMiddleware):
@@ -155,7 +281,8 @@ async def test_notifications_invalid_json_and_invalid_batches_have_outcomes():
     assert all(scope.outcome.error is not None for scope in recorder.requests)
 
 
-async def test_request_cancellation_closes_observer_and_middleware():
+@pytest.mark.parametrize("with_middleware", [False, True])
+async def test_request_cancellation_closes_observer_and_middleware(with_middleware):
     started = asyncio.Event()
     recorder = Recorder()
     finished = []
@@ -171,7 +298,9 @@ async def test_request_cancellation_closes_observer_and_middleware():
         started.set()
         await asyncio.Event().wait()
 
-    server = channel.create_server(middleware=[recorder], observer=Observer())
+    server = channel.create_server(
+        middleware=[recorder] if with_middleware else [], observer=Observer()
+    )
     task = asyncio.create_task(
         server.handle({"jsonrpc": "2.0", "id": 1, "method": "demo.wait"})
     )
@@ -181,7 +310,8 @@ async def test_request_cancellation_closes_observer_and_middleware():
         await task
     assert len(finished) == 1
     assert isinstance(finished[0].error, asyncio.CancelledError)
-    assert recorder.requests[0].outcome.cancelled
+    if with_middleware:
+        assert recorder.requests[0].outcome.cancelled
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -425,14 +555,55 @@ def test_custom_handlers_report_accepted_connections_and_close_codes(peer_discon
     assert scope.outcome.raw_close_code == (1001 if peer_disconnect else 4001)
 
 
+@pytest.mark.parametrize("with_observer", [False, True])
+def test_custom_handlers_keep_optional_observer_without_middleware(with_observer):
+    opened, closed = [], []
+
+    class Observer(RpcObserver):
+        async def connection_opened(self, connection):
+            opened.append(connection)
+
+        async def connection_closed(self, context):
+            closed.append(context)
+
+    endpoint = RpcService(observer=Observer() if with_observer else None).socket(
+        "/rpc", channels=[RpcChannel("demo")]
+    )
+
+    async def handler(websocket: WebSocket) -> None:
+        if not with_observer:
+            assert middleware_module._current_serving() is None
+            assert websocket.send.__func__ is WebSocket.send
+            assert websocket.receive.__func__ is WebSocket.receive
+        await websocket.accept()
+        await websocket.close(4001, "custom close")
+
+    router = APIRouter()
+    RpcRoutes(router).mount(endpoint, handler=handler)
+    web = FastAPI()
+    web.include_router(router)
+    with TestClient(web) as client, client.websocket_connect("/rpc") as socket:
+        assert socket.receive()["code"] == 4001
+    if with_observer:
+        assert len(opened) == len(closed) == 1
+        assert closed[0].connection is opened[0]
+        assert closed[0].close_code is RpcConnectionClose.OTHER
+        assert closed[0].raw_close_code == 4001
+        assert closed[0].duration >= 0
+    else:
+        assert not opened and not closed
+
+
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("shared", [False, True])
-def test_custom_handlers_compose_delegated_middleware_once(stream, shared):
+@pytest.mark.parametrize(
+    "registered, shared", [(True, True), (True, False), (False, False)]
+)
+def test_custom_handlers_compose_delegated_middleware_once(stream, registered, shared):
     order = []
     configured = Recorder("configured", order)
     delegated = configured if shared else Recorder("delegated", order)
     channel = RpcChannel("demo")
-    rpc = RpcService(middleware=[configured])
+    rpc = RpcService(middleware=[configured] if registered else [])
 
     @channel.method()
     async def ping() -> str:
@@ -460,21 +631,17 @@ def test_custom_handlers_compose_delegated_middleware_once(stream, shared):
         else:
             socket.send_json({"jsonrpc": "2.0", "id": 1, "method": "demo.ping"})
             assert socket.receive_json()["result"] == "pong"
-    for recorder in (configured, delegated):
+    for recorder in (configured, delegated) if registered else (delegated,):
         assert len(recorder.connections) == 1
         assert recorder.connections[0].outcome.accepted
         assert len(recorder.streams if stream else recorder.requests) == 1
     if not stream:
-        assert order == (
-            ["enter:configured", "exit:configured"]
-            if shared
-            else [
-                "enter:configured",
-                "enter:delegated",
-                "exit:delegated",
-                "exit:configured",
-            ]
-        )
+        names = ["configured"] if registered else []
+        if not shared:
+            names.append("delegated")
+        assert order == [f"enter:{name}" for name in names] + [
+            f"exit:{name}" for name in reversed(names)
+        ]
 
 
 @pytest.mark.parametrize("cancel", [False, True])

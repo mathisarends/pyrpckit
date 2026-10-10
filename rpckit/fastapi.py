@@ -200,10 +200,14 @@ def _create_handler(
     rejections: RpcRejections | None,
     middleware: Sequence[RpcMiddlewareLike],
 ):
-    boundary = asynccontextmanager(_middleware_dependency(endpoint, middleware))
+    boundary = (
+        asynccontextmanager(_middleware_dependency(endpoint, middleware))
+        if middleware or endpoint.middleware
+        else None
+    )
 
     async def handler(websocket: WebSocket) -> None:
-        async with boundary(websocket):
+        async with boundary(websocket) if boundary is not None else nullcontext():
             connection_resolver = (
                 resolver_factory(websocket)
                 if resolver_factory is not None
@@ -364,26 +368,33 @@ class RpcRoutes[ContextT]:
         if endpoint in self._mounted:
             raise ValueError(f"RPC endpoint {endpoint.name!r} is already mounted")
         self._check_context(endpoint)
+        dependencies = []
+        if (
+            self._middleware
+            or endpoint.middleware
+            or (handler is not None and endpoint.observer is not None)
+        ):
+            dependencies.append(
+                Depends(
+                    _middleware_dependency(
+                        endpoint, self._middleware, custom=handler is not None
+                    )
+                )
+            )
+        dependencies.append(
+            Depends(
+                _reject_failures(
+                    chain_rejections(self._rejections, endpoint_rejections(endpoint))
+                )
+            )
+        )
         self._router.add_api_websocket_route(
             self._route_path(endpoint),
             self._handler(endpoint)
             if handler is None
             else self._custom_handler(endpoint, handler),
             name=endpoint.name,
-            dependencies=[
-                Depends(
-                    _middleware_dependency(
-                        endpoint, self._middleware, custom=handler is not None
-                    )
-                ),
-                Depends(
-                    _reject_failures(
-                        chain_rejections(
-                            self._rejections, endpoint_rejections(endpoint)
-                        )
-                    )
-                ),
-            ],
+            dependencies=dependencies,
         )
         self._mounted.add(endpoint)
 
@@ -579,12 +590,17 @@ def _reject_failures(
         try:
             yield
         except Exception as error:
-            _record_error(error)
+            state = _current_serving()
+            if state is None or websocket.scope.get("rpckit.serving") is not state:
+                state = None
+            if state is not None:
+                _record_error(error)
             rejected = _rejection(error, rejections)
             if rejected is None:
                 raise
             if websocket.application_state is WebSocketState.CONNECTING:
-                _record_rejection(rejected.rejection)
+                if state is not None:
+                    _record_rejection(rejected.rejection)
                 await _reject(
                     websocket,
                     rejected.rejection,
@@ -592,7 +608,6 @@ def _reject_failures(
                     headers=rejected.headers,
                 )
             elif websocket.application_state is WebSocketState.CONNECTED:
-                state = _current_serving()
                 if state is not None and state.scope.connection is not None:
                     state.scope.connection._close_code = REJECTION_CLOSES[
                         rejected.rejection
@@ -615,6 +630,9 @@ def _middleware_dependency(
         async with _serving_scope(
             endpoint, FastApiSocket(websocket), middleware
         ) as state:
+            if state is None:
+                yield
+                return
             websocket.scope["rpckit.serving"] = state
             try:
                 async with (

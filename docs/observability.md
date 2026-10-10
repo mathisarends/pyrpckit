@@ -194,6 +194,14 @@ are reused without entering their scopes twice. Middleware added during
 delegation finishes when delegated serving ends; route middleware also covers
 the surrounding dependency cleanup.
 
+When neither middleware nor an observer is configured, RPC requests and
+subscriptions bypass observation scopes, outcome objects, and timing. Connections
+and binary streams also skip middleware scopes, and FastAPI routes omit the
+middleware dependency and custom-handler socket wrappers. Existing `observer=`
+callbacks remain available without registering middleware. To disable telemetry
+with this fast path, omit `OpenTelemetry()` from `middleware=`; registering an
+instance with both signals disabled still enters middleware scopes.
+
 Generated-client instrumentation, browser trace propagation, and OTEL log
 exporting are separate from this server-side integration.
 

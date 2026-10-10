@@ -54,6 +54,9 @@ class SubscriptionSession:
         )
 
     async def handle(self, request: RpcRequestEnvelope) -> None:
+        if self._server._observer is None:
+            await self._handle(request)
+            return
         async with self._server._observe_request(
             request.model_dump(exclude_unset=True)
         ) as scope:

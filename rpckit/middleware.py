@@ -288,7 +288,7 @@ async def _serving_scope(
     endpoint: "RpcEndpoint[Any] | RpcStreamEndpoint[Any]",
     socket: RpcSocket,
     middleware: Sequence[RpcMiddlewareLike] = (),
-) -> AsyncIterator[_ServingState]:
+) -> AsyncIterator[_ServingState | None]:
     active = _serving.get()
     if (
         active is not None
@@ -313,6 +313,15 @@ async def _serving_scope(
             active.middleware, active.observer = previous
         return
     chain = (*middleware, *endpoint.middleware)
+    if not chain and endpoint.observer is None:
+        # A nested uninstrumented connection must not update its caller's scope.
+        token = _serving.set(None) if active is not None else None
+        try:
+            yield None
+        finally:
+            if token is not None:
+                _serving.reset(token)
+        return
     state = _ServingState(
         RpcConnectionScope(endpoint, socket.handshake),
         socket,
@@ -321,7 +330,7 @@ async def _serving_scope(
     )
     token = _serving.set(state)
     try:
-        async with _connection_middleware(state, chain):
+        async with _connection_middleware(state, chain) if chain else nullcontext():
             yield state
     finally:
         _serving.reset(token)

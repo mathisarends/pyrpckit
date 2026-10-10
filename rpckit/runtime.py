@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping, Sequence
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from typing import Any
 
 from pydantic import ValidationError
@@ -152,8 +152,8 @@ async def serve_endpoint(
             limits=limits,
             before_accept=before_accept,
             rejections=rejections,
-            observer=state.observer,
-            middleware=state.middleware,
+            observer=endpoint.observer if state is None else state.observer,
+            middleware=() if state is None else state.middleware,
         )
 
 
@@ -527,8 +527,8 @@ async def serve_stream_endpoint(
             limits=limits,
             before_accept=before_accept,
             rejections=rejections,
-            observer=state.observer,
-            middleware=state.middleware,
+            observer=endpoint.observer if state is None else state.observer,
+            middleware=() if state is None else state.middleware,
         )
 
 
@@ -562,7 +562,11 @@ async def _serve_stream_endpoint(
     started = time.perf_counter()
     try:
         await notify_observer(observer, "connection_opened", connection)
-        async with _stream_scope(RpcStreamScope(endpoint, connection), middleware):
+        async with (
+            _stream_scope(RpcStreamScope(endpoint, connection), middleware)
+            if middleware
+            else nullcontext()
+        ):
             await _run_stream_endpoint(
                 endpoint,
                 socket,
