@@ -1,7 +1,7 @@
 import inspect
 import re
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import FunctionType
 from typing import Any, overload
@@ -23,6 +23,7 @@ from rpckit.errors import (
     error_declarations,
     merge_error_declarations,
 )
+from rpckit.middleware import RpcMiddlewareLike
 from rpckit.observer import RpcObserverLike
 from rpckit.protocol import (
     RpcClientMethod,
@@ -473,6 +474,7 @@ class RpcChannel(RpcServerDeclarations):
         observer: RpcObserverLike | None = None,
         limits: RpcLimits | None = None,
         strict_errors: bool = False,
+        middleware: Sequence[RpcMiddlewareLike] = (),
     ) -> RpcServer:
         return RpcServer._from_channel(
             self.protocol,
@@ -481,6 +483,7 @@ class RpcChannel(RpcServerDeclarations):
             observer=observer,
             limits=limits,
             strict_errors=strict_errors,
+            middleware=middleware,
         )
 
     def _reserve(self, name: str) -> None:

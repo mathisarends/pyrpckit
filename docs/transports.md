@@ -16,7 +16,7 @@ Mount every endpoint declared on a service:
 ```python
 from fastapi import FastAPI
 
-from rpckit.fastapi import create_router
+from rpckit.integrations.fastapi import create_router
 
 web = FastAPI()
 web.include_router(create_router(app))
@@ -98,7 +98,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.fastapi import RpcRoutes
 
 
 async def open_job(
@@ -135,7 +135,7 @@ streams mount the same way.
 `resolver=` accepts any rpckit resolver for the remaining `Inject[T]` values.
 To integrate a DI library, pass an object implementing `FastApiResolver`
 instead: it creates a resolver per WebSocket and may wrap the context function.
-`rpckit.dishka.Dishka` is one such [integration](dependencies.md#dishka).
+`rpckit.integrations.dishka.Dishka` is one such [integration](dependencies.md#dishka).
 
 `rejects=` takes [error bindings](errors.md#bind-domain-exceptions) with a
 `rejection=`, and `rejections=` takes a mapping or callable. Both follow
@@ -157,8 +157,8 @@ resource:
 from fastapi import WebSocket
 
 from rpckit import Inject
-from rpckit.dishka import Dishka
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.dishka import Dishka
+from rpckit.integrations.fastapi import RpcRoutes
 
 
 async def serve_job(
@@ -218,7 +218,7 @@ Starlette cancels the task after a disconnect:
 ```python
 from fastapi import WebSocket
 
-from rpckit.fastapi import serve_websocket
+from rpckit.integrations.fastapi import serve_websocket
 
 
 @web.websocket("/legacy/rpc")

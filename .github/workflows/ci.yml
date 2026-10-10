@@ -64,12 +64,12 @@ jobs:
       - name: Select supported minimum
         if: matrix.dependencies == 'minimum'
         run: |
-          minimum=$(uv run --no-sync python -c 'import tomllib; p = tomllib.load(open("pyproject.toml", "rb"))["project"]; print(" ".join(d.replace(">=", "==") for d in p["dependencies"] + sum(p["optional-dependencies"].values(), [])))')
+          minimum=$(uv run --no-sync python -c 'import tomllib; c = tomllib.load(open("pyproject.toml", "rb")); p = c["project"]; print(" ".join(d.replace(">=", "==") for d in p["dependencies"] + sum(p["optional-dependencies"].values(), []) + [d for d in c["dependency-groups"]["dev"] if d.startswith("opentelemetry-sdk")]))')
           uv pip install $minimum
       - name: Select latest dependencies
         if: matrix.dependencies == 'latest'
         run: |
-          latest=$(uv run --no-sync python -c 'import tomllib; p = tomllib.load(open("pyproject.toml", "rb"))["project"]; print(" ".join(p["dependencies"] + sum(p["optional-dependencies"].values(), [])))')
+          latest=$(uv run --no-sync python -c 'import tomllib; c = tomllib.load(open("pyproject.toml", "rb")); p = c["project"]; print(" ".join(p["dependencies"] + sum(p["optional-dependencies"].values(), []) + [d for d in c["dependency-groups"]["dev"] if d.startswith("opentelemetry-sdk")]))')
           uv pip install --upgrade $latest
       - name: Test all integrations and generated clients
         run: uv run --no-sync pytest

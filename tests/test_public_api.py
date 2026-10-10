@@ -41,6 +41,12 @@ def test_test_helpers_are_distributed() -> None:
     assert importlib.util.find_spec("rpckit.testing") is not None
 
 
+@pytest.mark.parametrize("name", ["fastapi", "dishka", "opentelemetry"])
+def test_integrations_have_no_legacy_module_aliases(name: str) -> None:
+    assert importlib.util.find_spec(f"rpckit.integrations.{name}") is not None
+    assert importlib.util.find_spec(f"rpckit.{name}") is None
+
+
 def test_public_signature_types_are_exported() -> None:
     for name in (
         "RpcResolverLike",

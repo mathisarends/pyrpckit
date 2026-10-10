@@ -1,6 +1,8 @@
 import asyncio
 import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+import time
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager, nullcontext
 from typing import (
     Annotated,
     Any,
@@ -21,15 +23,18 @@ try:
         WebSocketDisconnect,
     )
     from fastapi.websockets import WebSocketState
+    from starlette.types import Message
 except ImportError as error:
     raise ModuleNotFoundError(
-        "rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]",
+        "rpckit.integrations.fastapi requires the 'fastapi' extra; "
+        "install pyrpckit[fastapi]",
         name="fastapi",
     ) from error
 
 from rpckit.connection import (
     REJECTION_CLOSES,
     RpcBeforeAccept,
+    RpcConnection,
     RpcConnectionClose,
     RpcDisconnect,
     RpcHandshake,
@@ -46,6 +51,15 @@ from rpckit.dependencies import (
     injected_parameter,
 )
 from rpckit.errors import RpcErrorBinding, contract_rejections, rejecting_contracts
+from rpckit.middleware import (
+    RpcMiddlewareLike,
+    _current_serving,
+    _record_error,
+    _record_rejection,
+    _serving_scope,
+    _ServingState,
+)
+from rpckit.observer import RpcConnectionContext, notify_observer
 from rpckit.runtime import _rejection
 from rpckit.server import RpcErrorMapper
 from rpckit.service import (
@@ -152,10 +166,12 @@ def create_router(
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
     rejections: RpcRejections | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
 ) -> APIRouter:
     if resolver is not None and resolver_factory is not None:
         raise ValueError("resolver and resolver_factory are mutually exclusive")
     service.freeze()
+    middleware = tuple(middleware)
     router = APIRouter()
     for endpoint in service.endpoints:
         handler = _create_handler(
@@ -167,6 +183,7 @@ def create_router(
             limits=limits,
             before_accept=before_accept,
             rejections=rejections,
+            middleware=middleware,
         )
         router.add_api_websocket_route(endpoint.path, handler, name=endpoint.name)
     return router
@@ -182,21 +199,31 @@ def _create_handler(
     limits: RpcLimits | None,
     before_accept: RpcBeforeAccept | None,
     rejections: RpcRejections | None,
+    middleware: Sequence[RpcMiddlewareLike],
 ):
+    boundary = (
+        asynccontextmanager(_middleware_dependency(endpoint, middleware))
+        if middleware or endpoint.middleware
+        else None
+    )
+
     async def handler(websocket: WebSocket) -> None:
-        connection_resolver = (
-            resolver_factory(websocket) if resolver_factory is not None else resolver
-        )
-        await serve_websocket(
-            endpoint,
-            websocket,
-            resolver=connection_resolver,
-            context=context,
-            error_mapper=error_mapper,
-            limits=limits,
-            before_accept=before_accept,
-            rejections=rejections,
-        )
+        async with boundary(websocket) if boundary is not None else nullcontext():
+            connection_resolver = (
+                resolver_factory(websocket)
+                if resolver_factory is not None
+                else resolver
+            )
+            await serve_websocket(
+                endpoint,
+                websocket,
+                resolver=connection_resolver,
+                context=context,
+                error_mapper=error_mapper,
+                limits=limits,
+                before_accept=before_accept,
+                rejections=rejections,
+            )
 
     return handler
 
@@ -211,8 +238,14 @@ async def serve_websocket(
     limits: RpcLimits | None = None,
     before_accept: RpcBeforeAccept | None = None,
     rejections: RpcRejections | None = None,
+    middleware: Sequence[RpcMiddlewareLike] = (),
 ) -> None:
-    socket = FastApiSocket(websocket)
+    active = websocket.scope.get("rpckit.serving")
+    socket = (
+        active.socket
+        if isinstance(active, _ServingState) and active.scope.endpoint is endpoint
+        else FastApiSocket(websocket)
+    )
     try:
         if isinstance(endpoint, RpcEndpoint):
             await endpoint.serve(
@@ -223,6 +256,7 @@ async def serve_websocket(
                 limits=limits,
                 before_accept=before_accept,
                 rejections=rejections,
+                middleware=middleware,
             )
         else:
             await endpoint.serve(
@@ -233,6 +267,7 @@ async def serve_websocket(
                 before_accept=before_accept,
                 error_mapper=error_mapper,
                 rejections=rejections,
+                middleware=middleware,
             )
     except asyncio.CancelledError:
         # Starlette cancels its WebSocket task after websocket.disconnect.
@@ -243,8 +278,8 @@ async def serve_websocket(
 class FastApiResolver(Protocol):
     """Resolve RPC dependencies per WebSocket and prepare the context function.
 
-    Pass an implementation, such as ``rpckit.dishka.Dishka``, as ``resolver=``
-    to ``RpcRoutes`` to integrate a DI library.
+    Pass an implementation, such as ``rpckit.integrations.dishka.Dishka``, as
+    ``resolver=`` to ``RpcRoutes`` to integrate a DI library.
     """
 
     def for_websocket(self, websocket: WebSocket) -> RpcResolverLike: ...
@@ -273,6 +308,7 @@ class RpcRoutes[ContextT]:
         resolver: RpcResolverLike | FastApiResolver | None = None,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
     ) -> None: ...
@@ -286,6 +322,7 @@ class RpcRoutes[ContextT]:
         resolver: RpcResolverLike | FastApiResolver | None = None,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
     ) -> None: ...
@@ -298,6 +335,7 @@ class RpcRoutes[ContextT]:
         resolver: RpcResolverLike | FastApiResolver | None = None,
         rejects: Sequence[RpcErrorBinding[Any]] = (),
         rejections: RpcRejections | None = None,
+        middleware: Sequence[RpcMiddlewareLike] = (),
         error_mapper: RpcErrorMapper | None = None,
         limits: RpcLimits | None = None,
     ) -> None:
@@ -318,6 +356,7 @@ class RpcRoutes[ContextT]:
         )
         self._error_mapper = error_mapper
         self._limits = limits
+        self._middleware = tuple(middleware)
         self._mounted: set[RpcEndpoint | RpcStreamEndpoint] = set()
 
     def mount(
@@ -330,21 +369,33 @@ class RpcRoutes[ContextT]:
         if endpoint in self._mounted:
             raise ValueError(f"RPC endpoint {endpoint.name!r} is already mounted")
         self._check_context(endpoint)
+        dependencies = []
+        if (
+            self._middleware
+            or endpoint.middleware
+            or (handler is not None and endpoint.observer is not None)
+        ):
+            dependencies.append(
+                Depends(
+                    _middleware_dependency(
+                        endpoint, self._middleware, custom=handler is not None
+                    )
+                )
+            )
+        dependencies.append(
+            Depends(
+                _reject_failures(
+                    chain_rejections(self._rejections, endpoint_rejections(endpoint))
+                )
+            )
+        )
         self._router.add_api_websocket_route(
             self._route_path(endpoint),
             self._handler(endpoint)
             if handler is None
             else self._custom_handler(endpoint, handler),
             name=endpoint.name,
-            dependencies=[
-                Depends(
-                    _reject_failures(
-                        chain_rejections(
-                            self._rejections, endpoint_rejections(endpoint)
-                        )
-                    )
-                )
-            ],
+            dependencies=dependencies,
         )
         self._mounted.add(endpoint)
 
@@ -534,17 +585,23 @@ def _type_name(value: type[Any] | None) -> str:
 
 def _reject_failures(
     rejections: RpcRejections | None,
-) -> Callable[[WebSocket], AsyncIterator[None]]:
-    # Registered as the route's first dependency, so its exit sees failures of
-    # later dependencies and of the handler.
-    async def reject_failures(websocket: WebSocket) -> AsyncIterator[None]:
+) -> Callable[[WebSocket], AsyncGenerator[None, None]]:
+    # Runs before context dependencies; connection middleware wraps its cleanup.
+    async def reject_failures(websocket: WebSocket) -> AsyncGenerator[None, None]:
         try:
             yield
         except Exception as error:
+            state = _current_serving()
+            if state is None or websocket.scope.get("rpckit.serving") is not state:
+                state = None
+            if state is not None:
+                _record_error(error)
             rejected = _rejection(error, rejections)
             if rejected is None:
                 raise
             if websocket.application_state is WebSocketState.CONNECTING:
+                if state is not None:
+                    _record_rejection(rejected.rejection)
                 await _reject(
                     websocket,
                     rejected.rejection,
@@ -552,9 +609,110 @@ def _reject_failures(
                     headers=rejected.headers,
                 )
             elif websocket.application_state is WebSocketState.CONNECTED:
+                if state is not None and state.scope.connection is not None:
+                    state.scope.connection._close_code = REJECTION_CLOSES[
+                        rejected.rejection
+                    ]
                 await websocket.close(
                     CLOSE_CODES[REJECTION_CLOSES[rejected.rejection]],
                     close_reason(rejected.reason),
                 )
 
     return reject_failures
+
+
+def _middleware_dependency(
+    endpoint: RpcEndpoint | RpcStreamEndpoint,
+    middleware: Sequence[RpcMiddlewareLike],
+    *,
+    custom: bool = False,
+) -> Callable[[WebSocket], AsyncGenerator[None, None]]:
+    async def dependency(websocket: WebSocket) -> AsyncGenerator[None, None]:
+        async with _serving_scope(
+            endpoint, FastApiSocket(websocket), middleware
+        ) as state:
+            if state is None:
+                yield
+                return
+            websocket.scope["rpckit.serving"] = state
+            try:
+                async with (
+                    _custom_connection(websocket, state) if custom else nullcontext()
+                ):
+                    yield
+            finally:
+                websocket.scope.pop("rpckit.serving", None)
+
+    return dependency
+
+
+@asynccontextmanager
+async def _custom_connection(
+    websocket: WebSocket, state: _ServingState
+) -> AsyncGenerator[None, None]:
+    original_send, original_receive = websocket.send, websocket.receive
+    connection: RpcConnection | None = None
+
+    def disconnected(code: int, reason: str) -> None:
+        if connection is not None and not connection.closed:
+            close = RpcDisconnect(code, reason)
+            connection._close_code = close.code
+            connection._raw_close_code = close.raw_close_code
+            connection._close_reason = close.reason
+            connection._closed = True
+
+    async def send(message: Message) -> None:
+        nonlocal connection
+        try:
+            await original_send(message)
+        except WebSocketDisconnect as error:
+            disconnected(error.code, error.reason)
+            raise
+        # Delegated serving prepares its own connection and sends its callbacks.
+        if message["type"] == "websocket.accept" and state.scope.connection is None:
+            connection = RpcConnection._create(state.scope.endpoint, state.socket)
+            connection._accepted = True
+            state.scope.connection = connection
+            state.accepted_at = time.perf_counter()
+            await notify_observer(state.observer, "connection_opened", connection)
+        elif message["type"] == "websocket.close":
+            disconnected(message.get("code", 1000), message.get("reason") or "")
+
+    async def receive() -> Message:
+        message = await original_receive()
+        if message["type"] == "websocket.disconnect":
+            disconnected(message.get("code", 1000), message.get("reason") or "")
+        return message
+
+    websocket.send, websocket.receive = send, receive
+    try:
+        yield
+    except WebSocketDisconnect as error:
+        state.disconnect_error = error
+        if state.error is error:
+            state.error = None
+        disconnected(error.code, error.reason)
+        raise
+    except BaseException as error:
+        if connection is not None and not connection.closed:
+            connection._close_code = (
+                RpcConnectionClose.SHUTDOWN
+                if isinstance(error, asyncio.CancelledError)
+                else RpcConnectionClose.INTERNAL_ERROR
+            )
+        raise
+    finally:
+        websocket.send, websocket.receive = original_send, original_receive
+        if connection is not None:
+            connection._closed = True
+            await notify_observer(
+                state.observer,
+                "connection_closed",
+                RpcConnectionContext(
+                    connection,
+                    connection.close_code,
+                    connection.close_reason,
+                    time.perf_counter() - (state.accepted_at or state.started_at),
+                    connection.raw_close_code,
+                ),
+            )

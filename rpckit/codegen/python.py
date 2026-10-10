@@ -321,7 +321,7 @@ def _render_endpoints(ir: ClientIr, options: PythonClientOptions) -> str:
 def _render_streams(ir: ClientIr, options: PythonClientOptions) -> str:
     imports = _Imports()
     imports.add_module("asyncio")
-    imports.add("collections.abc", "AsyncIterator", "Awaitable", "Callable", "Mapping")
+    imports.add("collections.abc", "AsyncGenerator", "Awaitable", "Callable", "Mapping")
     imports.add("contextlib", "asynccontextmanager")
     imports.add("dataclasses", "dataclass", "field")
     imports.add("enum", "StrEnum")

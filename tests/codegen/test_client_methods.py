@@ -1,7 +1,7 @@
 import asyncio
 import importlib
 import sys
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Iterator
 from contextlib import asynccontextmanager, suppress
 from copy import deepcopy
 from types import ModuleType
@@ -111,7 +111,7 @@ def client_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleTy
 
 
 @asynccontextmanager
-async def connected(module: ModuleType, **options: Any) -> AsyncIterator[Any]:
+async def connected(module: ModuleType, **options: Any) -> AsyncGenerator[Any, None]:
     socket = InMemorySocket("/rooms")
     server = asyncio.create_task(service.serve(socket))
 

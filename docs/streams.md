@@ -148,13 +148,16 @@ rpckit has no connect hook, so the handler claims its resources itself. An
 claim is released on return, disconnect, cancellation, or error:
 
 ```python
+from collections.abc import AsyncGenerator
+
+
 class MediaOwners:
     def __init__(self) -> None:
         self._owners: set[UUID] = set()
         self._lock = asyncio.Lock()
 
     @asynccontextmanager
-    async def claim(self, key: UUID) -> AsyncIterator[bool]:
+    async def claim(self, key: UUID) -> AsyncGenerator[bool, None]:
         async with self._lock:
             claimed = key not in self._owners
             self._owners.add(key)

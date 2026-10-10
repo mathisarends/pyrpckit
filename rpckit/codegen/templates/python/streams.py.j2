@@ -198,7 +198,7 @@ async def open_binary_stream[StreamT: _ManagedBinaryStream](
     endpoint: BinaryStreamEndpoint,
     opener: BinaryStreamOpener | None,
     stream_type: Callable[[Any], StreamT],
-) -> AsyncIterator[StreamT]:
+) -> AsyncGenerator[StreamT, None]:
     """Open a stream for one ``async with`` block and close it when it ends."""
     if opener is None:
         raise RpcStreamsUnavailableError(

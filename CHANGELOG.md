@@ -1,6 +1,57 @@
 # Changelog
 
-## 0.10.0 - Unreleased
+## 0.11.0 - Unreleased
+
+### Migration from 0.10
+
+- Optional integrations now live in `rpckit.integrations`. Replace
+  `rpckit.fastapi` with `rpckit.integrations.fastapi`, `rpckit.dishka` with
+  `rpckit.integrations.dishka`, and `rpckit.opentelemetry` with
+  `rpckit.integrations.opentelemetry`. The old modules have been removed without
+  compatibility aliases.
+
+### Added
+
+- Lifecycle middleware for connections, requests, and binary streams through
+  `RpcMiddleware` and `RpcMiddlewareLike`. Register `middleware=` on services,
+  endpoints, standalone servers, or FastAPI adapters. Scopes expose final
+  outcomes, including rejection, original failures, and cancellation, before
+  cleanup. Middleware composes in order and preserves independent context for
+  concurrent requests; existing observers continue to work alongside it.
+- Optional `pyrpckit[otel]` integration through
+  `rpckit.integrations.opentelemetry.OpenTelemetry`, using application providers
+  for RPC and stream spans, connection measurements, active-operation metrics,
+  and live frame and byte counters. Reuse active trace context or extract it from
+  handshake headers; configure exclusions, tracing, and metrics independently.
+  Payloads and raw unknown method names are not captured automatically.
+- Mount application-owned connection handlers with
+  `RpcRoutes.mount(endpoint, handler=...)`. Async handlers support `Inject[T]`
+  for endpoint context and resolver dependencies alongside regular FastAPI
+  parameters. Routes retain endpoint paths, contract metadata, and rejection
+  policies; handlers own socket acceptance, messages, and closure. Dishka
+  dependencies share a connection SESSION scope with the endpoint context.
+- Add an observability guide covering middleware scopes, OpenTelemetry setup,
+  signal configuration, and stream metric accounting.
+
+### Changed
+
+- Requests and subscriptions without middleware or observers skip observation
+  scopes, outcomes, and timing. Uninstrumented streams and FastAPI routes also
+  avoid middleware scopes, extra dependencies, and custom-handler socket wrappers.
+- Annotate async context-manager generators as `AsyncGenerator[T, None]` and
+  synchronous context-manager generators as `Generator[T, None, None]`, including
+  middleware, documentation, and generated Python stream helpers.
+
+### Fixed
+
+- FastAPI connection middleware covers `RpcRoutes` context dependency setup
+  and cleanup, including rejections. Custom handlers using FastAPI's
+  `WebSocket` directly report acceptance, close codes, and connection lifetime.
+  Delegating to `serve_websocket()` reuses active middleware without entering
+  connection scopes twice; additional middleware also receives request, stream,
+  and activity callbacks.
+
+## 0.10.0 - 2026-09-30
 
 ### Migration from 0.9
 

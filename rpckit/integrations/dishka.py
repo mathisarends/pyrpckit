@@ -32,7 +32,7 @@ class DishkaResolver:
             from dishka import Scope
         except ImportError as error:
             raise ModuleNotFoundError(
-                "rpckit.dishka requires the 'dishka' extra"
+                "rpckit.integrations.dishka requires the 'dishka' extra"
             ) from error
         container_scope = getattr(self._container, "scope", None)
         if container_scope is not None and container_scope is not Scope.APP:
@@ -57,7 +57,7 @@ class DishkaResolver:
 def dishka_router(service: RpcService, **options: Any) -> APIRouter:
     """Serve a service with the app's root Dishka container."""
     try:
-        from rpckit.fastapi import create_router
+        from rpckit.integrations.fastapi import create_router
     except ImportError as error:
         raise ModuleNotFoundError(
             "dishka_router requires the 'fastapi' extra"

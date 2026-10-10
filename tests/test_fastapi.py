@@ -1,9 +1,10 @@
 import asyncio
 import subprocess
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from threading import Event
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -28,7 +29,7 @@ from rpckit import (
     RpcRejections,
     RpcService,
 )
-from rpckit.fastapi import (
+from rpckit.integrations.fastapi import (
     FastApiSocket,
     RpcRoutes,
     create_router,
@@ -297,7 +298,7 @@ class BlockFastApi(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, BlockFastApi())
 try:
-    import rpckit.fastapi
+    import rpckit.integrations.fastapi
 except ModuleNotFoundError as error:
     print(error.name, error, sep="|")
 """
@@ -306,7 +307,8 @@ except ModuleNotFoundError as error:
     )
 
     assert result.stdout.strip() == (
-        "fastapi|rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]"
+        "fastapi|rpckit.integrations.fastapi requires the 'fastapi' extra; "
+        "install pyrpckit[fastapi]"
     )
 
 
@@ -742,7 +744,7 @@ def test_custom_handlers_reject_failures_before_acceptance(stage: str) -> None:
             return JobOutput([])
 
         @asynccontextmanager
-        async def enter_connection(self, values):
+        async def enter_connection(self, values) -> AsyncGenerator["Resolver", None]:
             calls.append("enter")
             try:
                 yield self
@@ -864,19 +866,21 @@ def test_custom_handlers_preserve_unknown_failures_and_do_not_close_twice(
 
 def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() -> None:
     calls: list[str] = []
+    released = Event()
 
     class Resolver:
         async def resolve(self, dependency: type) -> JobOutput:
             return JobOutput([])
 
         @asynccontextmanager
-        async def enter_connection(self, values):
+        async def enter_connection(self, values) -> AsyncGenerator["Resolver", None]:
             calls.append("enter")
             assert values[JobSession].job.id == KNOWN_JOB
             try:
                 yield self
             finally:
                 calls.append("exit")
+                released.set()
 
     async def handler(websocket: WebSocket, job: Inject[JobSession]) -> None:
         acquiring = asyncio.Event()
@@ -910,6 +914,7 @@ def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() 
     with TestClient(app) as client:
         with client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket:
             assert websocket.receive_text() == "pending"
+        assert released.wait(timeout=5)
         assert calls == ["enter", "acquire", "cancelled", "exit"]
 
 
@@ -968,7 +973,7 @@ async def test_custom_handlers_release_the_scope_on_cancellation() -> None:
 
     class Resolver:
         @asynccontextmanager
-        async def enter_connection(self, values):
+        async def enter_connection(self, values) -> AsyncGenerator["Resolver", None]:
             calls.append("enter")
             try:
                 yield self

@@ -91,7 +91,7 @@ uv add "pyrpckit[dishka]"
 ```
 
 ```python
-from rpckit.dishka import DishkaResolver
+from rpckit.integrations.dishka import DishkaResolver
 
 resolver = DishkaResolver(container)
 ```
@@ -102,7 +102,7 @@ prefer the router integration, which reads the root container when each socket
 connects:
 
 ```python
-from rpckit.dishka import dishka_router
+from rpckit.integrations.dishka import dishka_router
 
 web.include_router(dishka_router(app))
 ```
@@ -121,8 +121,8 @@ context function may then declare `FromDishka[T]` parameters without
 ```python
 from dishka.integrations.fastapi import FromDishka
 
-from rpckit.dishka import Dishka
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.dishka import Dishka
+from rpckit.integrations.fastapi import RpcRoutes
 
 screencast = app.stream("/sessions/{session_id}/screencast", frames, context=Session)
 events = app.socket(

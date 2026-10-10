@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -15,6 +16,7 @@ from rpckit.envelopes import (
     RpcSuccess,
 )
 from rpckit.errors import RpcError, RpcInvalidParamsError
+from rpckit.middleware import RpcRequestOutcome, RpcRequestScope
 from rpckit.observer import RpcObserverLike, notify_observer
 from rpckit.protocol import RpcSubscriptionDefinition
 from rpckit.server import RpcServer
@@ -47,8 +49,24 @@ class SubscriptionSession:
         self._next_id = 1
         self._tasks: dict[str, tuple[str, asyncio.Task[None]]] = {}
         self._codec = RpcCodec()
+        self._request: ContextVar[RpcRequestScope | None] = ContextVar(
+            "rpckit.subscription.request", default=None
+        )
 
     async def handle(self, request: RpcRequestEnvelope) -> None:
+        if self._server._observer is None:
+            await self._handle(request)
+            return
+        async with self._server._observe_request(
+            request.model_dump(exclude_unset=True)
+        ) as scope:
+            token = self._request.set(scope)
+            try:
+                await self._handle(request)
+            finally:
+                self._request.reset(token)
+
+    async def _handle(self, request: RpcRequestEnvelope) -> None:
         if not request.expects_response:
             return
         if isinstance(request.params, list):
@@ -68,6 +86,9 @@ class SubscriptionSession:
                     raise RpcSubscriptionLimitError()
                 params = _params(definition, request.params)
             except RpcError as error:
+                scope = self._request.get()
+                if scope is not None:
+                    scope.outcome = RpcRequestOutcome(None, 0.0, error)
                 await self._respond(request, RpcFailure.from_error(request.id, error))
                 return
             subscription_id = str(self._next_id)
@@ -113,6 +134,16 @@ class SubscriptionSession:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _respond(self, request: RpcRequestEnvelope, response: Any) -> None:
+        scope = self._request.get()
+        if scope is not None:
+            scope.outcome = RpcRequestOutcome(
+                response,
+                0.0,
+                error=None if scope.outcome is None else scope.outcome.error,
+                error_code=str(response.error.code)
+                if isinstance(response, RpcFailure)
+                else None,
+            )
         if request.expects_response:
             await self._send(self._codec.encode(response))
 
