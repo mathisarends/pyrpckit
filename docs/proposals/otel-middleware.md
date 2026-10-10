@@ -52,7 +52,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 
 from rpckit import RpcChannel, RpcService
-from rpckit.fastapi import create_router
+from rpckit.integrations.fastapi import create_router
 from rpckit.opentelemetry import OpenTelemetry
 
 media = RpcChannel("media")
@@ -77,7 +77,7 @@ the same `middleware=` keyword on `RpcRoutes`, `create_router`, and
 ```python
 from fastapi import APIRouter
 
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.fastapi import RpcRoutes
 from rpckit.opentelemetry import OpenTelemetry
 
 router = APIRouter(prefix="/jobs")
@@ -148,7 +148,7 @@ well as the original exception, including errors caught inside child tasks.
 For example, custom instrumentation can wrap the stream operation:
 
 ```python
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from rpckit import RpcMiddleware, RpcStreamScope
@@ -156,7 +156,7 @@ from rpckit import RpcMiddleware, RpcStreamScope
 
 class StreamTiming(RpcMiddleware):
     @asynccontextmanager
-    async def stream(self, scope: RpcStreamScope) -> AsyncIterator[None]:
+    async def stream(self, scope: RpcStreamScope) -> AsyncGenerator[None, None]:
         try:
             yield
         finally:

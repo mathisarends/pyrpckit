@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -128,7 +128,7 @@ async def _middleware_scope(
     middleware: Sequence[RpcMiddlewareLike],
     kind: str,
     scope: RpcConnectionScope | RpcRequestScope | RpcStreamScope,
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None, None]:
     entered: list[AbstractAsyncContextManager[None]] = []
     error: BaseException | None = None
     started = time.perf_counter()
@@ -288,7 +288,7 @@ async def _serving_scope(
     endpoint: "RpcEndpoint[Any] | RpcStreamEndpoint[Any]",
     socket: RpcSocket,
     middleware: Sequence[RpcMiddlewareLike] = (),
-) -> AsyncIterator[_ServingState | None]:
+) -> AsyncGenerator[_ServingState | None, None]:
     active = _serving.get()
     if (
         active is not None
@@ -339,7 +339,7 @@ async def _serving_scope(
 @asynccontextmanager
 async def _connection_middleware(
     state: _ServingState, middleware: Sequence[RpcMiddlewareLike]
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None, None]:
     async with _middleware_scope(middleware, "connection", state.scope):
         try:
             yield
@@ -353,7 +353,7 @@ async def _connection_middleware(
 @asynccontextmanager
 async def _stream_scope(
     scope: RpcStreamScope, middleware: Sequence[RpcMiddlewareLike]
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None, None]:
     started = time.perf_counter()
     async with _middleware_scope(middleware, "stream", scope):
         try:

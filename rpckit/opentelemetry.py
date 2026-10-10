@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from contextvars import ContextVar
 
@@ -86,7 +86,7 @@ class OpenTelemetry(RpcMiddleware):
     @contextmanager
     def _span(
         self, name: str, kind: SpanKind, attributes: _Attributes
-    ) -> Iterator[Span | None]:
+    ) -> Generator[Span | None, None, None]:
         if not self._tracing:
             yield None
             return
@@ -119,7 +119,7 @@ class OpenTelemetry(RpcMiddleware):
                 span.record_exception(error)
 
     @asynccontextmanager
-    async def connection(self, scope: RpcConnectionScope) -> AsyncIterator[None]:
+    async def connection(self, scope: RpcConnectionScope) -> AsyncGenerator[None, None]:
         excluded = self._exclude is not None and self._exclude(scope)
         exclusion = self._excluded.set(excluded)
         attached = None
@@ -176,7 +176,7 @@ class OpenTelemetry(RpcMiddleware):
             self._excluded.reset(exclusion)
 
     @asynccontextmanager
-    async def request(self, scope: RpcRequestScope) -> AsyncIterator[None]:
+    async def request(self, scope: RpcRequestScope) -> AsyncGenerator[None, None]:
         if self._excluded.get() or (self._exclude is not None and self._exclude(scope)):
             yield
             return
@@ -221,7 +221,7 @@ class OpenTelemetry(RpcMiddleware):
                         self._request_duration.record(outcome.duration, result)
 
     @asynccontextmanager
-    async def stream(self, scope: RpcStreamScope) -> AsyncIterator[None]:
+    async def stream(self, scope: RpcStreamScope) -> AsyncGenerator[None, None]:
         if self._excluded.get():
             yield
             return

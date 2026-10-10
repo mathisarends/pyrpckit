@@ -1,7 +1,7 @@
 import asyncio
 import subprocess
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -28,7 +28,7 @@ from rpckit import (
     RpcRejections,
     RpcService,
 )
-from rpckit.fastapi import (
+from rpckit.integrations.fastapi import (
     FastApiSocket,
     RpcRoutes,
     create_router,
@@ -297,7 +297,7 @@ class BlockFastApi(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, BlockFastApi())
 try:
-    import rpckit.fastapi
+    import rpckit.integrations.fastapi
 except ModuleNotFoundError as error:
     print(error.name, error, sep="|")
 """
@@ -306,7 +306,8 @@ except ModuleNotFoundError as error:
     )
 
     assert result.stdout.strip() == (
-        "fastapi|rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]"
+        "fastapi|rpckit.integrations.fastapi requires the 'fastapi' extra; "
+        "install pyrpckit[fastapi]"
     )
 
 
@@ -742,7 +743,7 @@ def test_custom_handlers_reject_failures_before_acceptance(stage: str) -> None:
             return JobOutput([])
 
         @asynccontextmanager
-        async def enter_connection(self, values):
+        async def enter_connection(self, values) -> AsyncGenerator["Resolver", None]:
             calls.append("enter")
             try:
                 yield self
@@ -870,7 +871,7 @@ def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() 
             return JobOutput([])
 
         @asynccontextmanager
-        async def enter_connection(self, values):
+        async def enter_connection(self, values) -> AsyncGenerator["Resolver", None]:
             calls.append("enter")
             assert values[JobSession].job.id == KNOWN_JOB
             try:
@@ -968,7 +969,7 @@ async def test_custom_handlers_release_the_scope_on_cancellation() -> None:
 
     class Resolver:
         @asynccontextmanager
-        async def enter_connection(self, values):
+        async def enter_connection(self, values) -> AsyncGenerator["Resolver", None]:
             calls.append("enter")
             try:
                 yield self

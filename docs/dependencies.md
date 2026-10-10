@@ -122,7 +122,7 @@ context function may then declare `FromDishka[T]` parameters without
 from dishka.integrations.fastapi import FromDishka
 
 from rpckit.dishka import Dishka
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.fastapi import RpcRoutes
 
 screencast = app.stream("/sessions/{session_id}/screencast", frames, context=Session)
 events = app.socket(

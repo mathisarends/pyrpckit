@@ -23,7 +23,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 
 from rpckit import RpcChannel, RpcService
-from rpckit.fastapi import create_router
+from rpckit.integrations.fastapi import create_router
 from rpckit.opentelemetry import OpenTelemetry
 
 media = RpcChannel("media")
@@ -134,7 +134,7 @@ lifecycle methods. The base class provides no-op implementations.
 
 ```python
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from rpckit import RpcMiddleware, RpcStreamScope
@@ -144,7 +144,7 @@ logger = logging.getLogger(__name__)
 
 class StreamTiming(RpcMiddleware):
     @asynccontextmanager
-    async def stream(self, scope: RpcStreamScope) -> AsyncIterator[None]:
+    async def stream(self, scope: RpcStreamScope) -> AsyncGenerator[None, None]:
         try:
             yield
         finally:

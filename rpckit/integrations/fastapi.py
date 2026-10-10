@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager, nullcontext
 from typing import (
     Annotated,
@@ -26,7 +26,8 @@ try:
     from starlette.types import Message
 except ImportError as error:
     raise ModuleNotFoundError(
-        "rpckit.fastapi requires the 'fastapi' extra; install pyrpckit[fastapi]",
+        "rpckit.integrations.fastapi requires the 'fastapi' extra; "
+        "install pyrpckit[fastapi]",
         name="fastapi",
     ) from error
 
@@ -584,9 +585,9 @@ def _type_name(value: type[Any] | None) -> str:
 
 def _reject_failures(
     rejections: RpcRejections | None,
-) -> Callable[[WebSocket], AsyncIterator[None]]:
+) -> Callable[[WebSocket], AsyncGenerator[None, None]]:
     # Runs before context dependencies; connection middleware wraps its cleanup.
-    async def reject_failures(websocket: WebSocket) -> AsyncIterator[None]:
+    async def reject_failures(websocket: WebSocket) -> AsyncGenerator[None, None]:
         try:
             yield
         except Exception as error:
@@ -625,8 +626,8 @@ def _middleware_dependency(
     middleware: Sequence[RpcMiddlewareLike],
     *,
     custom: bool = False,
-) -> Callable[[WebSocket], AsyncIterator[None]]:
-    async def dependency(websocket: WebSocket) -> AsyncIterator[None]:
+) -> Callable[[WebSocket], AsyncGenerator[None, None]]:
+    async def dependency(websocket: WebSocket) -> AsyncGenerator[None, None]:
         async with _serving_scope(
             endpoint, FastApiSocket(websocket), middleware
         ) as state:
@@ -648,7 +649,7 @@ def _middleware_dependency(
 @asynccontextmanager
 async def _custom_connection(
     websocket: WebSocket, state: _ServingState
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None, None]:
     original_send, original_receive = websocket.send, websocket.receive
     connection: RpcConnection | None = None
 

@@ -2,6 +2,13 @@
 
 ## 0.11.0 - Unreleased
 
+### Migration from 0.10
+
+- The FastAPI integration moved from `rpckit.fastapi` to
+  `rpckit.integrations.fastapi`. Update imports for `RpcRoutes`, `create_router`,
+  `serve_websocket`, `FastApiSocket`, and `FastApiResolver`. The old module has
+  been removed without compatibility aliases.
+
 ### Added
 
 - Lifecycle middleware for connections, requests, and binary streams through
@@ -24,6 +31,15 @@
   dependencies share a connection SESSION scope with the endpoint context.
 - Add an observability guide covering middleware scopes, OpenTelemetry setup,
   signal configuration, and stream metric accounting.
+
+### Changed
+
+- Requests and subscriptions without middleware or observers skip observation
+  scopes, outcomes, and timing. Uninstrumented streams and FastAPI routes also
+  avoid middleware scopes, extra dependencies, and custom-handler socket wrappers.
+- Annotate async context-manager generators as `AsyncGenerator[T, None]` and
+  synchronous context-manager generators as `Generator[T, None, None]`, including
+  middleware, documentation, and generated Python stream helpers.
 
 ### Fixed
 

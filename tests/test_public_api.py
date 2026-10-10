@@ -41,6 +41,11 @@ def test_test_helpers_are_distributed() -> None:
     assert importlib.util.find_spec("rpckit.testing") is not None
 
 
+def test_fastapi_integration_has_no_legacy_module_alias() -> None:
+    assert importlib.util.find_spec("rpckit.integrations.fastapi") is not None
+    assert importlib.util.find_spec("rpckit.fastapi") is None
+
+
 def test_public_signature_types_are_exported() -> None:
     for name in (
         "RpcResolverLike",

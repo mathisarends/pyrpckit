@@ -57,7 +57,7 @@ class DishkaResolver:
 def dishka_router(service: RpcService, **options: Any) -> APIRouter:
     """Serve a service with the app's root Dishka container."""
     try:
-        from rpckit.fastapi import create_router
+        from rpckit.integrations.fastapi import create_router
     except ImportError as error:
         raise ModuleNotFoundError(
             "dishka_router requires the 'fastapi' extra"

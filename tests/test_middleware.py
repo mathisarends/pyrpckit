@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
 
@@ -23,7 +23,7 @@ from rpckit import (
     RpcService,
     RpcStreamScope,
 )
-from rpckit.fastapi import RpcRoutes, create_router, serve_websocket
+from rpckit.integrations.fastapi import RpcRoutes, create_router, serve_websocket
 from rpckit.testing import InMemorySocket, RpcTestClient
 
 request_id: ContextVar[object] = ContextVar("test.request", default=None)
@@ -162,7 +162,7 @@ class Recorder(RpcMiddleware):
         self.frames: list[tuple[str, int]] = []
 
     @asynccontextmanager
-    async def connection(self, scope):
+    async def connection(self, scope: RpcConnectionScope) -> AsyncGenerator[None, None]:
         self.connections.append(scope)
         token = connection_name.set(scope.endpoint.name)
         try:
@@ -171,7 +171,7 @@ class Recorder(RpcMiddleware):
             connection_name.reset(token)
 
     @asynccontextmanager
-    async def request(self, scope):
+    async def request(self, scope: RpcRequestScope) -> AsyncGenerator[None, None]:
         self.requests.append(scope)
         self.order.append(f"enter:{self.name}")
         token = request_id.set(scope.request.request_id)
@@ -184,7 +184,7 @@ class Recorder(RpcMiddleware):
             request_id.reset(token)
 
     @asynccontextmanager
-    async def stream(self, scope):
+    async def stream(self, scope: RpcStreamScope) -> AsyncGenerator[None, None]:
         self.streams.append(scope)
         yield
 
@@ -366,7 +366,7 @@ async def test_handshake_rejection_is_observed():
 async def test_middleware_failures_cannot_replace_a_response(caplog):
     class Broken(RpcMiddleware):
         @asynccontextmanager
-        async def request(self, scope):
+        async def request(self, scope: RpcRequestScope) -> AsyncGenerator[None, None]:
             if scope.request.request_id == 1:
                 raise RuntimeError("enter failed")
             yield
@@ -461,7 +461,7 @@ async def test_partial_middleware_entry_cancellation_unwinds_entered_scopes():
 
     class Cancel(RpcMiddleware):
         @asynccontextmanager
-        async def request(self, scope):
+        async def request(self, scope: RpcRequestScope) -> AsyncGenerator[None, None]:
             raise asyncio.CancelledError()
             yield
 
@@ -487,7 +487,7 @@ async def test_stream_generator_and_di_cleanup_errors_are_observed():
             raise LookupError(dependency)
 
         @asynccontextmanager
-        async def enter_scope(self):
+        async def enter_scope(self) -> AsyncGenerator["Resolver", None]:
             try:
                 yield self
             finally:

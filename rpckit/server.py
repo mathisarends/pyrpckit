@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any
 
@@ -126,7 +126,7 @@ class RpcServer:
     @asynccontextmanager
     async def _observe_request(
         self, raw_request: object
-    ) -> AsyncIterator[RpcRequestScope]:
+    ) -> AsyncGenerator[RpcRequestScope, None]:
         request = RpcRequestContext(
             raw_request=raw_request,
             method=_request_method(raw_request),

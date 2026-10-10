@@ -25,7 +25,7 @@ from rpckit import (
     RpcRequestScope,
     RpcService,
 )
-from rpckit.fastapi import RpcRoutes, serve_websocket
+from rpckit.integrations.fastapi import RpcRoutes, serve_websocket
 from rpckit.opentelemetry import OpenTelemetry
 from rpckit.testing import InMemorySocket, RpcTestClient, RpcTestError
 

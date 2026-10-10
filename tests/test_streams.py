@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
@@ -39,7 +39,7 @@ class MediaOwners:
         self._lock = asyncio.Lock()
 
     @asynccontextmanager
-    async def claim(self, key: UUID) -> AsyncIterator[bool]:
+    async def claim(self, key: UUID) -> AsyncGenerator[bool, None]:
         async with self._lock:
             claimed = key not in self._owners
             if claimed:

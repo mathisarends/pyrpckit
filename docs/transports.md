@@ -16,7 +16,7 @@ Mount every endpoint declared on a service:
 ```python
 from fastapi import FastAPI
 
-from rpckit.fastapi import create_router
+from rpckit.integrations.fastapi import create_router
 
 web = FastAPI()
 web.include_router(create_router(app))
@@ -98,7 +98,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.fastapi import RpcRoutes
 
 
 async def open_job(
@@ -158,7 +158,7 @@ from fastapi import WebSocket
 
 from rpckit import Inject
 from rpckit.dishka import Dishka
-from rpckit.fastapi import RpcRoutes
+from rpckit.integrations.fastapi import RpcRoutes
 
 
 async def serve_job(
@@ -218,7 +218,7 @@ Starlette cancels the task after a disconnect:
 ```python
 from fastapi import WebSocket
 
-from rpckit.fastapi import serve_websocket
+from rpckit.integrations.fastapi import serve_websocket
 
 
 @web.websocket("/legacy/rpc")
