@@ -5,6 +5,8 @@ from typing import (
     Annotated,
     Any,
     Protocol,
+    get_args,
+    get_origin,
     get_type_hints,
     overload,
     runtime_checkable,
@@ -36,7 +38,13 @@ from rpckit.connection import (
     RpcRejections,
     chain_rejections,
 )
-from rpckit.dependencies import RpcResolverLike
+from rpckit.dependencies import (
+    RpcInjectedParameter,
+    RpcResolverLike,
+    as_resolver,
+    connection_scope,
+    injected_parameter,
+)
 from rpckit.errors import RpcErrorBinding, contract_rejections, rejecting_contracts
 from rpckit.runtime import _rejection
 from rpckit.server import RpcErrorMapper
@@ -313,7 +321,10 @@ class RpcRoutes[ContextT]:
         self._mounted: set[RpcEndpoint | RpcStreamEndpoint] = set()
 
     def mount(
-        self, endpoint: RpcEndpoint[ContextT] | RpcStreamEndpoint[ContextT]
+        self,
+        endpoint: RpcEndpoint[ContextT] | RpcStreamEndpoint[ContextT],
+        *,
+        handler: Callable[..., Awaitable[None]] | None = None,
     ) -> None:
         """Add a WebSocket route for ``endpoint`` at its declared path."""
         if endpoint in self._mounted:
@@ -321,7 +332,9 @@ class RpcRoutes[ContextT]:
         self._check_context(endpoint)
         self._router.add_api_websocket_route(
             self._route_path(endpoint),
-            self._handler(endpoint),
+            self._handler(endpoint)
+            if handler is None
+            else self._custom_handler(endpoint, handler),
             name=endpoint.name,
             dependencies=[
                 Depends(
@@ -393,6 +406,114 @@ class RpcRoutes[ContextT]:
             )
         handler.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
         return handler
+
+    def _custom_handler(
+        self,
+        endpoint: RpcEndpoint | RpcStreamEndpoint,
+        function: Callable[..., Awaitable[None]],
+    ) -> Callable[..., Awaitable[None]]:
+        if not inspect.iscoroutinefunction(function):
+            raise TypeError("handler= expects an async function")
+        signature = inspect.signature(function)
+        hints = get_type_hints(function, include_extras=True)
+        injected: list[RpcInjectedParameter] = []
+        parameters: list[inspect.Parameter] = []
+        websocket_name = None
+        for parameter in signature.parameters.values():
+            if parameter.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                raise TypeError(
+                    f"Custom RPC handler parameter {parameter.name!r} must be "
+                    "positional-or-keyword or keyword-only"
+                )
+            annotation = hints.get(parameter.name, parameter.annotation)
+            dependency = injected_parameter(parameter.name, annotation)
+            if dependency is not None:
+                if (
+                    endpoint.context is not None
+                    and dependency.dependency is not endpoint.context
+                    and issubclass(dependency.dependency, endpoint.context)
+                ):
+                    raise TypeError(
+                        f"Custom RPC handler parameter {parameter.name!r} must "
+                        f"inject the declared context type {endpoint.context.__name__}"
+                    )
+                injected.append(dependency)
+                continue
+            base_type = (
+                get_args(annotation)[0]
+                if get_origin(annotation) is Annotated
+                else annotation
+            )
+            if (
+                endpoint.context is not None
+                and inspect.isclass(base_type)
+                and issubclass(base_type, endpoint.context)
+            ):
+                raise TypeError(
+                    f"Custom RPC handler parameter {parameter.name!r} must use "
+                    f"Inject[{endpoint.context.__name__}] for the endpoint context"
+                )
+            if base_type is WebSocket:
+                websocket_name = parameter.name
+            parameters.append(parameter.replace(annotation=annotation))
+
+        if websocket_name is None:
+            websocket_name = _parameter_name(signature, "_rpckit_websocket")
+            parameters.append(
+                inspect.Parameter(
+                    websocket_name,
+                    inspect.Parameter.KEYWORD_ONLY,
+                    annotation=WebSocket,
+                )
+            )
+        context_name = _parameter_name(signature, "_rpckit_context")
+        if self._context is not None:
+            parameters.append(
+                inspect.Parameter(
+                    context_name,
+                    inspect.Parameter.KEYWORD_ONLY,
+                    annotation=Annotated[Any, Depends(self._context)],
+                )
+            )
+
+        async def handler(**arguments: Any) -> None:
+            websocket = arguments[websocket_name]
+            if websocket_name not in signature.parameters:
+                arguments.pop(websocket_name)
+            context = arguments.pop(context_name, None)
+            values = None if endpoint.context is None else {endpoint.context: context}
+            resolver = as_resolver(
+                self._websocket_resolver.for_websocket(websocket)
+                if self._websocket_resolver is not None
+                else self._resolver
+            )
+            async with connection_scope(resolver, values) as scoped:
+                for parameter in injected:
+                    arguments[parameter.name] = await scoped.resolve(
+                        parameter.dependency
+                    )
+                await function(**arguments)
+
+        handler.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
+        handler.__annotations__ = {
+            parameter.name: parameter.annotation for parameter in parameters
+        }
+        handler.__annotations__["return"] = type(None)
+        return (
+            self._websocket_resolver.dependency(handler)
+            if self._websocket_resolver is not None
+            else handler
+        )
+
+
+def _parameter_name(signature: inspect.Signature, name: str) -> str:
+    while name in signature.parameters:
+        name = "_" + name
+    return name
 
 
 def _context_type(function: Callable[..., Any]) -> type[Any]:

@@ -147,6 +147,66 @@ socket closes with the matching code. Unmapped failures propagate unchanged.
 Dependencies passed to `APIRouter(dependencies=...)` run before this check, so
 map their failures with FastAPI's own exception handling.
 
+### Mount a custom connection handler
+
+Pass `handler=` to `mount()` when an endpoint needs an application-owned
+connection lifecycle, such as sending a pending status before waiting for a
+resource:
+
+```python
+from fastapi import WebSocket
+
+from rpckit import Inject
+from rpckit.dishka import Dishka
+from rpckit.fastapi import RpcRoutes
+
+
+async def serve_job(
+    websocket: WebSocket,
+    job: Inject[Job],
+    lifecycle: Inject[JobLifecycle],
+) -> None:
+    await lifecycle.run(websocket, job_id=job.id)
+
+
+job_routes = RpcRoutes(router, context=open_job, resolver=Dishka())
+job_routes.mount(job_events, handler=serve_job)
+```
+
+`JobLifecycle` is an application service. The handler uses the same `Inject[T]`
+syntax as RPC methods: the endpoint's declared context type receives the
+authorized result of `context=`, and other dependencies come from `resolver=`.
+Parameter names are arbitrary. Context parameters must use `Inject[T]`; an
+unmarked context or an injected subclass of the declared context type fails
+during mounting. Handlers must be async functions with positional-or-keyword
+or keyword-only parameters. Other parameters retain normal FastAPI dependency,
+path, and query resolution.
+
+The context dependency runs even when the handler does not request its result.
+After successful dependency resolution, rpckit enters one connection scope,
+adds the context under the endpoint's declared type, resolves the handler's
+`Inject[T]` parameters, and calls the handler. The scope opens before the
+handler accepts the socket and exits on completion, failure, or cancellation.
+With Dishka, injected services live in the rpckit SESSION scope and can depend
+on the context through `from_context`; REQUEST-scoped services belong in RPC
+calls. Neither the context nor `Inject[T]` requires a Dishka `@inject` decorator.
+See [Dishka integration](dependencies.md#dishka) for application setup and the
+separate FastAPI dependency scope.
+
+The route retains the endpoint's path, name, prefix validation, duplicate-mount
+checks, and rejection policy. Declared failures in FastAPI dependencies,
+handler injection, the handler, or connection-scope cleanup reject the
+handshake before acceptance and close an accepted socket afterwards. An already
+closed socket is not closed again; unmapped failures propagate.
+
+The handler owns acceptance (including any subprotocol), messages, resource
+acquisition, disconnect handling, cancellation of its tasks, and socket closure.
+rpckit does not start a serving loop or create runtime objects such as
+`RpcConnection` for a custom handler. Standard runtime settings such as `limits=`
+and `error_mapper=` are applied by the standard serving runtime, not by the
+custom handler wrapper. Changing the mounting handler does not change the
+exported contract; the handler must implement the endpoint's declared protocol.
+
 ### Write your own route
 
 When a route needs its own code around the connection, such as a path that
