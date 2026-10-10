@@ -18,5 +18,6 @@ Start with services and channels if you are building a server. Start with the
 contract and client guide if the server definition already exists.
 
 The stable import surface is `rpckit` plus the documented integration
-modules `rpckit.integrations.fastapi`, `rpckit.dishka`, `rpckit.opentelemetry`, `rpckit.testing`, and
-`rpckit.codegen`. Other submodules are implementation details.
+modules `rpckit.integrations.fastapi`, `rpckit.integrations.dishka`, and
+`rpckit.integrations.opentelemetry`, plus `rpckit.testing` and `rpckit.codegen`.
+Other submodules are implementation details.

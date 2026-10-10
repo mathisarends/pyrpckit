@@ -135,7 +135,7 @@ streams mount the same way.
 `resolver=` accepts any rpckit resolver for the remaining `Inject[T]` values.
 To integrate a DI library, pass an object implementing `FastApiResolver`
 instead: it creates a resolver per WebSocket and may wrap the context function.
-`rpckit.dishka.Dishka` is one such [integration](dependencies.md#dishka).
+`rpckit.integrations.dishka.Dishka` is one such [integration](dependencies.md#dishka).
 
 `rejects=` takes [error bindings](errors.md#bind-domain-exceptions) with a
 `rejection=`, and `rejections=` takes a mapping or callable. Both follow
@@ -157,7 +157,7 @@ resource:
 from fastapi import WebSocket
 
 from rpckit import Inject
-from rpckit.dishka import Dishka
+from rpckit.integrations.dishka import Dishka
 from rpckit.integrations.fastapi import RpcRoutes
 
 

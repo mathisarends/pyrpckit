@@ -5,7 +5,7 @@ proposal below explains the API choices; see [Observability](../observability.md
 for the implemented registration, scopes, signals, and metric names.
 
 The recommendation is to add transport-independent lifecycle middleware and
-ship an optional `rpckit.opentelemetry.OpenTelemetry` implementation. Existing
+ship an optional `rpckit.integrations.opentelemetry.OpenTelemetry` implementation. Existing
 observers remain supported. Applications can use the same public hooks to
 implement their own instrumentation.
 
@@ -53,7 +53,7 @@ from fastapi import FastAPI
 
 from rpckit import RpcChannel, RpcService
 from rpckit.integrations.fastapi import create_router
-from rpckit.opentelemetry import OpenTelemetry
+from rpckit.integrations.opentelemetry import OpenTelemetry
 
 media = RpcChannel("media")
 
@@ -78,7 +78,7 @@ the same `middleware=` keyword on `RpcRoutes`, `create_router`, and
 from fastapi import APIRouter
 
 from rpckit.integrations.fastapi import RpcRoutes
-from rpckit.opentelemetry import OpenTelemetry
+from rpckit.integrations.opentelemetry import OpenTelemetry
 
 router = APIRouter(prefix="/jobs")
 routes = RpcRoutes(

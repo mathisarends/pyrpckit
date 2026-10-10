@@ -32,7 +32,7 @@ class DishkaResolver:
             from dishka import Scope
         except ImportError as error:
             raise ModuleNotFoundError(
-                "rpckit.dishka requires the 'dishka' extra"
+                "rpckit.integrations.dishka requires the 'dishka' extra"
             ) from error
         container_scope = getattr(self._container, "scope", None)
         if container_scope is not None and container_scope is not Scope.APP:

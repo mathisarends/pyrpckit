@@ -10,7 +10,8 @@ try:
     from opentelemetry.trace import Span, SpanKind, StatusCode, TracerProvider
 except ImportError as error:
     raise ModuleNotFoundError(
-        "rpckit.opentelemetry requires the 'otel' extra; install pyrpckit[otel]",
+        "rpckit.integrations.opentelemetry requires the 'otel' extra; "
+        "install pyrpckit[otel]",
         name="opentelemetry",
     ) from error
 

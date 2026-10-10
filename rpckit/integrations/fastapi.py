@@ -278,8 +278,8 @@ async def serve_websocket(
 class FastApiResolver(Protocol):
     """Resolve RPC dependencies per WebSocket and prepare the context function.
 
-    Pass an implementation, such as ``rpckit.dishka.Dishka``, as ``resolver=``
-    to ``RpcRoutes`` to integrate a DI library.
+    Pass an implementation, such as ``rpckit.integrations.dishka.Dishka``, as
+    ``resolver=`` to ``RpcRoutes`` to integrate a DI library.
     """
 
     def for_websocket(self, websocket: WebSocket) -> RpcResolverLike: ...

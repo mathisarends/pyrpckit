@@ -4,6 +4,7 @@ import sys
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from threading import Event
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -865,6 +866,7 @@ def test_custom_handlers_preserve_unknown_failures_and_do_not_close_twice(
 
 def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() -> None:
     calls: list[str] = []
+    released = Event()
 
     class Resolver:
         async def resolve(self, dependency: type) -> JobOutput:
@@ -878,6 +880,7 @@ def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() 
                 yield self
             finally:
                 calls.append("exit")
+                released.set()
 
     async def handler(websocket: WebSocket, job: Inject[JobSession]) -> None:
         acquiring = asyncio.Event()
@@ -911,6 +914,7 @@ def test_custom_handlers_cancel_pending_work_and_release_the_connection_scope() 
     with TestClient(app) as client:
         with client.websocket_connect(f"/jobs/{KNOWN_JOB}/events") as websocket:
             assert websocket.receive_text() == "pending"
+        assert released.wait(timeout=5)
         assert calls == ["enter", "acquire", "cancelled", "exit"]
 
 

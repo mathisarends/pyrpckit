@@ -4,10 +4,11 @@
 
 ### Migration from 0.10
 
-- The FastAPI integration moved from `rpckit.fastapi` to
-  `rpckit.integrations.fastapi`. Update imports for `RpcRoutes`, `create_router`,
-  `serve_websocket`, `FastApiSocket`, and `FastApiResolver`. The old module has
-  been removed without compatibility aliases.
+- Optional integrations now live in `rpckit.integrations`. Replace
+  `rpckit.fastapi` with `rpckit.integrations.fastapi`, `rpckit.dishka` with
+  `rpckit.integrations.dishka`, and `rpckit.opentelemetry` with
+  `rpckit.integrations.opentelemetry`. The old modules have been removed without
+  compatibility aliases.
 
 ### Added
 
@@ -18,9 +19,9 @@
   cleanup. Middleware composes in order and preserves independent context for
   concurrent requests; existing observers continue to work alongside it.
 - Optional `pyrpckit[otel]` integration through
-  `rpckit.opentelemetry.OpenTelemetry`, using application providers for RPC and
-  stream spans, connection measurements, active-operation metrics, and live
-  frame and byte counters. Reuse active trace context or extract it from
+  `rpckit.integrations.opentelemetry.OpenTelemetry`, using application providers
+  for RPC and stream spans, connection measurements, active-operation metrics,
+  and live frame and byte counters. Reuse active trace context or extract it from
   handshake headers; configure exclusions, tracing, and metrics independently.
   Payloads and raw unknown method names are not captured automatically.
 - Mount application-owned connection handlers with

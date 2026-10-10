@@ -26,7 +26,7 @@ from rpckit import (
     RpcService,
 )
 from rpckit.integrations.fastapi import RpcRoutes, serve_websocket
-from rpckit.opentelemetry import OpenTelemetry
+from rpckit.integrations.opentelemetry import OpenTelemetry
 from rpckit.testing import InMemorySocket, RpcTestClient, RpcTestError
 
 
@@ -320,18 +320,19 @@ def test_fastapi_routes_add_real_rpc_spans_and_clean_up(providers):
     assert total(reader, "rpckit.connections.active") == 0
 
 
-def test_base_import_does_not_require_opentelemetry():
+def test_base_and_integrations_imports_do_not_require_optional_dependencies():
     script = """
 import sys
 class Block:
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.startswith("opentelemetry"):
+        if fullname.split(".", 1)[0] in {"fastapi", "dishka", "opentelemetry"}:
             raise ModuleNotFoundError("blocked", name=fullname)
 sys.meta_path.insert(0, Block())
 import rpckit
+import rpckit.integrations
 assert rpckit.RpcMiddleware
 try:
-    import rpckit.opentelemetry
+    import rpckit.integrations.opentelemetry
 except ModuleNotFoundError as error:
     assert "pyrpckit[otel]" in str(error)
 else:

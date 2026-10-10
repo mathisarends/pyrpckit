@@ -9,7 +9,7 @@ from fastapi import APIRouter, FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
 from rpckit import Inject, RpcChannel, RpcService
-from rpckit.dishka import Dishka, DishkaResolver, dishka_router
+from rpckit.integrations.dishka import Dishka, DishkaResolver, dishka_router
 from rpckit.integrations.fastapi import RpcRoutes
 
 dishka = pytest.importorskip("dishka")

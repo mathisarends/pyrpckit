@@ -24,7 +24,7 @@ from fastapi import FastAPI
 
 from rpckit import RpcChannel, RpcService
 from rpckit.integrations.fastapi import create_router
-from rpckit.opentelemetry import OpenTelemetry
+from rpckit.integrations.opentelemetry import OpenTelemetry
 
 media = RpcChannel("media")
 
